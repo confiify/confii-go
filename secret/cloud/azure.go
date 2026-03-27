@@ -10,7 +10,7 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azsecrets"
-	confii "github.com/qualitycoe/confii-go"
+	confii "github.com/confiify/confii-go"
 )
 
 var azureSecretNameRegex = regexp.MustCompile(`^[0-9a-zA-Z-]+$`)

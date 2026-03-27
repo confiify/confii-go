@@ -6,7 +6,7 @@ import (
 	"errors"
 	"os"
 
-	confii "github.com/qualitycoe/confii-go"
+	confii "github.com/confiify/confii-go"
 )
 
 // JSONLoader loads configuration from a JSON file.

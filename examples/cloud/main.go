@@ -11,10 +11,10 @@ import (
 	"log"
 	"os"
 
-	confii "github.com/qualitycoe/confii-go"
-	"github.com/qualitycoe/confii-go/loader/cloud"
-	secretcloud "github.com/qualitycoe/confii-go/secret/cloud"
-	"github.com/qualitycoe/confii-go/secret"
+	confii "github.com/confiify/confii-go"
+	"github.com/confiify/confii-go/loader/cloud"
+	"github.com/confiify/confii-go/secret"
+	secretcloud "github.com/confiify/confii-go/secret/cloud"
 )
 
 func main() {

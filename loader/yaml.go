@@ -7,7 +7,7 @@ import (
 	"errors"
 	"os"
 
-	confii "github.com/qualitycoe/confii-go"
+	confii "github.com/confiify/confii-go"
 	"gopkg.in/yaml.v3"
 )
 

@@ -10,9 +10,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
-	confii "github.com/qualitycoe/confii-go"
-	"github.com/qualitycoe/confii-go/internal/dictutil"
-	"github.com/qualitycoe/confii-go/internal/typecoerce"
+	confii "github.com/confiify/confii-go"
+	"github.com/confiify/confii-go/internal/dictutil"
+	"github.com/confiify/confii-go/internal/typecoerce"
 )
 
 // SSMLoader loads configuration from AWS Systems Manager Parameter Store.

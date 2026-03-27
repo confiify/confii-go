@@ -9,9 +9,9 @@ import (
 	"os"
 
 	"cloud.google.com/go/storage"
-	confii "github.com/qualitycoe/confii-go"
-	"github.com/qualitycoe/confii-go/internal/formatparse"
-	"github.com/qualitycoe/confii-go/loader"
+	confii "github.com/confiify/confii-go"
+	"github.com/confiify/confii-go/internal/formatparse"
+	"github.com/confiify/confii-go/loader"
 	"google.golang.org/api/option"
 )
 

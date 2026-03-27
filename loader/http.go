@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"time"
 
-	confii "github.com/qualitycoe/confii-go"
-	"github.com/qualitycoe/confii-go/internal/formatparse"
+	confii "github.com/confiify/confii-go"
+	"github.com/confiify/confii-go/internal/formatparse"
 	"gopkg.in/yaml.v3"
 )
 

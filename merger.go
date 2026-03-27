@@ -1,6 +1,6 @@
 package confii
 
-import "github.com/qualitycoe/confii-go/merge"
+import "github.com/confiify/confii-go/merge"
 
 // Re-export merge types for convenience.
 type (

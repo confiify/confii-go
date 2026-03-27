@@ -12,9 +12,9 @@ import (
 	"github.com/IBM/ibm-cos-sdk-go/aws/credentials/ibmiam"
 	awssession "github.com/IBM/ibm-cos-sdk-go/aws/session"
 	ibms3 "github.com/IBM/ibm-cos-sdk-go/service/s3"
-	confii "github.com/qualitycoe/confii-go"
-	"github.com/qualitycoe/confii-go/internal/formatparse"
-	"github.com/qualitycoe/confii-go/loader"
+	confii "github.com/confiify/confii-go"
+	"github.com/confiify/confii-go/internal/formatparse"
+	"github.com/confiify/confii-go/loader"
 )
 
 // IBMCOSLoader loads configuration from IBM Cloud Object Storage.

@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"log/slog"
 
-	confii "github.com/qualitycoe/confii-go"
+	confii "github.com/confiify/confii-go"
 )
 
 // MultiStore tries multiple stores in priority order.
 type MultiStore struct {
-	stores       []confii.SecretStore
+	stores        []confii.SecretStore
 	failOnMissing bool
 	writeToFirst  bool
 	logger        *slog.Logger
@@ -33,7 +33,7 @@ func WithWriteToFirst(v bool) MultiStoreOption {
 // NewMultiStore creates a store that tries each store in order.
 func NewMultiStore(stores []confii.SecretStore, opts ...MultiStoreOption) *MultiStore {
 	s := &MultiStore{
-		stores:       stores,
+		stores:        stores,
 		failOnMissing: true,
 		writeToFirst:  true,
 		logger:        slog.Default(),

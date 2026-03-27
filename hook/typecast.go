@@ -1,6 +1,6 @@
 package hook
 
-import "github.com/qualitycoe/confii-go/internal/typecoerce"
+import "github.com/confiify/confii-go/internal/typecoerce"
 
 // NewTypeCastHook returns a hook that converts string values to their
 // most appropriate Go type (bool, int, float64).

@@ -13,7 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
-	confii "github.com/qualitycoe/confii-go"
+	confii "github.com/confiify/confii-go"
 )
 
 // AWSSecretsManager implements SecretStore for AWS Secrets Manager.

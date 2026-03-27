@@ -6,8 +6,8 @@ import (
 	"os"
 	"strings"
 
-	confii "github.com/qualitycoe/confii-go"
-	"github.com/qualitycoe/confii-go/loader"
+	confii "github.com/confiify/confii-go"
+	"github.com/confiify/confii-go/loader"
 )
 
 // GitLoader loads configuration from a file in a Git repository via raw content URLs.

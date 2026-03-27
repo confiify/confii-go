@@ -4,7 +4,7 @@ import (
 	"maps"
 	"strings"
 
-	"github.com/qualitycoe/confii-go/internal/dictutil"
+	"github.com/confiify/confii-go/internal/dictutil"
 )
 
 // AdvancedMerger supports per-path merge strategy overrides.

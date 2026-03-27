@@ -6,7 +6,7 @@ import (
 	"os"
 
 	"github.com/BurntSushi/toml"
-	confii "github.com/qualitycoe/confii-go"
+	confii "github.com/confiify/confii-go"
 )
 
 // TOMLLoader loads configuration from a TOML file.

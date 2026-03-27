@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	confii "github.com/qualitycoe/confii-go"
+	confii "github.com/confiify/confii-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

@@ -1,7 +1,7 @@
 // Package merge provides configuration merging strategies.
 package merge
 
-import "github.com/qualitycoe/confii-go/internal/dictutil"
+import "github.com/confiify/confii-go/internal/dictutil"
 
 // Strategy defines how two configuration maps are combined.
 type Strategy int

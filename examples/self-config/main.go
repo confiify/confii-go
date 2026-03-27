@@ -13,7 +13,7 @@ import (
 	"fmt"
 	"log"
 
-	confii "github.com/qualitycoe/confii-go"
+	confii "github.com/confiify/confii-go"
 )
 
 func main() {

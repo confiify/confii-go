@@ -10,9 +10,9 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
-	confii "github.com/qualitycoe/confii-go"
-	"github.com/qualitycoe/confii-go/internal/formatparse"
-	"github.com/qualitycoe/confii-go/loader"
+	confii "github.com/confiify/confii-go"
+	"github.com/confiify/confii-go/internal/formatparse"
+	"github.com/confiify/confii-go/loader"
 )
 
 // AzureBlobLoader loads configuration from Azure Blob Storage.

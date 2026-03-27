@@ -15,19 +15,19 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	confii "github.com/qualitycoe/confii-go"
-	"github.com/qualitycoe/confii-go/internal/formatparse"
-	"github.com/qualitycoe/confii-go/loader"
+	confii "github.com/confiify/confii-go"
+	"github.com/confiify/confii-go/internal/formatparse"
+	"github.com/confiify/confii-go/loader"
 )
 
 // S3Loader loads configuration from an AWS S3 object.
 type S3Loader struct {
-	s3URL        string
-	region       string
-	accessKey    string
-	secretKey    string
-	bucket       string
-	key          string
+	s3URL     string
+	region    string
+	accessKey string
+	secretKey string
+	bucket    string
+	key       string
 }
 
 // S3Option configures an S3Loader.

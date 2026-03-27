@@ -6,7 +6,7 @@ import (
 	"strings"
 	"sync"
 
-	confii "github.com/qualitycoe/confii-go"
+	confii "github.com/confiify/confii-go"
 )
 
 // DictStore is an in-memory secret store for testing and development.

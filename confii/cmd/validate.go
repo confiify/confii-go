@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/qualitycoe/confii-go/validate"
+	"github.com/confiify/confii-go/validate"
 	"github.com/spf13/cobra"
 )
 

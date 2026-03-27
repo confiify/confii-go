@@ -5,8 +5,8 @@ import (
 	"errors"
 	"os"
 
-	confii "github.com/qualitycoe/confii-go"
-	"github.com/qualitycoe/confii-go/internal/typecoerce"
+	confii "github.com/confiify/confii-go"
+	"github.com/confiify/confii-go/internal/typecoerce"
 	"gopkg.in/ini.v1"
 )
 

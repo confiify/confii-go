@@ -9,7 +9,7 @@ import (
 
 	secretmanager "cloud.google.com/go/secretmanager/apiv1"
 	"cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
-	confii "github.com/qualitycoe/confii-go"
+	confii "github.com/confiify/confii-go"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 )

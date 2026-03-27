@@ -1,6 +1,6 @@
 package confii
 
-import "github.com/qualitycoe/confii-go/hook"
+import "github.com/confiify/confii-go/hook"
 
 // Re-export hook types for convenience.
 type (

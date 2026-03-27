@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	confii "github.com/qualitycoe/confii-go"
+	confii "github.com/confiify/confii-go"
 )
 
 // EnvStore retrieves secrets from environment variables.

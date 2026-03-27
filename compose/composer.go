@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
-	"github.com/qualitycoe/confii-go/internal/dictutil"
+	"github.com/confiify/confii-go/internal/dictutil"
 	"gopkg.in/yaml.v3"
 )
 

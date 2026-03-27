@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"log"
 
-	confii "github.com/qualitycoe/confii-go"
-	"github.com/qualitycoe/confii-go/loader"
-	"github.com/qualitycoe/confii-go/validate"
+	confii "github.com/confiify/confii-go"
+	"github.com/confiify/confii-go/loader"
+	"github.com/confiify/confii-go/validate"
 )
 
 // Struct tag validation using go-playground/validator

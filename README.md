@@ -10,7 +10,7 @@
 <p align="center">
   <a href="https://pkg.go.dev/github.com/confiify/confii-go"><img src="https://pkg.go.dev/badge/github.com/confiify/confii-go.svg" alt="Go Reference"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
-  <a href="https://goreportcard.com/report/github.com/qualitycoe/confii-go"><img src="https://goreportcard.com/badge/github.com/qualitycoe/confii-go" alt="Go Report Card"></a>
+  <a href="https://goreportcard.com/report/github.com/confiify/confii-go"><img src="https://goreportcard.com/badge/github.com/confiify/confii-go" alt="Go Report Card"></a>
 </p>
 
 ---
@@ -93,7 +93,7 @@ Go has several configuration libraries, but none provides a complete configurati
 ## Installation
 
 ```bash
-go get github.com/qualitycoe/confii-go
+go get github.com/confiify/confii-go
 ```
 
 Cloud providers are opt-in via build tags:
@@ -625,7 +625,7 @@ jsonDocs, _ := cfg.GenerateDocs("json")
 ## CLI Tool
 
 ```bash
-go install github.com/qualitycoe/confii-go/cmd/confii@latest
+go install github.com/confiify/confii-go/cmd/confii@latest
 ```
 
 | Command | Description |
@@ -707,7 +707,7 @@ cd examples/basic && go run .
 ## Package Structure
 
 ```text
-github.com/qualitycoe/confii-go/
+github.com/confiify/confii-go/
   ├── config.go              # Config[T] — core type with all access/lifecycle methods
   ├── builder.go             # Fluent builder API
   ├── errors.go              # Sentinel errors + ConfigError

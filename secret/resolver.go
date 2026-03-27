@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	confii "github.com/qualitycoe/confii-go"
-	"github.com/qualitycoe/confii-go/hook"
+	confii "github.com/confiify/confii-go"
+	"github.com/confiify/confii-go/hook"
 )
 
 var secretPattern = regexp.MustCompile(`\$\{secret:([^}:]+)(?::([^}:]+))?(?::([^}]+))?\}`)

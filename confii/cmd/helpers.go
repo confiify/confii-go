@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	confii "github.com/qualitycoe/confii-go"
-	"github.com/qualitycoe/confii-go/loader"
+	confii "github.com/confiify/confii-go"
+	"github.com/confiify/confii-go/loader"
 )
 
 // parseLoaders parses "type:source" loader specs into Loader instances.

@@ -5,8 +5,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/qualitycoe/confii-go/internal/dictutil"
-	"github.com/qualitycoe/confii-go/internal/typecoerce"
+	"github.com/confiify/confii-go/internal/dictutil"
+	"github.com/confiify/confii-go/internal/typecoerce"
 )
 
 // EnvironmentLoader loads configuration from environment variables matching a prefix.

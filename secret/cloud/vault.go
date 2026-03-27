@@ -10,8 +10,8 @@ import (
 	"net/http"
 	"strings"
 
+	confii "github.com/confiify/confii-go"
 	"github.com/hashicorp/vault/api"
-	confii "github.com/qualitycoe/confii-go"
 )
 
 // HashiCorpVault implements SecretStore for HashiCorp Vault.
@@ -42,12 +42,12 @@ type VaultAuthMethod interface {
 	Authenticate(client *api.Client) (string, error)
 }
 
-func WithVaultURL(url string) VaultOption        { return func(c *vaultConfig) { c.URL = url } }
-func WithVaultToken(token string) VaultOption     { return func(c *vaultConfig) { c.Token = token } }
-func WithVaultNamespace(ns string) VaultOption    { return func(c *vaultConfig) { c.Namespace = ns } }
-func WithVaultMountPoint(mp string) VaultOption   { return func(c *vaultConfig) { c.MountPoint = mp } }
-func WithVaultKVVersion(v int) VaultOption        { return func(c *vaultConfig) { c.KVVersion = v } }
-func WithVaultVerify(v bool) VaultOption          { return func(c *vaultConfig) { c.Verify = v } }
+func WithVaultURL(url string) VaultOption          { return func(c *vaultConfig) { c.URL = url } }
+func WithVaultToken(token string) VaultOption      { return func(c *vaultConfig) { c.Token = token } }
+func WithVaultNamespace(ns string) VaultOption     { return func(c *vaultConfig) { c.Namespace = ns } }
+func WithVaultMountPoint(mp string) VaultOption    { return func(c *vaultConfig) { c.MountPoint = mp } }
+func WithVaultKVVersion(v int) VaultOption         { return func(c *vaultConfig) { c.KVVersion = v } }
+func WithVaultVerify(v bool) VaultOption           { return func(c *vaultConfig) { c.Verify = v } }
 func WithVaultAuth(am VaultAuthMethod) VaultOption { return func(c *vaultConfig) { c.AuthMethod = am } }
 func WithVaultAppRole(roleID, secretID string) VaultOption {
 	return func(c *vaultConfig) {

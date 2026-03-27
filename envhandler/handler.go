@@ -5,7 +5,7 @@ package envhandler
 import (
 	"log/slog"
 
-	"github.com/qualitycoe/confii-go/internal/dictutil"
+	"github.com/confiify/confii-go/internal/dictutil"
 )
 
 // Handler extracts environment-specific configuration from a merged config.

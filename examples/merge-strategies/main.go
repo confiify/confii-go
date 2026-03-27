@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"log"
 
-	confii "github.com/qualitycoe/confii-go"
-	"github.com/qualitycoe/confii-go/loader"
+	confii "github.com/confiify/confii-go"
+	"github.com/confiify/confii-go/loader"
 )
 
 func main() {
@@ -20,8 +20,8 @@ func main() {
 		),
 		confii.WithMergeStrategyOption(confii.StrategyMerge),
 		confii.WithMergeStrategyMap(map[string]confii.MergeStrategy{
-			"database": confii.StrategyReplace,  // replace entire database section
-			"features": confii.StrategyAppend,   // append new features to the list
+			"database": confii.StrategyReplace, // replace entire database section
+			"features": confii.StrategyAppend,  // append new features to the list
 		}),
 	)
 	if err != nil {

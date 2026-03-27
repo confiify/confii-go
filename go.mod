@@ -1,4 +1,4 @@
-module github.com/qualitycoe/confii-go
+module github.com/confiify/confii-go
 
 go 1.26.1
 

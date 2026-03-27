@@ -3,7 +3,7 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/qualitycoe/confii-go/diff"
+	"github.com/confiify/confii-go/diff"
 	"github.com/spf13/cobra"
 )
 

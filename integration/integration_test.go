@@ -15,14 +15,14 @@ import (
 	"testing"
 	"time"
 
-	confii "github.com/qualitycoe/confii-go"
-	"github.com/qualitycoe/confii-go/diff"
-	"github.com/qualitycoe/confii-go/loader"
-	"github.com/qualitycoe/confii-go/loader/cloud"
-	"github.com/qualitycoe/confii-go/merge"
-	"github.com/qualitycoe/confii-go/observe"
-	"github.com/qualitycoe/confii-go/secret"
-	"github.com/qualitycoe/confii-go/validate"
+	confii "github.com/confiify/confii-go"
+	"github.com/confiify/confii-go/diff"
+	"github.com/confiify/confii-go/loader"
+	"github.com/confiify/confii-go/loader/cloud"
+	"github.com/confiify/confii-go/merge"
+	"github.com/confiify/confii-go/observe"
+	"github.com/confiify/confii-go/secret"
+	"github.com/confiify/confii-go/validate"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -92,7 +92,7 @@ func TestTypedConfig_ProductionEnvironment(t *testing.T) {
 
 	assert.Equal(t, "my-service", model.App.Name)
 	assert.Equal(t, "1.0.0", model.App.Version)
-	assert.False(t, model.App.Debug)                          // production overrides default
+	assert.False(t, model.App.Debug)                            // production overrides default
 	assert.Equal(t, "prod-db.example.com", model.Database.Host) // production
 	assert.Equal(t, 5432, model.Database.Port)                  // from default
 	assert.Equal(t, "mydb", model.Database.Name)                // from default
@@ -112,7 +112,7 @@ func TestTypedConfig_StagingEnvironment(t *testing.T) {
 	model, err := cfg.Typed()
 	require.NoError(t, err)
 
-	assert.True(t, model.App.Debug)                               // staging
+	assert.True(t, model.App.Debug)                                // staging
 	assert.Equal(t, "staging-db.example.com", model.Database.Host) // staging
 	assert.Equal(t, 25, model.Database.MaxConnections)             // staging
 	assert.Equal(t, 300, model.Cache.TTL)                          // from default (staging doesn't override)
@@ -314,9 +314,9 @@ func TestEnvVarExpansion(t *testing.T) {
 func TestSecretResolution_EndToEnd(t *testing.T) {
 	// Simulate a real secret store with application secrets.
 	store := secret.NewDictStore(map[string]any{
-		"db/password":     "super-secret-pw",
-		"api/key":         "key-12345",
-		"db/full_config":  map[string]any{"host": "secret-host", "port": 5432},
+		"db/password":    "super-secret-pw",
+		"api/key":        "key-12345",
+		"db/full_config": map[string]any{"host": "secret-host", "port": 5432},
 	})
 
 	resolver := secret.NewResolver(store,
@@ -782,8 +782,8 @@ func TestAdvancedMergeStrategies(t *testing.T) {
 	}
 
 	m := merge.NewAdvanced(merge.DeepMergeStrategy, map[string]merge.Strategy{
-		"database": merge.Replace,      // replace entire database section
-		"features": merge.Append,       // append feature lists
+		"database": merge.Replace, // replace entire database section
+		"features": merge.Append,  // append feature lists
 	})
 
 	result := m.Merge(base, overlay)
