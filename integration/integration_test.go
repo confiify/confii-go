@@ -589,7 +589,7 @@ func TestExport(t *testing.T) {
 func TestHTTPLoader_RealServer(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"remote": map[string]any{
 				"setting": "from-http",
 				"count":   42,
@@ -858,7 +858,7 @@ func TestSecretResolver_PrefixAndCacheTTL(t *testing.T) {
 	assert.Equal(t, "versioned-pw", val)
 
 	// Update underlying store.
-	store.SetSecret(ctx, "prod/db/password", "new-pw")
+	_ = store.SetSecret(ctx, "prod/db/password", "new-pw")
 
 	// Still cached.
 	val, _ = resolver.Resolve(ctx, "${secret:db/password}")
@@ -1243,14 +1243,14 @@ func TestExport_ToFile(t *testing.T) {
 func TestReload_DryRun(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.yaml")
-	os.WriteFile(cfgPath, []byte("host: original"), 0644)
+	_ = os.WriteFile(cfgPath, []byte("host: original"), 0644)
 
 	cfg, err := confii.New[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML(cfgPath)),
 	)
 	require.NoError(t, err)
 
-	os.WriteFile(cfgPath, []byte("host: modified"), 0644)
+	_ = os.WriteFile(cfgPath, []byte("host: modified"), 0644)
 
 	// Dry run should not apply changes.
 	err = cfg.Reload(context.Background(), confii.WithDryRun(true), confii.WithIncremental(false))

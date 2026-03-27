@@ -55,7 +55,7 @@ func (m *VersionManager) SaveVersion(config map[string]any, metadata map[string]
 
 	// Deep copy via JSON round-trip to ensure snapshot is immutable.
 	var configCopy map[string]any
-	json.Unmarshal(configJSON, &configCopy)
+	_ = json.Unmarshal(configJSON, &configCopy)
 
 	v := &Version{
 		VersionID: versionID,
@@ -229,6 +229,6 @@ func (m *VersionManager) evict() {
 		oldest := entries[0]
 		entries = entries[1:]
 		delete(m.versions, oldest.id)
-		os.Remove(filepath.Join(m.storagePath, oldest.id+".json"))
+		_ = os.Remove(filepath.Join(m.storagePath, oldest.id+".json"))
 	}
 }

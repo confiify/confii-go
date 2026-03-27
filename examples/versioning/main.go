@@ -33,8 +33,8 @@ func main() {
 	fmt.Println("Saved version:", v1.VersionID)
 
 	// Make changes
-	cfg.Set("app.debug", false)
-	cfg.Set("database.host", "new-db.example.com")
+	_ = cfg.Set("app.debug", false)
+	_ = cfg.Set("database.host", "new-db.example.com")
 
 	// Take another snapshot
 	v2, _ := cfg.SaveVersion(nil)

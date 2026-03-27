@@ -32,13 +32,13 @@ func main() {
 	})
 
 	// Simulate some access patterns
-	cfg.Get("database.host")
-	cfg.Get("database.port")
-	cfg.Get("database.host") // accessed twice
-	cfg.Get("app.name")
+	_, _ = cfg.Get("database.host")
+	_, _ = cfg.Get("database.port")
+	_, _ = cfg.Get("database.host") // accessed twice
+	_, _ = cfg.Get("app.name")
 
 	// Trigger a change event
-	cfg.Set("app.debug", false)
+	_ = cfg.Set("app.debug", false)
 
 	// View metrics
 	stats := cfg.GetMetrics()

@@ -43,7 +43,6 @@ type Config[T any] struct {
 	merger        Merger
 	hookProcessor *hook.Processor
 	envHandler    *envhandler.Handler
-	validator     Validator
 	sourceTracker *sourcetrack.Tracker
 	fileTracker   *sourcetrack.FileTracker
 	composer      *compose.Composer
@@ -173,7 +172,7 @@ func (c *Config[T]) load(ctx context.Context) error {
 		c.sourceTracker.TrackConfig(composed, l.Source(), loaderType, c.env, "")
 
 		// Track file for incremental reload.
-		c.fileTracker.Track(l.Source())
+		_ = c.fileTracker.Track(l.Source())
 
 		configs = append(configs, composed)
 	}
@@ -984,7 +983,7 @@ func (c *Config[T]) notifyChanges(oldConfig, newConfig map[string]any) {
 		if fmt.Sprintf("%v", oldVal) != fmt.Sprintf("%v", newVal) {
 			for _, cb := range c.changeCallbacks {
 				func() {
-					defer func() { recover() }()
+					defer func() { _ = recover() }()
 					cb(key, oldVal, newVal)
 				}()
 			}

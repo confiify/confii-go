@@ -36,7 +36,7 @@ func (l *EnvFileLoader) Load(_ context.Context) (map[string]any, error) {
 		}
 		return nil, confii.NewLoadError(l.source, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	result := make(map[string]any)
 	scanner := bufio.NewScanner(f)

@@ -62,7 +62,7 @@ func TestResolver_Cache(t *testing.T) {
 	r := NewResolver(store, WithCache(true))
 
 	ctx := context.Background()
-	r.Resolve(ctx, "${secret:key}")
+	_, _ = r.Resolve(ctx, "${secret:key}")
 
 	stats := r.CacheStats()
 	assert.Equal(t, true, stats["enabled"])
@@ -82,7 +82,7 @@ func TestResolver_CacheTTL(t *testing.T) {
 	assert.Equal(t, "original", got)
 
 	// Update underlying value.
-	store.SetSecret(ctx, "key", "updated")
+	_ = store.SetSecret(ctx, "key", "updated")
 
 	// Cached value should still be returned.
 	got, _ = r.Resolve(ctx, "${secret:key}")

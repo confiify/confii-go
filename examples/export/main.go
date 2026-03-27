@@ -35,7 +35,7 @@ func main() {
 	fmt.Println(string(tomlData))
 
 	// Export to file
-	cfg.Export("json", "/tmp/config-export.json")
+	_, _ = cfg.Export("json", "/tmp/config-export.json")
 	fmt.Println("Exported to /tmp/config-export.json")
 
 	// Generate documentation

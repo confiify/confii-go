@@ -15,7 +15,7 @@ import (
 func TestHTTPLoader_Load_JSON(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"database":{"host":"remote-db"},"port":5432}`))
+		_, _ = w.Write([]byte(`{"database":{"host":"remote-db"},"port":5432}`))
 	}))
 	defer srv.Close()
 
@@ -32,7 +32,7 @@ func TestHTTPLoader_Load_JSON(t *testing.T) {
 func TestHTTPLoader_Load_YAML(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/x-yaml")
-		w.Write([]byte("database:\n  host: yaml-host\n"))
+		_, _ = w.Write([]byte("database:\n  host: yaml-host\n"))
 	}))
 	defer srv.Close()
 
@@ -65,7 +65,7 @@ func TestHTTPLoader_WithHeaders(t *testing.T) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"ok": true}`))
+		_, _ = w.Write([]byte(`{"ok": true}`))
 	}))
 	defer srv.Close()
 

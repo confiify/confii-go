@@ -38,9 +38,9 @@ func TestDictStore_Versioning(t *testing.T) {
 	s := NewDictStore(nil)
 	ctx := context.Background()
 
-	s.SetSecret(ctx, "key", "v1")
-	s.SetSecret(ctx, "key", "v2")
-	s.SetSecret(ctx, "key", "v3")
+	_ = s.SetSecret(ctx, "key", "v1")
+	_ = s.SetSecret(ctx, "key", "v2")
+	_ = s.SetSecret(ctx, "key", "v3")
 
 	// Latest.
 	val, _ := s.GetSecret(ctx, "key")

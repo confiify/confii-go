@@ -13,7 +13,7 @@ import (
 func TestCompose_Include(t *testing.T) {
 	dir := t.TempDir()
 
-	os.WriteFile(filepath.Join(dir, "base.yaml"), []byte("database:\n  host: localhost\n  port: 5432\n"), 0644)
+	_ = os.WriteFile(filepath.Join(dir, "base.yaml"), []byte("database:\n  host: localhost\n  port: 5432\n"), 0644)
 
 	config := map[string]any{
 		"_include": []any{"base.yaml"},

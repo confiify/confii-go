@@ -55,7 +55,7 @@ func New(files []string, reloadFunc ReloadFunc, logger *slog.Logger) (*Watcher, 
 
 	for dir := range dirs {
 		if err := fw.Add(dir); err != nil {
-			fw.Close()
+			_ = fw.Close()
 			return nil, err
 		}
 	}
@@ -99,6 +99,6 @@ func (w *Watcher) loop() {
 func (w *Watcher) Stop() {
 	w.once.Do(func() {
 		close(w.done)
-		w.watcher.Close()
+		_ = w.watcher.Close()
 	})
 }

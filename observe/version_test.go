@@ -28,9 +28,9 @@ func TestVersionManager_ListVersions(t *testing.T) {
 	dir := t.TempDir()
 	vm := NewVersionManager(dir, 100)
 
-	vm.SaveVersion(map[string]any{"v": 1}, nil)
-	vm.SaveVersion(map[string]any{"v": 2}, nil)
-	vm.SaveVersion(map[string]any{"v": 3}, nil)
+	_, _ = vm.SaveVersion(map[string]any{"v": 1}, nil)
+	_, _ = vm.SaveVersion(map[string]any{"v": 2}, nil)
+	_, _ = vm.SaveVersion(map[string]any{"v": 3}, nil)
 
 	versions := vm.ListVersions()
 	assert.Len(t, versions, 3)
@@ -42,9 +42,9 @@ func TestVersionManager_Eviction(t *testing.T) {
 	dir := t.TempDir()
 	vm := NewVersionManager(dir, 2)
 
-	vm.SaveVersion(map[string]any{"v": 1}, nil)
-	vm.SaveVersion(map[string]any{"v": 2}, nil)
-	vm.SaveVersion(map[string]any{"v": 3}, nil)
+	_, _ = vm.SaveVersion(map[string]any{"v": 1}, nil)
+	_, _ = vm.SaveVersion(map[string]any{"v": 2}, nil)
+	_, _ = vm.SaveVersion(map[string]any{"v": 3}, nil)
 
 	versions := vm.ListVersions()
 	assert.Len(t, versions, 2) // oldest evicted

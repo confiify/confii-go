@@ -101,7 +101,7 @@ func (p *Processor) Process(key string, value any) any {
 
 // isComparable checks if a value can be used as a map key.
 func isComparable(v any) bool {
-	defer func() { recover() }()
+	defer func() { _ = recover() }()
 	_ = v == v
 	return true
 }
