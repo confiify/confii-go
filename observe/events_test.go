@@ -24,7 +24,7 @@ func TestEventEmitter_MultipleListeners(t *testing.T) {
 	var count int
 	var mu sync.Mutex
 
-	for range 3 {
+	for i := 0; i < 3; i++ {
 		e.On("event", func(_ ...any) {
 			mu.Lock()
 			count++

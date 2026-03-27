@@ -887,11 +887,11 @@ func TestConcurrentAccess(t *testing.T) {
 	errs := make(chan error, 200)
 
 	// 50 concurrent readers.
-	for range 50 {
+	for i := 0; i < 50; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for range 20 {
+			for j := 0; j < 20; j++ {
 				if _, err := cfg.Get("database.host"); err != nil {
 					errs <- err
 				}

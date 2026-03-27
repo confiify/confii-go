@@ -739,7 +739,7 @@ github.com/confiify/confii-go/
 
 ## Requirements
 
-- Go 1.21+ (for `log/slog` and generics)
+- Go 1.25+ (due to cloud provider dependencies; core library uses Go 1.21 features)
 
 ## License
 
