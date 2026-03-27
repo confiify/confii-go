@@ -1,0 +1,84 @@
+# Binaries & build output
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+/bin/
+/dist/
+/out/
+
+# Go build artifacts
+*.o
+*.a
+*.test
+*.prof
+*.out
+
+# Go workspace
+go.work
+go.work.sum
+
+# Vendor (if not committed)
+# vendor/
+
+# IDE & editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+*.sublime-project
+*.sublime-workspace
+.project
+.classpath
+.settings/
+
+# AI assistant directories
+.claude/
+.gemini/
+.cursor/
+.copilot/
+.codeium/
+.aider*
+.continue/
+.tabnine/
+.sourcegraph/
+.cody/
+.windsurf/
+.augment/
+.codex/
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+
+# Test & coverage
+coverage.out
+coverage.html
+coverage.txt
+*.coverprofile
+c.out
+
+# Debug
+debug
+debug.test
+__debug_bin*
+
+# Temporary files
+*.tmp
+*.bak
+*.log
