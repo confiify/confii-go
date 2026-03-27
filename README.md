@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="art/confii-go.png" alt="Confii Logo" />
+</p>
+
 # Confii
 
 A powerful, type-safe configuration management library for Go. Load, merge, validate, and access configuration from multiple sources with a clean, idiomatic API.
