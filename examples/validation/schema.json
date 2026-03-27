@@ -1,0 +1,23 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["host", "port", "name"],
+  "properties": {
+    "host": {
+      "type": "string",
+      "minLength": 1
+    },
+    "port": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535
+    },
+    "name": {
+      "type": "string"
+    },
+    "max_connections": {
+      "type": "integer",
+      "minimum": 1
+    }
+  }
+}

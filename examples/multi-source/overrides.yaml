@@ -1,0 +1,7 @@
+database:
+  host: prod-db.example.com
+  max_connections: 100
+  ssl: true
+
+cache:
+  ttl: 3600

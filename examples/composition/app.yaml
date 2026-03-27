@@ -1,0 +1,11 @@
+_defaults:
+  - "timeout: 30"
+  - cache: redis
+
+_include:
+  - shared/logging.yaml
+  - shared/database.yaml
+
+app:
+  name: my-service
+  version: "2.0.0"

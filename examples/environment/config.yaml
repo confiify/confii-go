@@ -1,0 +1,19 @@
+default:
+  app:
+    name: my-service
+    debug: true
+  database:
+    host: localhost
+    port: 5432
+
+production:
+  app:
+    debug: false
+  database:
+    host: prod-db.example.com
+
+staging:
+  app:
+    debug: true
+  database:
+    host: staging-db.example.com

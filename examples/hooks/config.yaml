@@ -1,0 +1,9 @@
+app:
+  name: my-service
+
+feature:
+  dark_mode: true
+  beta: false
+
+database:
+  password: supersecret

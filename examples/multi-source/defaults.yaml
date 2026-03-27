@@ -1,0 +1,14 @@
+app:
+  name: my-service
+  version: "1.0.0"
+  debug: false
+
+database:
+  host: localhost
+  port: 5432
+  name: mydb
+  max_connections: 10
+
+cache:
+  enabled: true
+  ttl: 300

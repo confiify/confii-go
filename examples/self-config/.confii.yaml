@@ -1,0 +1,8 @@
+default_environment: development
+env_prefix: APP
+deep_merge: true
+use_env_expander: true
+validate_on_load: false
+default_files:
+  - config/base.yaml
+  - config/dev.yaml

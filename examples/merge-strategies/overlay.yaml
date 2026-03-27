@@ -1,0 +1,8 @@
+database:
+  host: prod-db.example.com
+  options:
+    ssl: true
+
+features:
+  - monitoring
+  - tracing
