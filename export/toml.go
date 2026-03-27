@@ -5,6 +5,7 @@ import "github.com/BurntSushi/toml"
 // TOMLExporter exports configuration as TOML.
 type TOMLExporter struct{}
 
+// Export serializes the configuration data as TOML.
 func (e *TOMLExporter) Export(data map[string]any) ([]byte, error) {
 	var buf []byte
 	// toml.Marshal doesn't exist, use Encoder.
@@ -17,6 +18,7 @@ func (e *TOMLExporter) Export(data map[string]any) ([]byte, error) {
 	return buf, nil
 }
 
+// Format returns "toml".
 func (e *TOMLExporter) Format() string { return "toml" }
 
 // tomlBuffer implements io.Writer for toml.Encoder.

@@ -4,7 +4,9 @@ import (
 	"context"
 )
 
-// Builder provides a fluent API for constructing Config instances.
+// Builder provides a fluent API for constructing [Config] instances. Call
+// [NewBuilder] to obtain a Builder, chain configuration methods, and finish
+// with [Builder.Build] to produce a ready-to-use Config.
 type Builder[T any] struct {
 	opts []Option
 }

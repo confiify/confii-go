@@ -49,6 +49,7 @@ func NewAzureKeyVault(vaultURL string, credential any) (*AzureKeyVault, error) {
 	return &AzureKeyVault{client: client}, nil
 }
 
+// GetSecret retrieves a secret from Azure Key Vault, validating the key format and supporting version selection.
 func (s *AzureKeyVault) GetSecret(ctx context.Context, key string, opts ...confii.SecretOption) (any, error) {
 	if !azureSecretNameRegex.MatchString(key) {
 		return nil, fmt.Errorf("%w: invalid secret name %q (must match ^[0-9a-zA-Z-]+$)", confii.ErrSecretValidation, key)
@@ -68,6 +69,7 @@ func (s *AzureKeyVault) GetSecret(ctx context.Context, key string, opts ...confi
 	return *resp.Value, nil
 }
 
+// SetSecret creates or updates a secret in Azure Key Vault.
 func (s *AzureKeyVault) SetSecret(ctx context.Context, key string, value any, _ ...confii.SecretOption) error {
 	secretVal := fmt.Sprintf("%v", value)
 	_, err := s.client.SetSecret(ctx, key, azsecrets.SetSecretParameters{
@@ -76,11 +78,13 @@ func (s *AzureKeyVault) SetSecret(ctx context.Context, key string, value any, _ 
 	return err
 }
 
+// DeleteSecret deletes a secret from Azure Key Vault.
 func (s *AzureKeyVault) DeleteSecret(ctx context.Context, key string, _ ...confii.SecretOption) error {
 	_, err := s.client.DeleteSecret(ctx, key, nil)
 	return err
 }
 
+// ListSecrets returns all secret names from Azure Key Vault, optionally filtered by prefix.
 func (s *AzureKeyVault) ListSecrets(ctx context.Context, prefix string) ([]string, error) {
 	var keys []string
 	pager := s.client.NewListSecretPropertiesPager(nil)

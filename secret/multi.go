@@ -44,6 +44,7 @@ func NewMultiStore(stores []confii.SecretStore, opts ...MultiStoreOption) *Multi
 	return s
 }
 
+// GetSecret tries each store in priority order, returning the first successful result.
 func (s *MultiStore) GetSecret(ctx context.Context, key string, opts ...confii.SecretOption) (any, error) {
 	for _, store := range s.stores {
 		val, err := store.GetSecret(ctx, key, opts...)
@@ -60,6 +61,7 @@ func (s *MultiStore) GetSecret(ctx context.Context, key string, opts ...confii.S
 	return nil, nil
 }
 
+// SetSecret writes a secret to the first store or all stores, depending on configuration.
 func (s *MultiStore) SetSecret(ctx context.Context, key string, value any, opts ...confii.SecretOption) error {
 	if s.writeToFirst && len(s.stores) > 0 {
 		return s.stores[0].SetSecret(ctx, key, value, opts...)
@@ -72,6 +74,7 @@ func (s *MultiStore) SetSecret(ctx context.Context, key string, value any, opts 
 	return nil
 }
 
+// DeleteSecret removes a secret from the first store or all stores, depending on configuration.
 func (s *MultiStore) DeleteSecret(ctx context.Context, key string, opts ...confii.SecretOption) error {
 	if s.writeToFirst && len(s.stores) > 0 {
 		return s.stores[0].DeleteSecret(ctx, key, opts...)
@@ -84,6 +87,7 @@ func (s *MultiStore) DeleteSecret(ctx context.Context, key string, opts ...confi
 	return nil
 }
 
+// ListSecrets aggregates secret keys from all stores, deduplicating the results.
 func (s *MultiStore) ListSecrets(ctx context.Context, prefix string) ([]string, error) {
 	seen := make(map[string]struct{})
 	var result []string

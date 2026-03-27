@@ -114,6 +114,7 @@ func NewHashiCorpVault(opts ...VaultOption) (*HashiCorpVault, error) {
 	}, nil
 }
 
+// GetSecret retrieves a secret from HashiCorp Vault, supporting KV v1 and v2, versioned reads, and field extraction via "path:field" syntax.
 func (s *HashiCorpVault) GetSecret(ctx context.Context, key string, opts ...confii.SecretOption) (any, error) {
 	o := confii.ResolveSecretOptions(opts...)
 
@@ -163,6 +164,7 @@ func (s *HashiCorpVault) GetSecret(ctx context.Context, key string, opts ...conf
 	return data, nil
 }
 
+// SetSecret writes a secret to HashiCorp Vault at the configured mount point, handling KV v1 and v2 path formats.
 func (s *HashiCorpVault) SetSecret(ctx context.Context, key string, value any, _ ...confii.SecretOption) error {
 	var data map[string]any
 	switch v := value.(type) {
@@ -186,6 +188,7 @@ func (s *HashiCorpVault) SetSecret(ctx context.Context, key string, value any, _
 	return err
 }
 
+// DeleteSecret removes a secret from HashiCorp Vault, using the metadata path for KV v2.
 func (s *HashiCorpVault) DeleteSecret(ctx context.Context, key string, _ ...confii.SecretOption) error {
 	var secretPath string
 	if s.kvVersion == 2 {
@@ -197,6 +200,7 @@ func (s *HashiCorpVault) DeleteSecret(ctx context.Context, key string, _ ...conf
 	return err
 }
 
+// ListSecrets returns secret keys from HashiCorp Vault under the given prefix path.
 func (s *HashiCorpVault) ListSecrets(ctx context.Context, prefix string) ([]string, error) {
 	listPath := fmt.Sprintf("%s/metadata/%s", s.mountPoint, prefix)
 	if s.kvVersion == 1 {

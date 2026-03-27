@@ -46,10 +46,12 @@ func NewGit(repoURL, filePath string, opts ...GitOption) *GitLoader {
 	return l
 }
 
+// Source returns the identifier for this loader's configuration source.
 func (l *GitLoader) Source() string {
 	return fmt.Sprintf("git:%s@%s/%s", l.repoURL, l.branch, l.filePath)
 }
 
+// Load fetches configuration from a file in the configured Git repository via its raw content URL.
 func (l *GitLoader) Load(ctx context.Context) (map[string]any, error) {
 	rawURL, headers, err := l.resolveRawURL()
 	if err != nil {

@@ -65,10 +65,12 @@ func NewAzureBlob(containerURL, blobName string, opts ...AzureBlobOption) *Azure
 	return l
 }
 
+// Source returns the identifier for this loader's configuration source.
 func (l *AzureBlobLoader) Source() string {
 	return fmt.Sprintf("azure://%s/%s", l.containerURL, l.blobName)
 }
 
+// Load fetches configuration from the Azure Blob Storage container at the configured URL and parses its contents.
 func (l *AzureBlobLoader) Load(ctx context.Context) (map[string]any, error) {
 	client, err := l.createClient()
 	if err != nil {

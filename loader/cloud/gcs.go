@@ -50,10 +50,12 @@ func NewGCS(bucket, blob string, opts ...GCSOption) *GCSLoader {
 	return l
 }
 
+// Source returns the identifier for this loader's configuration source.
 func (l *GCSLoader) Source() string {
 	return fmt.Sprintf("gs://%s/%s", l.bucketName, l.blobName)
 }
 
+// Load fetches configuration from the Google Cloud Storage object at the configured bucket and blob path.
 func (l *GCSLoader) Load(ctx context.Context) (map[string]any, error) {
 	var clientOpts []option.ClientOption
 	if l.credentialsPath != "" {

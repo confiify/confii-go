@@ -69,7 +69,7 @@ func NewResolver(store confii.SecretStore, opts ...ResolverOption) *Resolver {
 	return r
 }
 
-// Resolve resolves all ${secret:...} placeholders in a string value.
+// Resolve replaces all ${secret:...} placeholders in a string value with their resolved secret values.
 func (r *Resolver) Resolve(ctx context.Context, value string) (string, error) {
 	if !strings.Contains(value, "${secret:") {
 		return value, nil
@@ -105,7 +105,7 @@ func (r *Resolver) Resolve(ctx context.Context, value string) (string, error) {
 	return result, lastErr
 }
 
-// Hook returns a hook.Func that can be registered on a HookProcessor.
+// Hook returns a hook.Func that resolves secret placeholders in string values during hook processing.
 func (r *Resolver) Hook() hook.Func {
 	return func(_ string, value any) any {
 		s, ok := value.(string)
@@ -120,14 +120,14 @@ func (r *Resolver) Hook() hook.Func {
 	}
 }
 
-// ClearCache clears the internal secret cache.
+// ClearCache removes all entries from the internal secret cache.
 func (r *Resolver) ClearCache() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.cache = make(map[string]cacheEntry)
 }
 
-// CacheStats returns cache statistics.
+// CacheStats returns a map containing cache statistics including enabled state, size, and cached keys.
 func (r *Resolver) CacheStats() map[string]any {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -142,7 +142,7 @@ func (r *Resolver) CacheStats() map[string]any {
 	}
 }
 
-// Prefetch pre-populates the cache for the given keys.
+// Prefetch pre-populates the cache by resolving the given keys from the underlying store.
 func (r *Resolver) Prefetch(ctx context.Context, keys []string) error {
 	for _, key := range keys {
 		_, err := r.resolveKey(ctx, key, "", "")

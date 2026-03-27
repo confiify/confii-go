@@ -52,6 +52,7 @@ func NewGCPSecretManager(ctx context.Context, projectID string, opts ...GCPSecre
 	return &GCPSecretManager{client: client, projectID: projectID}, nil
 }
 
+// GetSecret retrieves a secret version from GCP Secret Manager, defaulting to the latest version.
 func (s *GCPSecretManager) GetSecret(ctx context.Context, key string, opts ...confii.SecretOption) (any, error) {
 	o := confii.ResolveSecretOptions(opts...)
 	version := o.Version
@@ -70,6 +71,7 @@ func (s *GCPSecretManager) GetSecret(ctx context.Context, key string, opts ...co
 	return string(resp.Payload.Data), nil
 }
 
+// SetSecret creates a secret in GCP Secret Manager if it does not exist and adds a new version with the given value.
 func (s *GCPSecretManager) SetSecret(ctx context.Context, key string, value any, _ ...confii.SecretOption) error {
 	parent := fmt.Sprintf("projects/%s", s.projectID)
 	secretName := fmt.Sprintf("projects/%s/secrets/%s", s.projectID, key)
@@ -100,6 +102,7 @@ func (s *GCPSecretManager) SetSecret(ctx context.Context, key string, value any,
 	return err
 }
 
+// DeleteSecret deletes a secret and all its versions from GCP Secret Manager.
 func (s *GCPSecretManager) DeleteSecret(ctx context.Context, key string, _ ...confii.SecretOption) error {
 	name := fmt.Sprintf("projects/%s/secrets/%s", s.projectID, key)
 	return s.client.DeleteSecret(ctx, &secretmanagerpb.DeleteSecretRequest{
@@ -107,6 +110,7 @@ func (s *GCPSecretManager) DeleteSecret(ctx context.Context, key string, _ ...co
 	})
 }
 
+// ListSecrets returns all secret names from GCP Secret Manager for the configured project, optionally filtered by prefix.
 func (s *GCPSecretManager) ListSecrets(ctx context.Context, prefix string) ([]string, error) {
 	parent := fmt.Sprintf("projects/%s", s.projectID)
 	it := s.client.ListSecrets(ctx, &secretmanagerpb.ListSecretsRequest{

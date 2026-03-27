@@ -58,8 +58,10 @@ func NewHTTP(url string, opts ...HTTPOption) *HTTPLoader {
 	return l
 }
 
+// Source returns the identifier for this loader's configuration source.
 func (l *HTTPLoader) Source() string { return l.url }
 
+// Load fetches configuration from the HTTP/HTTPS endpoint at the configured URL and parses the response body.
 func (l *HTTPLoader) Load(ctx context.Context) (map[string]any, error) {
 	client := &http.Client{Timeout: l.timeout}
 

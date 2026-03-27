@@ -28,6 +28,7 @@ func NewDictStore(initial map[string]any) *DictStore {
 	}
 }
 
+// GetSecret retrieves a secret value from the in-memory store by key, with optional version support.
 func (s *DictStore) GetSecret(_ context.Context, key string, opts ...confii.SecretOption) (any, error) {
 	o := confii.ResolveSecretOptions(opts...)
 	s.mu.RLock()
@@ -49,6 +50,7 @@ func (s *DictStore) GetSecret(_ context.Context, key string, opts ...confii.Secr
 	return val, nil
 }
 
+// SetSecret stores a secret value in the in-memory store and records it as a new version.
 func (s *DictStore) SetSecret(_ context.Context, key string, value any, _ ...confii.SecretOption) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -57,6 +59,7 @@ func (s *DictStore) SetSecret(_ context.Context, key string, value any, _ ...con
 	return nil
 }
 
+// DeleteSecret removes a secret and its version history from the in-memory store.
 func (s *DictStore) DeleteSecret(_ context.Context, key string, _ ...confii.SecretOption) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -65,6 +68,7 @@ func (s *DictStore) DeleteSecret(_ context.Context, key string, _ ...confii.Secr
 	return nil
 }
 
+// ListSecrets returns all secret keys in the in-memory store, optionally filtered by prefix.
 func (s *DictStore) ListSecrets(_ context.Context, prefix string) ([]string, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

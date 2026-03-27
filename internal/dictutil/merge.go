@@ -98,6 +98,7 @@ type PathError struct {
 	Message string
 }
 
+// Error returns a human-readable description of the path error.
 func (e *PathError) Error() string {
 	return "path " + e.Path + ": " + e.Message
 }

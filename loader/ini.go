@@ -21,8 +21,10 @@ func NewINI(path string) *INILoader {
 	return &INILoader{source: path}
 }
 
+// Source returns the identifier for this loader's configuration source.
 func (l *INILoader) Source() string { return l.source }
 
+// Load reads and parses the INI file at the configured path, returning sections as nested configuration maps.
 func (l *INILoader) Load(_ context.Context) (map[string]any, error) {
 	if _, err := os.Stat(l.source); err != nil {
 		if errors.Is(err, os.ErrNotExist) {

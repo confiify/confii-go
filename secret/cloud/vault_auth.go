@@ -13,6 +13,7 @@ type TokenAuth struct {
 	Token string
 }
 
+// Authenticate returns the static token directly without contacting Vault.
 func (a *TokenAuth) Authenticate(client *api.Client) (string, error) {
 	return a.Token, nil
 }
@@ -24,6 +25,7 @@ type AppRoleAuth struct {
 	MountPoint string
 }
 
+// Authenticate logs in to Vault using the AppRole auth method with the configured role ID and secret ID.
 func (a *AppRoleAuth) Authenticate(client *api.Client) (string, error) {
 	mp := a.MountPoint
 	if mp == "" {
@@ -47,6 +49,7 @@ type LDAPAuth struct {
 	MountPoint       string
 }
 
+// Authenticate logs in to Vault using LDAP credentials, optionally obtaining the password from a provider function.
 func (a *LDAPAuth) Authenticate(client *api.Client) (string, error) {
 	mp := a.MountPoint
 	if mp == "" {
@@ -76,6 +79,7 @@ type JWTAuth struct {
 	MountPoint string
 }
 
+// Authenticate logs in to Vault using a JWT token and the configured role.
 func (a *JWTAuth) Authenticate(client *api.Client) (string, error) {
 	mp := a.MountPoint
 	if mp == "" {
@@ -98,6 +102,7 @@ type KubernetesAuth struct {
 	MountPoint string
 }
 
+// Authenticate logs in to Vault using a Kubernetes service account JWT token and the configured role.
 func (a *KubernetesAuth) Authenticate(client *api.Client) (string, error) {
 	mp := a.MountPoint
 	if mp == "" {
@@ -119,6 +124,7 @@ type AWSIAMAuth struct {
 	MountPoint string
 }
 
+// Authenticate logs in to Vault using AWS IAM authentication with the configured role.
 func (a *AWSIAMAuth) Authenticate(client *api.Client) (string, error) {
 	mp := a.MountPoint
 	if mp == "" {
@@ -140,6 +146,7 @@ type AzureAuth struct {
 	MountPoint string
 }
 
+// Authenticate logs in to Vault using Azure Managed Identity with the configured role and optional resource.
 func (a *AzureAuth) Authenticate(client *api.Client) (string, error) {
 	mp := a.MountPoint
 	if mp == "" {
@@ -163,6 +170,7 @@ type GCPAuth struct {
 	MountPoint string
 }
 
+// Authenticate logs in to Vault using GCP IAM or GCE metadata with the configured role and optional JWT.
 func (a *GCPAuth) Authenticate(client *api.Client) (string, error) {
 	mp := a.MountPoint
 	if mp == "" {
@@ -185,6 +193,7 @@ type OIDCAuth struct {
 	MountPoint string
 }
 
+// Authenticate logs in to Vault using OpenID Connect with the configured role.
 func (a *OIDCAuth) Authenticate(client *api.Client) (string, error) {
 	mp := a.MountPoint
 	if mp == "" {

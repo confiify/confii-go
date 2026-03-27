@@ -21,8 +21,10 @@ func NewYAML(path string) *YAMLLoader {
 	return &YAMLLoader{source: path}
 }
 
+// Source returns the identifier for this loader's configuration source.
 func (l *YAMLLoader) Source() string { return l.source }
 
+// Load reads and parses the YAML file at the configured path, returning the parsed configuration as a map.
 func (l *YAMLLoader) Load(_ context.Context) (map[string]any, error) {
 	data, err := os.ReadFile(l.source)
 	if err != nil {

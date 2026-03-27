@@ -19,8 +19,10 @@ func NewTOML(path string) *TOMLLoader {
 	return &TOMLLoader{source: path}
 }
 
+// Source returns the identifier for this loader's configuration source.
 func (l *TOMLLoader) Source() string { return l.source }
 
+// Load reads and parses the TOML file at the configured path, returning the parsed configuration as a map.
 func (l *TOMLLoader) Load(_ context.Context) (map[string]any, error) {
 	data, err := os.ReadFile(l.source)
 	if err != nil {

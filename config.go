@@ -28,7 +28,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Config is the main configuration manager, parameterized by T for typed access.
+// Config is the central configuration manager. It loads, merges, validates,
+// and serves configuration values from multiple sources (files, environment
+// variables, remote stores). The type parameter T defines the strongly-typed
+// model returned by [Config.Model]. All public methods are safe for concurrent use.
 type Config[T any] struct {
 	mu sync.RWMutex
 
@@ -324,7 +327,7 @@ func (c *Config[T]) Has(keyPath string) bool {
 	return dictutil.HasNested(c.envConfig, keyPath)
 }
 
-// SetOption controls behavior of Set.
+// SetOption is a functional option that configures the behavior of [Config.Set].
 type SetOption func(*setOpts)
 type setOpts struct{ allowOverride bool }
 
@@ -584,7 +587,8 @@ func (c *Config[T]) GenerateDocs(format string) (string, error) {
 // Lifecycle methods
 // ---------------------------------------------------------------------------
 
-// ReloadOption configures Reload behavior.
+// ReloadOption is a functional option that configures the behavior of
+// [Config.Reload], such as enabling dry-run mode or overriding validation.
 type ReloadOption func(*reloadOpts)
 type reloadOpts struct {
 	validate    *bool
@@ -952,7 +956,8 @@ func (c *Config[T]) Typed() (*T, error) {
 	return model, nil
 }
 
-// String returns a human-readable representation.
+// String returns a human-readable summary of the Config, including its
+// environment, key count, loader sources, and frozen state.
 func (c *Config[T]) String() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()

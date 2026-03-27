@@ -37,6 +37,7 @@ func NewDefault(deepMerge bool) *DefaultMerger {
 	return &DefaultMerger{DeepMerge: deepMerge}
 }
 
+// Merge combines base and overlay configuration maps using the configured strategy.
 func (m *DefaultMerger) Merge(base, overlay map[string]any) map[string]any {
 	if m.DeepMerge {
 		return dictutil.DeepMerge(base, overlay)

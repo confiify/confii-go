@@ -22,7 +22,9 @@ var (
 	ErrVaultAuth        = errors.New("vault authentication error")
 )
 
-// ConfigError is a structured error with operation context.
+// ConfigError is a structured error that captures the failing operation,
+// the source and key involved, and an underlying sentinel error. Use
+// [errors.Is] or [errors.As] to inspect the chain.
 type ConfigError struct {
 	Op      string // operation that failed (e.g., "Load", "Get", "Set")
 	Source  string // source identifier (e.g., file path, URL)

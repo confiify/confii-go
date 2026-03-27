@@ -38,10 +38,12 @@ func WithSeparator(sep string) EnvLoaderOption {
 	return func(l *EnvironmentLoader) { l.separator = sep }
 }
 
+// Source returns the identifier for this loader's configuration source.
 func (l *EnvironmentLoader) Source() string {
 	return "environment:" + l.prefix
 }
 
+// Load reads environment variables matching the configured prefix and parses them into a nested configuration map.
 func (l *EnvironmentLoader) Load(_ context.Context) (map[string]any, error) {
 	envPrefix := l.prefix + "_"
 	result := make(map[string]any)

@@ -44,6 +44,7 @@ func NewEnvStore(opts ...EnvStoreOption) *EnvStore {
 	return s
 }
 
+// GetSecret retrieves a secret from OS environment variables, transforming the key to uppercase with prefix/suffix applied.
 func (s *EnvStore) GetSecret(_ context.Context, key string, _ ...confii.SecretOption) (any, error) {
 	envKey := s.envKey(key)
 	val, ok := os.LookupEnv(envKey)
@@ -53,14 +54,17 @@ func (s *EnvStore) GetSecret(_ context.Context, key string, _ ...confii.SecretOp
 	return val, nil
 }
 
+// SetSecret sets a secret by writing the value to the corresponding OS environment variable.
 func (s *EnvStore) SetSecret(_ context.Context, key string, value any, _ ...confii.SecretOption) error {
 	return os.Setenv(s.envKey(key), fmt.Sprintf("%v", value))
 }
 
+// DeleteSecret removes a secret by unsetting the corresponding OS environment variable.
 func (s *EnvStore) DeleteSecret(_ context.Context, key string, _ ...confii.SecretOption) error {
 	return os.Unsetenv(s.envKey(key))
 }
 
+// ListSecrets returns all environment variable names, optionally filtered by prefix.
 func (s *EnvStore) ListSecrets(_ context.Context, prefix string) ([]string, error) {
 	var keys []string
 	for _, env := range os.Environ() {

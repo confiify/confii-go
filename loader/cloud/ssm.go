@@ -61,8 +61,10 @@ func NewSSM(pathPrefix string, opts ...SSMOption) *SSMLoader {
 	return l
 }
 
+// Source returns the identifier for this loader's configuration source.
 func (l *SSMLoader) Source() string { return "ssm:" + l.pathPrefix }
 
+// Load fetches configuration parameters from AWS Systems Manager Parameter Store under the configured path prefix.
 func (l *SSMLoader) Load(ctx context.Context) (map[string]any, error) {
 	cfg, err := l.awsConfig(ctx)
 	if err != nil {

@@ -19,8 +19,10 @@ func NewJSON(path string) *JSONLoader {
 	return &JSONLoader{source: path}
 }
 
+// Source returns the identifier for this loader's configuration source.
 func (l *JSONLoader) Source() string { return l.source }
 
+// Load reads and parses the JSON file at the configured path, returning the parsed configuration as a map.
 func (l *JSONLoader) Load(_ context.Context) (map[string]any, error) {
 	data, err := os.ReadFile(l.source)
 	if err != nil {

@@ -33,9 +33,9 @@ func New(basePath string) *Composer {
 	}
 }
 
-// Compose processes composition directives in the config.
-// source is the file path of the config (used for relative path resolution).
-// Returns the composed config with _include, _defaults, and _merge_strategy removed.
+// Compose processes _include, _defaults, and _merge_strategy directives in config,
+// resolving relative paths against source. Returns the fully composed configuration
+// with all directives removed.
 func (c *Composer) Compose(config map[string]any, source string) (map[string]any, error) {
 	return c.compose(config, source, 0)
 }

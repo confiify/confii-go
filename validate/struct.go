@@ -21,7 +21,7 @@ func NewStructValidator[T any]() *StructValidator[T] {
 	}
 }
 
-// Validate decodes the config map into T and validates struct tags.
+// Validate decodes the config map into T and runs struct-tag validation rules.
 func (v *StructValidator[T]) Validate(data map[string]any) error {
 	var target T
 	if err := decode(data, &target); err != nil {
@@ -33,7 +33,7 @@ func (v *StructValidator[T]) Validate(data map[string]any) error {
 	return nil
 }
 
-// Decode decodes a config map into a typed struct T and returns it.
+// Decode decodes a config map into a typed struct T using mapstructure and returns a pointer to the result.
 func Decode[T any](data map[string]any) (*T, error) {
 	var target T
 	if err := decode(data, &target); err != nil {
@@ -42,7 +42,7 @@ func Decode[T any](data map[string]any) (*T, error) {
 	return &target, nil
 }
 
-// DecodeAndValidate decodes and validates in one step.
+// DecodeAndValidate decodes the config map into T and validates struct tags in a single step.
 func DecodeAndValidate[T any](data map[string]any) (*T, error) {
 	var target T
 	if err := decode(data, &target); err != nil {

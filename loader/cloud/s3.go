@@ -68,8 +68,10 @@ func NewS3(s3URL string, opts ...S3Option) (*S3Loader, error) {
 	return l, nil
 }
 
+// Source returns the identifier for this loader's configuration source.
 func (l *S3Loader) Source() string { return l.s3URL }
 
+// Load fetches configuration from the AWS S3 object at the configured URL and parses its contents.
 func (l *S3Loader) Load(ctx context.Context) (map[string]any, error) {
 	cfg, err := l.awsConfig(ctx)
 	if err != nil {

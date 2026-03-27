@@ -83,6 +83,7 @@ func NewAWSSecretsManager(ctx context.Context, opts ...AWSSecretsManagerOption) 
 	return &AWSSecretsManager{client: client}, nil
 }
 
+// GetSecret retrieves a secret from AWS Secrets Manager, with support for version stages, version IDs, and JSON key extraction.
 func (s *AWSSecretsManager) GetSecret(ctx context.Context, key string, opts ...confii.SecretOption) (any, error) {
 	o := confii.ResolveSecretOptions(opts...)
 
@@ -139,6 +140,7 @@ func (s *AWSSecretsManager) GetSecret(ctx context.Context, key string, opts ...c
 	return value, nil
 }
 
+// SetSecret creates or updates a secret in AWS Secrets Manager.
 func (s *AWSSecretsManager) SetSecret(ctx context.Context, key string, value any, _ ...confii.SecretOption) error {
 	var secretStr string
 	switch v := value.(type) {
@@ -168,6 +170,7 @@ func (s *AWSSecretsManager) SetSecret(ctx context.Context, key string, value any
 	return err
 }
 
+// DeleteSecret permanently deletes a secret from AWS Secrets Manager without recovery.
 func (s *AWSSecretsManager) DeleteSecret(ctx context.Context, key string, _ ...confii.SecretOption) error {
 	_, err := s.client.DeleteSecret(ctx, &secretsmanager.DeleteSecretInput{
 		SecretId:                   aws.String(key),
@@ -176,6 +179,7 @@ func (s *AWSSecretsManager) DeleteSecret(ctx context.Context, key string, _ ...c
 	return err
 }
 
+// ListSecrets returns all secret names from AWS Secrets Manager, optionally filtered by prefix.
 func (s *AWSSecretsManager) ListSecrets(ctx context.Context, prefix string) ([]string, error) {
 	var keys []string
 	var nextToken *string

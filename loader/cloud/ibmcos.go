@@ -58,10 +58,12 @@ func NewIBMCOS(bucket, key string, opts ...IBMCOSOption) *IBMCOSLoader {
 	return l
 }
 
+// Source returns the identifier for this loader's configuration source.
 func (l *IBMCOSLoader) Source() string {
 	return fmt.Sprintf("ibmcos://%s/%s", l.bucketName, l.objectKey)
 }
 
+// Load fetches configuration from the IBM Cloud Object Storage object at the configured bucket and key.
 func (l *IBMCOSLoader) Load(ctx context.Context) (map[string]any, error) {
 	authEndpoint := "https://iam.cloud.ibm.com/identity/token"
 

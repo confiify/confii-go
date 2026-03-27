@@ -26,8 +26,10 @@ func NewEnvFile(path string) *EnvFileLoader {
 	return &EnvFileLoader{source: path}
 }
 
+// Source returns the identifier for this loader's configuration source.
 func (l *EnvFileLoader) Source() string { return l.source }
 
+// Load reads and parses the .env file at the configured path, returning key-value pairs as a configuration map.
 func (l *EnvFileLoader) Load(_ context.Context) (map[string]any, error) {
 	f, err := os.Open(l.source)
 	if err != nil {
