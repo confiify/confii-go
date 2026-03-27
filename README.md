@@ -83,11 +83,11 @@ Go has several configuration libraries, but none provides a complete configurati
 
 **1. The multi-source merge problem.** Viper's deep merge has [known limitations](https://github.com/spf13/viper/issues/181) with slices and nested maps. Confii provides 6 merge strategies with per-path overrides — so `database` can use `replace` while `features` uses `append` in the same merge.
 
-**2. Secret management as a first-class concern.** No other Go config library natively resolves `${secret:db/password}` placeholders from AWS Secrets Manager, Azure Key Vault, GCP Secret Manager, or HashiCorp Vault (with 9 auth methods) — with caching, TTL, and a pluggable store interface.
+**2. Secret management as a first-class concern.** Confii natively resolves `${secret:db/password}` placeholders from AWS Secrets Manager, Azure Key Vault, GCP Secret Manager, and HashiCorp Vault (with 9 auth methods) — with caching, TTL, and a pluggable store interface.
 
-**3. Environment-aware configuration.** Confii natively understands `default` + `production`/`staging`/`development` sections and merges them automatically. Other libraries require you to manually load separate files per environment.
+**3. Environment-aware configuration.** Confii natively understands `default` + `production`/`staging`/`development` sections and merges them automatically — no separate files per environment needed.
 
-**4. Type safety with Go generics.** `Config[AppConfig]` gives you `cfg.Typed()` returning `*AppConfig` with struct tag validation — no other Go config library uses generics for this.
+**4. Type safety with Go generics.** `Config[AppConfig]` gives you `cfg.Typed()` returning `*AppConfig` with struct tag validation and full IDE autocomplete.
 
 **5. Configuration lifecycle management.** Diff two configs, detect drift from a baseline, snapshot versions and rollback, track access metrics, emit events on change — features that matter in production but don't exist elsewhere.
 

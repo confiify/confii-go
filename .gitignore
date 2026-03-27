@@ -82,3 +82,6 @@ __debug_bin*
 *.tmp
 *.bak
 *.log
+
+# MkDocs build output
+site/
