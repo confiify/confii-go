@@ -1,0 +1,16 @@
+default:
+  database:
+    host: localhost
+    port: 5432
+  debug: true
+
+production:
+  database:
+    host: prod-db.example.com
+    port: 5432
+  debug: false
+
+staging:
+  database:
+    host: staging-db.example.com
+  debug: true

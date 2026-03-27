@@ -1,0 +1,11 @@
+default:
+  app:
+    log_level: info
+  database:
+    ssl: true
+
+production:
+  app:
+    log_level: warn
+  database:
+    pool_timeout: 30

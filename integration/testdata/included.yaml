@@ -1,0 +1,3 @@
+shared:
+  log_level: info
+  max_retries: 3

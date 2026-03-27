@@ -1,0 +1,32 @@
+default:
+  app:
+    name: my-service
+    version: "1.0.0"
+    debug: false
+  database:
+    host: localhost
+    port: 5432
+    name: mydb
+    max_connections: 10
+  cache:
+    enabled: true
+    ttl: 300
+  features:
+    - auth
+    - logging
+
+production:
+  app:
+    debug: false
+  database:
+    host: prod-db.example.com
+    max_connections: 100
+  cache:
+    ttl: 3600
+
+staging:
+  app:
+    debug: true
+  database:
+    host: staging-db.example.com
+    max_connections: 25

@@ -1,0 +1,6 @@
+_include:
+  - included.yaml
+_defaults:
+  - "timeout: 30"
+app:
+  name: composed-app

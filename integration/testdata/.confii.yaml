@@ -1,0 +1,7 @@
+default_environment: development
+env_prefix: MYAPP
+deep_merge: true
+use_env_expander: true
+use_type_casting: true
+default_files:
+  - integration/testdata/base.yaml
