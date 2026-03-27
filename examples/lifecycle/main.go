@@ -27,7 +27,7 @@ func main() {
 	})
 
 	// --- Set values ---
-	cfg.Set("app.version", "2.0.0")
+	_ = cfg.Set("app.version", "2.0.0")
 
 	// Protected set (errors if key exists)
 	err = cfg.Set("app.name", "other", confii.WithOverride(false))

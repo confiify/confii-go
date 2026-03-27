@@ -50,7 +50,7 @@ func TestGitLoader_Load_Integration(t *testing.T) {
 	// Mock a GitHub raw content endpoint.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"app": {"name": "test-app"}}`))
+		_, _ = w.Write([]byte(`{"app": {"name": "test-app"}}`))
 	}))
 	defer srv.Close()
 
@@ -64,7 +64,7 @@ func TestGitLoader_Load_WithMockServer(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Contains(t, r.URL.Path, "config.yaml")
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"database": {"host": "git-host"}}`))
+		_, _ = w.Write([]byte(`{"database": {"host": "git-host"}}`))
 	}))
 	defer srv.Close()
 

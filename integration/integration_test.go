@@ -709,10 +709,10 @@ func TestObservability(t *testing.T) {
 	metrics := observe.NewMetrics(len(cfg.Keys()))
 
 	start := time.Now()
-	cfg.Get("database.host")
+	_, _ = cfg.Get("database.host")
 	metrics.RecordAccess("database.host", time.Since(start))
 
-	cfg.Get("database.port")
+	_, _ = cfg.Get("database.port")
 	metrics.RecordAccess("database.port", time.Since(start))
 
 	stats := metrics.Statistics()
@@ -1305,7 +1305,7 @@ func TestVersioning_IntegratedOnConfig(t *testing.T) {
 	assert.NotEmpty(t, v1.VersionID)
 
 	// Modify config.
-	cfg.Set("database.host", "rollback-target")
+	_ = cfg.Set("database.host", "rollback-target")
 
 	// Save another version.
 	v2, err := cfg.SaveVersion(nil)

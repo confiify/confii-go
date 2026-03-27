@@ -221,7 +221,7 @@ func TestConfig_ConcurrentAccess(t *testing.T) {
 		wg.Add(3)
 		go func() {
 			defer wg.Done()
-			cfg.Get("database.host")
+			_, _ = cfg.Get("database.host")
 		}()
 		go func() {
 			defer wg.Done()

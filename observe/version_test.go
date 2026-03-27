@@ -54,8 +54,8 @@ func TestVersionManager_LatestVersion(t *testing.T) {
 	dir := t.TempDir()
 	vm := NewVersionManager(dir, 100)
 
-	vm.SaveVersion(map[string]any{"v": 1}, nil)
-	vm.SaveVersion(map[string]any{"v": 2}, nil)
+	_, _ = vm.SaveVersion(map[string]any{"v": 1}, nil)
+	_, _ = vm.SaveVersion(map[string]any{"v": 2}, nil)
 
 	latest := vm.LatestVersion()
 	require.NotNil(t, latest)

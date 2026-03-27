@@ -59,8 +59,8 @@ func TestCompose_Defaults(t *testing.T) {
 func TestCompose_CycleDetection(t *testing.T) {
 	dir := t.TempDir()
 
-	os.WriteFile(filepath.Join(dir, "a.yaml"), []byte("_include:\n  - b.yaml\nfrom_a: true\n"), 0644)
-	os.WriteFile(filepath.Join(dir, "b.yaml"), []byte("_include:\n  - a.yaml\nfrom_b: true\n"), 0644)
+	_ = os.WriteFile(filepath.Join(dir, "a.yaml"), []byte("_include:\n  - b.yaml\nfrom_a: true\n"), 0644)
+	_ = os.WriteFile(filepath.Join(dir, "b.yaml"), []byte("_include:\n  - a.yaml\nfrom_b: true\n"), 0644)
 
 	config := map[string]any{
 		"_include": []any{"a.yaml"},
@@ -80,9 +80,9 @@ func TestCompose_MaxDepth(t *testing.T) {
 	for i := 0; i < maxDepth+2; i++ {
 		next := fmt.Sprintf("level%d.yaml", i+1)
 		content := fmt.Sprintf("_include:\n  - %s\nlevel%d: true\n", next, i)
-		os.WriteFile(filepath.Join(dir, fmt.Sprintf("level%d.yaml", i)), []byte(content), 0644)
+		_ = os.WriteFile(filepath.Join(dir, fmt.Sprintf("level%d.yaml", i)), []byte(content), 0644)
 	}
-	os.WriteFile(filepath.Join(dir, fmt.Sprintf("level%d.yaml", maxDepth+2)), []byte("leaf: true\n"), 0644)
+	_ = os.WriteFile(filepath.Join(dir, fmt.Sprintf("level%d.yaml", maxDepth+2)), []byte("leaf: true\n"), 0644)
 
 	config := map[string]any{"_include": []any{"level0.yaml"}}
 	c := New(dir)
