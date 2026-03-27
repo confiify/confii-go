@@ -1,0 +1,101 @@
+site_name: Confii
+site_url: https://confiify.github.io/confii-go/
+site_description: Complete configuration management for Go
+repo_url: https://github.com/confiify/confii-go
+repo_name: confiify/confii-go
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  logo: assets/logo.svg
+  favicon: assets/logo.svg
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: white
+      accent: teal
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: black
+      accent: teal
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  font:
+    text: Inter
+    code: JetBrains Mono
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - navigation.footer
+    - search.suggest
+    - search.highlight
+    - search.share
+    - content.code.copy
+    - content.code.annotate
+    - content.tabs.link
+    - toc.follow
+
+nav:
+  - Home: index.md
+  - Getting Started:
+    - Installation: installation.md
+    - Quick Start: quickstart.md
+    - Configuration: configuration.md
+  - Features:
+    - Sources: sources.md
+    - Environment Resolution: environment.md
+    - Merging: merging.md
+    - Composition: composition.md
+    - Accessing Values: access.md
+    - Hooks: hooks.md
+    - Validation: validation.md
+    - Secrets: secrets.md
+  - Operations:
+    - Lifecycle: lifecycle.md
+    - Dynamic Reloading: reloading.md
+    - Introspection: introspection.md
+    - Diff & Drift: diff.md
+    - Versioning: versioning.md
+    - Observability: observability.md
+    - Export: export.md
+  - CLI: cli.md
+  - Examples: examples.md
+  - FAQ: faq.md
+  - Changelog: changelog.md
+
+plugins:
+  - search
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.snippets
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/confiify/confii-go
+
+copyright: MIT License &middot; Confii
