@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Confii — Configuration Management for Go</title>
+  <meta name="description" content="Confii is a complete configuration management library for Go. Load, merge, validate, resolve secrets, track sources, detect drift — from any source.">
+  <meta name="keywords" content="go, golang, configuration, config, yaml, json, toml, viper alternative, koanf alternative, secret management, vault, aws, azure, gcp">
+  <meta property="og:title" content="Confii — Configuration Management for Go">
+  <meta property="og:description" content="Complete configuration management for Go. A production-grade alternative to Viper with type-safe generics, secret resolution, drift detection, and 96%+ test coverage.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://confiify.github.io/confii-go/">
+  <link rel="canonical" href="https://confiify.github.io/confii-go/">
+  <style>
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --border: #30363d;
+      --text: #e6edf3;
+      --text-muted: #8b949e;
+      --accent: #58a6ff;
+      --accent-hover: #79c0ff;
+      --green: #3fb950;
+      --code-bg: #1c2128;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { color: var(--accent-hover); text-decoration: underline; }
+    .container { max-width: 960px; margin: 0 auto; padding: 0 24px; }
+
+    /* Hero */
+    .hero {
+      text-align: center;
+      padding: 80px 0 60px;
+    }
+    .hero img {
+      max-width: 360px;
+      width: 100%;
+      margin-bottom: 24px;
+    }
+    .hero h1 {
+      font-size: 2.5rem;
+      font-weight: 700;
+      margin-bottom: 16px;
+    }
+    .hero p {
+      font-size: 1.2rem;
+      color: var(--text-muted);
+      max-width: 640px;
+      margin: 0 auto 32px;
+    }
+    .hero-buttons {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    .btn {
+      display: inline-block;
+      padding: 12px 24px;
+      border-radius: 6px;
+      font-size: 1rem;
+      font-weight: 600;
+      transition: background 0.2s;
+    }
+    .btn-primary {
+      background: var(--accent);
+      color: var(--bg);
+    }
+    .btn-primary:hover { background: var(--accent-hover); text-decoration: none; }
+    .btn-secondary {
+      background: var(--surface);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .btn-secondary:hover { border-color: var(--accent); text-decoration: none; }
+
+    /* Badges */
+    .badges {
+      display: flex;
+      gap: 8px;
+      justify-content: center;
+      flex-wrap: wrap;
+      margin-bottom: 40px;
+    }
+
+    /* Install */
+    .install {
+      text-align: center;
+      padding: 40px 0;
+    }
+    .install-code {
+      display: inline-block;
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 16px 32px;
+      font-family: 'SFMono-Regular', Consolas, monospace;
+      font-size: 1.05rem;
+      color: var(--green);
+    }
+
+    /* Features */
+    .features {
+      padding: 60px 0;
+    }
+    .features h2 {
+      text-align: center;
+      font-size: 1.8rem;
+      margin-bottom: 40px;
+    }
+    .feature-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 20px;
+    }
+    .feature-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 24px;
+    }
+    .feature-card h3 {
+      font-size: 1.1rem;
+      margin-bottom: 8px;
+    }
+    .feature-card p {
+      color: var(--text-muted);
+      font-size: 0.95rem;
+    }
+
+    /* Quick Start */
+    .quickstart {
+      padding: 60px 0;
+    }
+    .quickstart h2 {
+      text-align: center;
+      font-size: 1.8rem;
+      margin-bottom: 32px;
+    }
+    .code-block {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 24px;
+      overflow-x: auto;
+      font-family: 'SFMono-Regular', Consolas, monospace;
+      font-size: 0.9rem;
+      line-height: 1.7;
+      max-width: 720px;
+      margin: 0 auto;
+    }
+    .code-block .kw { color: #ff7b72; }
+    .code-block .fn { color: #d2a8ff; }
+    .code-block .str { color: #a5d6ff; }
+    .code-block .cmt { color: #8b949e; }
+    .code-block .type { color: #79c0ff; }
+
+    /* Comparison */
+    .comparison {
+      padding: 60px 0;
+    }
+    .comparison h2 {
+      text-align: center;
+      font-size: 1.8rem;
+      margin-bottom: 32px;
+    }
+    .comparison table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+    }
+    .comparison th, .comparison td {
+      padding: 10px 16px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+    .comparison th {
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+    .comparison td:first-child { font-weight: 500; }
+    .check { color: var(--green); }
+    .cross { color: #f85149; }
+
+    /* Footer */
+    footer {
+      text-align: center;
+      padding: 40px 0;
+      border-top: 1px solid var(--border);
+      color: var(--text-muted);
+      font-size: 0.9rem;
+    }
+    footer a { color: var(--text-muted); }
+    footer a:hover { color: var(--accent); }
+    .footer-links {
+      display: flex;
+      gap: 24px;
+      justify-content: center;
+      margin-bottom: 16px;
+    }
+
+    @media (max-width: 600px) {
+      .hero h1 { font-size: 1.8rem; }
+      .hero p { font-size: 1rem; }
+      .feature-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+
+    <section class="hero">
+      <img src="https://raw.githubusercontent.com/confiify/confii-go/main/art/confii-go.png" alt="Confii Logo">
+      <h1>Configuration Management for Go</h1>
+      <p>Load, merge, validate, resolve secrets, track sources, detect drift — from any source. A production-grade alternative to Viper.</p>
+
+      <div class="badges">
+        <a href="https://pkg.go.dev/github.com/confiify/confii-go"><img src="https://pkg.go.dev/badge/github.com/confiify/confii-go.svg" alt="Go Reference"></a>
+        <a href="https://github.com/confiify/confii-go/actions/workflows/ci.yaml"><img src="https://github.com/confiify/confii-go/actions/workflows/ci.yaml/badge.svg" alt="CI"></a>
+        <a href="https://codecov.io/gh/confiify/confii-go"><img src="https://codecov.io/gh/confiify/confii-go/branch/main/graph/badge.svg" alt="Coverage"></a>
+        <a href="https://goreportcard.com/report/github.com/confiify/confii-go"><img src="https://goreportcard.com/badge/github.com/confiify/confii-go" alt="Go Report Card"></a>
+        <a href="https://securityscorecards.dev/viewer/?uri=github.com/confiify/confii-go"><img src="https://api.securityscorecards.dev/projects/github.com/confiify/confii-go/badge" alt="OpenSSF Scorecard"></a>
+      </div>
+
+      <div class="hero-buttons">
+        <a href="https://github.com/confiify/confii-go" class="btn btn-primary">GitHub</a>
+        <a href="https://pkg.go.dev/github.com/confiify/confii-go" class="btn btn-secondary">Documentation</a>
+        <a href="https://github.com/confiify/confii-go/tree/main/examples" class="btn btn-secondary">Examples</a>
+      </div>
+    </section>
+
+    <section class="install">
+      <div class="install-code">go get github.com/confiify/confii-go</div>
+    </section>
+
+    <section class="features">
+      <h2>Why Confii?</h2>
+      <div class="feature-grid">
+        <div class="feature-card">
+          <h3>Type-Safe Generics</h3>
+          <p>Config[T] with cfg.Typed() returning *T. IDE autocomplete, struct tag validation, and compile-time safety.</p>
+        </div>
+        <div class="feature-card">
+          <h3>Every Source</h3>
+          <p>YAML, JSON, TOML, INI, .env, env vars, HTTP, AWS S3, SSM, Azure Blob, GCS, IBM COS, Git repos.</p>
+        </div>
+        <div class="feature-card">
+          <h3>Secret Resolution</h3>
+          <p>${secret:key} placeholders resolved from AWS Secrets Manager, Azure Key Vault, GCP Secret Manager, or HashiCorp Vault.</p>
+        </div>
+        <div class="feature-card">
+          <h3>Smart Merging</h3>
+          <p>6 merge strategies (replace, merge, append, prepend, intersection, union) with per-path overrides.</p>
+        </div>
+        <div class="feature-card">
+          <h3>Full Introspection</h3>
+          <p>Explain() shows where values came from. Source tracking, override history, conflict detection, debug reports.</p>
+        </div>
+        <div class="feature-card">
+          <h3>Config Composition</h3>
+          <p>Hydra-style _include and _defaults directives with cycle detection. Environment-aware default + prod merging.</p>
+        </div>
+        <div class="feature-card">
+          <h3>Drift Detection</h3>
+          <p>Diff configs, detect unintended changes, snapshot versions, and rollback. Built-in observability and metrics.</p>
+        </div>
+        <div class="feature-card">
+          <h3>Dynamic Reload</h3>
+          <p>File watching via fsnotify with incremental reload. Change callbacks. Freeze for immutability.</p>
+        </div>
+        <div class="feature-card">
+          <h3>Production Ready</h3>
+          <p>Thread-safe (sync.RWMutex), zero global state, 96%+ test coverage, CI/CD, govulncheck clean.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="quickstart">
+      <h2>Quick Start</h2>
+      <div class="code-block">
+<span class="cmt">// Basic usage</span>
+<span class="kw">cfg</span>, err := confii.<span class="fn">New</span>[<span class="type">any</span>](ctx,
+    confii.<span class="fn">WithLoaders</span>(
+        loader.<span class="fn">NewYAML</span>(<span class="str">"config.yaml"</span>),
+        loader.<span class="fn">NewEnvironment</span>(<span class="str">"APP"</span>),
+    ),
+    confii.<span class="fn">WithEnv</span>(<span class="str">"production"</span>),
+)
+
+host, _ := cfg.<span class="fn">Get</span>(<span class="str">"database.host"</span>)
+port := cfg.<span class="fn">GetIntOr</span>(<span class="str">"database.port"</span>, <span class="str">5432</span>)
+
+<span class="cmt">// Type-safe access</span>
+<span class="kw">cfg</span>, err := confii.<span class="fn">New</span>[<span class="type">AppConfig</span>](ctx,
+    confii.<span class="fn">WithLoaders</span>(loader.<span class="fn">NewYAML</span>(<span class="str">"config.yaml"</span>)),
+    confii.<span class="fn">WithValidateOnLoad</span>(<span class="kw">true</span>),
+)
+model, _ := cfg.<span class="fn">Typed</span>()
+fmt.<span class="fn">Println</span>(model.Database.Host) <span class="cmt">// IDE autocomplete works</span>
+      </div>
+    </section>
+
+    <section class="comparison">
+      <h2>Feature Comparison</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Capability</th>
+            <th>Confii</th>
+            <th>Viper</th>
+            <th>Koanf</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>File formats (YAML/JSON/TOML/INI/.env)</td><td class="check">All 5</td><td class="check">All 5</td><td>4</td></tr>
+          <tr><td>Cloud sources (S3, SSM, Azure, GCS)</td><td class="check">All + IBM, Git</td><td class="cross">No</td><td>S3</td></tr>
+          <tr><td>Type-safe generics (Config[T])</td><td class="check">Yes</td><td class="cross">No</td><td class="cross">No</td></tr>
+          <tr><td>Secret stores (Vault, AWS, Azure, GCP)</td><td class="check">All 4 + env</td><td class="cross">No</td><td>Vault</td></tr>
+          <tr><td>Per-path merge strategies</td><td class="check">6 strategies</td><td class="cross">No</td><td>Global only</td></tr>
+          <tr><td>Config composition (_include/_defaults)</td><td class="check">Yes</td><td class="cross">No</td><td class="cross">No</td></tr>
+          <tr><td>${secret:key} placeholders</td><td class="check">Yes</td><td class="cross">No</td><td class="cross">No</td></tr>
+          <tr><td>Source tracking / introspection</td><td class="check">Yes</td><td class="cross">No</td><td class="cross">No</td></tr>
+          <tr><td>Config diff / drift detection</td><td class="check">Yes</td><td class="cross">No</td><td class="cross">No</td></tr>
+          <tr><td>Versioning with rollback</td><td class="check">Yes</td><td class="cross">No</td><td class="cross">No</td></tr>
+          <tr><td>Thread-safe</td><td class="check">RWMutex</td><td class="cross">No</td><td>Partial</td></tr>
+          <tr><td>CLI tool</td><td class="check">10 commands</td><td class="cross">No</td><td class="cross">No</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+  </div>
+
+  <footer>
+    <div class="container">
+      <div class="footer-links">
+        <a href="https://github.com/confiify/confii-go">GitHub</a>
+        <a href="https://pkg.go.dev/github.com/confiify/confii-go">Docs</a>
+        <a href="https://github.com/confiify/confii-go/tree/main/examples">Examples</a>
+        <a href="https://github.com/confiify/confii-go/blob/main/CHANGELOG.md">Changelog</a>
+        <a href="https://github.com/confiify/confii-go/blob/main/CONTRIBUTING.md">Contributing</a>
+        <a href="https://github.com/confiify/confii-go/blob/main/SECURITY.md">Security</a>
+      </div>
+      <p>MIT License &middot; Built by <a href="https://github.com/confiify">Confii</a></p>
+    </div>
+  </footer>
+
+</body>
+</html>
