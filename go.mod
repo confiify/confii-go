@@ -2,6 +2,8 @@ module github.com/confiify/confii-go
 
 go 1.25.0
 
+toolchain go1.25.8
+
 require (
 	cloud.google.com/go/secretmanager v1.16.0
 	cloud.google.com/go/storage v1.61.3

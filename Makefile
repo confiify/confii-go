@@ -112,8 +112,12 @@ vet-all: ## Run go vet with all cloud build tags
 	$(GOVET) -tags "$(TAGS_ALL)" ./...
 
 .PHONY: lint
-lint: fmt-check vet ## Run all linters (fmt-check + vet)
-	@echo "All lint checks passed."
+lint: fmt-check vet ## Run all linters (fmt-check + vet + golangci-lint)
+	golangci-lint run ./...
+
+.PHONY: vulncheck
+vulncheck: ## Run Go vulnerability check
+	govulncheck ./...
 
 .PHONY: tidy
 tidy: ## Run go mod tidy and verify
