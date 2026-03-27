@@ -4,8 +4,7 @@
 // stores (AWS S3, SSM, Azure Blob, GCS, IBM COS, Git repositories) — with
 // deep merging, secret resolution, source tracking, and type-safe generics.
 //
-// confii is a production-grade alternative to Viper, Koanf, and envconfig.
-// Unlike those libraries, confii handles the full configuration lifecycle:
+// confii goes beyond configuration loading — it manages the full lifecycle:
 // loading, merging with 6 per-path strategies, validating with struct tags
 // and JSON Schema, resolving ${secret:key} placeholders from AWS Secrets
 // Manager / Azure Key Vault / GCP Secret Manager / HashiCorp Vault (9 auth
@@ -13,7 +12,7 @@
 // versioning with rollback, and emitting observability metrics — all with
 // zero global state and full thread safety via sync.RWMutex.
 //
-// Key features that no other Go config library provides:
+// Key features:
 //
 //   - Type-safe generics: Config[T] with cfg.Typed() returning *T
 //   - 6 merge strategies (replace, merge, append, prepend, intersection, union) with per-path overrides
