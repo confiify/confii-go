@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/confiify/confii-go/cmd/confii/cmd"
+	"github.com/confiify/confii-go/confii/cmd"
 	"github.com/spf13/cobra"
 )
 

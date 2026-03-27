@@ -1,3 +1,5 @@
+//go:build aws && azure && gcp && vault
+
 // Package main shows cloud loader and secret store usage patterns.
 // These require build tags: go build -tags "aws,azure,gcp,vault,ibm"
 //
