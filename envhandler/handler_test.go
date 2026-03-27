@@ -32,7 +32,7 @@ func TestHandler_Resolve_WithDefaultAndEnv(t *testing.T) {
 	}
 	got := h.Resolve(config, "production")
 	assert.Equal(t, "prod-db", got["host"])
-	assert.Equal(t, 5432, got["port"])  // from default
+	assert.Equal(t, 5432, got["port"])   // from default
 	assert.Equal(t, false, got["debug"]) // overridden
 }
 

@@ -14,15 +14,15 @@ import (
 
 // SourceInfo records the origin and override history of a configuration key.
 type SourceInfo struct {
-	Key           string        `json:"key"`
-	Value         any           `json:"value"`
-	SourceFile    string        `json:"source_file"`
-	LoaderType    string        `json:"loader_type"`
-	LineNumber    int           `json:"line_number,omitempty"`
-	Environment   string        `json:"environment,omitempty"`
-	OverrideCount int           `json:"override_count"`
+	Key           string          `json:"key"`
+	Value         any             `json:"value"`
+	SourceFile    string          `json:"source_file"`
+	LoaderType    string          `json:"loader_type"`
+	LineNumber    int             `json:"line_number,omitempty"`
+	Environment   string          `json:"environment,omitempty"`
+	OverrideCount int             `json:"override_count"`
 	History       []OverrideEntry `json:"history,omitempty"`
-	Timestamp     time.Time     `json:"timestamp"`
+	Timestamp     time.Time       `json:"timestamp"`
 }
 
 // OverrideEntry records a single override event.

@@ -60,10 +60,10 @@ func TestAdvancedMerger_Intersection(t *testing.T) {
 	overlay := map[string]any{"b": 2, "c": 99, "d": 4}
 
 	got := m.Merge(base, overlay)
-	assert.Equal(t, 2, got["b"])       // equal in both → kept
-	assert.Nil(t, got["c"])            // different values → nil
-	assert.NotContains(t, got, "a")    // only in base → excluded
-	assert.NotContains(t, got, "d")    // only in overlay → excluded
+	assert.Equal(t, 2, got["b"])    // equal in both → kept
+	assert.Nil(t, got["c"])         // different values → nil
+	assert.NotContains(t, got, "a") // only in base → excluded
+	assert.NotContains(t, got, "d") // only in overlay → excluded
 }
 
 func TestAdvancedMerger_Union(t *testing.T) {
@@ -110,7 +110,7 @@ func TestAdvancedMerger_PerPathOverride(t *testing.T) {
 	// app: DeepMerge (default).
 	app := got["app"].(map[string]any)
 	assert.Equal(t, "myapp", app["name"]) // preserved
-	assert.Equal(t, false, app["debug"])   // overridden
+	assert.Equal(t, false, app["debug"])  // overridden
 }
 
 func TestAdvancedMerger_ParentPathMatch(t *testing.T) {

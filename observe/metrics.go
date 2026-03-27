@@ -116,12 +116,12 @@ func (m *Metrics) Statistics() map[string]any {
 	}
 
 	stats := map[string]any{
-		"total_keys":       m.totalKeys,
-		"accessed_keys":    accessedKeys,
-		"access_rate":      accessRate,
-		"reload_count":     m.reloadCount,
-		"avg_reload_time":  avgReload.String(),
-		"change_count":     m.changeCount,
+		"total_keys":        m.totalKeys,
+		"accessed_keys":     accessedKeys,
+		"access_rate":       accessRate,
+		"reload_count":      m.reloadCount,
+		"avg_reload_time":   avgReload.String(),
+		"change_count":      m.changeCount,
 		"top_accessed_keys": top,
 	}
 	if !m.lastReload.IsZero() {

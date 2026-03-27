@@ -13,11 +13,11 @@ import (
 
 // Version represents an immutable configuration snapshot.
 type Version struct {
-	VersionID  string         `json:"version_id"`
-	Config     map[string]any `json:"config"`
-	Timestamp  float64        `json:"timestamp"`
-	DateTime   string         `json:"datetime"`
-	Metadata   map[string]any `json:"metadata,omitempty"`
+	VersionID string         `json:"version_id"`
+	Config    map[string]any `json:"config"`
+	Timestamp float64        `json:"timestamp"`
+	DateTime  string         `json:"datetime"`
+	Metadata  map[string]any `json:"metadata,omitempty"`
 }
 
 // VersionManager manages configuration version snapshots.

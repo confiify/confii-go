@@ -1,3 +1,4 @@
+<!-- markdownlint-disable MD033 MD041 -->
 <p align="center">
   <img src="art/confii-go.png" alt="Confii Logo" />
 </p>
@@ -12,6 +13,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
   <a href="https://goreportcard.com/report/github.com/confiify/confii-go"><img src="https://goreportcard.com/badge/github.com/confiify/confii-go" alt="Go Report Card"></a>
 </p>
+<!-- markdownlint-enable MD033 MD041 -->
 
 ---
 
@@ -71,8 +73,10 @@ Go has several configuration libraries, but none provides a complete configurati
 | CLI tool (10 commands) | Yes | No | No | No |
 | Thread-safe (RWMutex) | Yes | [No](https://github.com/spf13/viper/issues/268) | Partial | Varies |
 
+<!-- markdownlint-disable MD033 -->
 <details>
 <summary><strong>What Confii solves that others don't</strong></summary>
+<!-- markdownlint-enable MD033 -->
 
 **1. The multi-source merge problem.** Viper's deep merge has [known limitations](https://github.com/spf13/viper/issues/181) with slices and nested maps. Confii provides 6 merge strategies with per-path overrides — so `database` can use `replace` while `features` uses `append` in the same merge.
 
@@ -384,6 +388,7 @@ hp.RegisterGlobalHook(func(key string, value any) any {
 ```
 
 **Built-in hooks** (enabled via options):
+
 - `WithEnvExpander(true)` — replaces `${VAR}` with OS environment variables
 - `WithTypeCasting(true)` — converts strings to bool/int/float automatically
 
@@ -659,7 +664,7 @@ confii migrate dotenv .env -o config.yaml
 
 All examples are runnable and located in the [`examples/`](examples/) directory:
 
-**Getting Started**
+#### Getting Started
 
 | Example | Description |
 | --- | --- |
@@ -668,7 +673,7 @@ All examples are runnable and located in the [`examples/`](examples/) directory:
 | [`builder`](examples/builder/main.go) | Fluent builder pattern |
 | [`self-config`](examples/self-config/main.go) | `.confii.yaml` auto-discovery |
 
-**Loading & Merging**
+#### Loading & Merging
 
 | Example | Description |
 | --- | --- |
@@ -678,7 +683,7 @@ All examples are runnable and located in the [`examples/`](examples/) directory:
 | [`composition`](examples/composition/main.go) | `_include` and `_defaults` directives |
 | [`cloud`](examples/cloud/main.go) | Cloud loaders and secret stores |
 
-**Processing & Validation**
+#### Processing & Validation
 
 | Example | Description |
 | --- | --- |
@@ -686,7 +691,7 @@ All examples are runnable and located in the [`examples/`](examples/) directory:
 | [`validation`](examples/validation/main.go) | Struct tags + JSON Schema validation |
 | [`secrets`](examples/secrets/main.go) | Secret resolution with `${secret:key}` |
 
-**Runtime & Debugging**
+#### Runtime & Debugging
 
 | Example | Description |
 | --- | --- |

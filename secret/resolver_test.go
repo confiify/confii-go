@@ -11,8 +11,8 @@ import (
 
 func TestResolver_Resolve(t *testing.T) {
 	store := NewDictStore(map[string]any{
-		"db/password":  "s3cret",
-		"api/key":      "abc123",
+		"db/password": "s3cret",
+		"api/key":     "abc123",
 	})
 
 	r := NewResolver(store)
