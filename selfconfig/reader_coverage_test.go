@@ -249,6 +249,19 @@ func TestRead_NonCWDNotCached(t *testing.T) {
 	cacheMu.Unlock()
 }
 
+func TestRead_XDGConfigFallback(t *testing.T) {
+	// Create a temp dir that has no confii config files,
+	// so readFromDir falls through to XDG fallback.
+	dir := t.TempDir()
+
+	ClearCache()
+	// Reading from a dir with no config files should not error.
+	settings, err := Read(dir)
+	require.NoError(t, err)
+	// Settings may be nil if no XDG config exists either.
+	_ = settings
+}
+
 func TestRead_EmptyConfigFile(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "confii.yaml"), []byte(``), 0644))

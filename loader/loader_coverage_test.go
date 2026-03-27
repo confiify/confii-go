@@ -412,3 +412,15 @@ func TestParseContent_InvalidYAML(t *testing.T) {
 	_, err := ParseContent(data, formatparse.FormatYAML, "test.yaml")
 	assert.Error(t, err)
 }
+
+// ===========================================================================
+// HTTPLoader with malformed URL to trigger NewRequestWithContext error
+// ===========================================================================
+
+func TestHTTPLoader_MalformedURL(t *testing.T) {
+	// A URL with control characters should trigger NewRequestWithContext error.
+	l := NewHTTP("http://example.com/\x00config.json")
+	_, err := l.Load(context.Background())
+	assert.Error(t, err)
+	assert.True(t, errors.Is(err, confii.ErrConfigLoad))
+}

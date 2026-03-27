@@ -275,6 +275,31 @@ func TestVersionManager_DiffVersions_NoDifferences(t *testing.T) {
 	assert.Empty(t, diffs)
 }
 
+func TestVersionManager_ScanDiskWithUnreadableFile(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a valid version file and an unreadable one.
+	v := &Version{
+		VersionID: "readable",
+		Config:    map[string]any{"ok": true},
+		Timestamp: 1000,
+	}
+	data, _ := json.MarshalIndent(v, "", "  ")
+	_ = os.WriteFile(filepath.Join(dir, "readable.json"), data, 0644)
+
+	// Create unreadable file.
+	unreadablePath := filepath.Join(dir, "unreadable.json")
+	_ = os.WriteFile(unreadablePath, []byte(`{"version_id":"unreadable"}`), 0000)
+
+	vm := NewVersionManager(dir, 100)
+	versions := vm.ListVersions()
+	// The readable version should be loaded; the unreadable one should be skipped.
+	assert.GreaterOrEqual(t, len(versions), 1)
+
+	// Cleanup: make the file writable again so TempDir cleanup succeeds.
+	_ = os.Chmod(unreadablePath, 0644)
+}
+
 func TestVersionManager_DiffVersions_NotFound(t *testing.T) {
 	dir := t.TempDir()
 	vm := NewVersionManager(dir, 100)

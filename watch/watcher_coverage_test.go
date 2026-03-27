@@ -1,6 +1,7 @@
 package watch
 
 import (
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -78,6 +79,42 @@ func TestWatcher_FileChangeTriggersReload(t *testing.T) {
 		}
 	}
 
+	assert.GreaterOrEqual(t, atomic.LoadInt64(&reloadCount), int64(1))
+}
+
+func TestWatcher_ReloadFuncReturnsError(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "config.yaml")
+	require.NoError(t, os.WriteFile(f, []byte("v1"), 0644))
+
+	var reloadCount int64
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+
+	w, err := New([]string{f}, func() error {
+		atomic.AddInt64(&reloadCount, 1)
+		return fmt.Errorf("simulated reload error")
+	}, logger)
+	require.NoError(t, err)
+	defer w.Stop()
+
+	// Give the watcher time to start.
+	time.Sleep(100 * time.Millisecond)
+
+	// Modify the watched file.
+	require.NoError(t, os.WriteFile(f, []byte("v2"), 0644))
+
+	// Wait for the reload callback to fire.
+	deadline := time.After(3 * time.Second)
+	for atomic.LoadInt64(&reloadCount) == 0 {
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for reload callback")
+		default:
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+
+	// The watcher should still be running even after the error.
 	assert.GreaterOrEqual(t, atomic.LoadInt64(&reloadCount), int64(1))
 }
 

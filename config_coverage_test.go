@@ -1360,3 +1360,127 @@ func TestConfig_GetOr_VariousTypes(t *testing.T) {
 	val = cfg.GetOr("missing.key.xyz", "fallback-value")
 	assert.Equal(t, "fallback-value", val)
 }
+
+// ===========================================================================
+// ToDict when envConfig is nil (line 392)
+// ===========================================================================
+
+func TestConfig_ToDict_NoEnvironment(t *testing.T) {
+	// Create a config with no environment set. When envConfig is populated,
+	// ToDict returns envConfig. But let's verify the fallback path by
+	// creating a config with no loaders so envConfig should be nil.
+	cfg, err := confii.New[any](context.Background())
+	require.NoError(t, err)
+
+	// ToDict should return something non-nil (either envConfig or mergedConfig).
+	dict := cfg.ToDict()
+	assert.NotNil(t, dict)
+}
+
+// ===========================================================================
+// Set with bad keyPath (lines 358-360)
+// ===========================================================================
+
+func TestConfig_Set_EmptyKeyPath(t *testing.T) {
+	cfg, err := confii.New[any](context.Background(),
+		confii.WithLoaders(loader.NewYAML("loader/testdata/simple.yaml")),
+	)
+	require.NoError(t, err)
+
+	// Setting with an empty key path should work (sets "" key).
+	// The Set call itself should not error.
+	err = cfg.Set("", "value")
+	assert.NoError(t, err)
+}
+
+func TestConfig_Set_BadKeyPath_IntermediateNotMap(t *testing.T) {
+	cfg, err := confii.New[any](context.Background(),
+		confii.WithLoaders(loader.NewYAML("loader/testdata/simple.yaml")),
+	)
+	require.NoError(t, err)
+
+	// database.host is a string, so trying to set database.host.deep should fail
+	// because "host" is not a map.
+	err = cfg.Set("database.host.deep.key", "value")
+	assert.Error(t, err)
+}
+
+// ===========================================================================
+// Layers with duplicate sources (lines 471-472)
+// ===========================================================================
+
+func TestConfig_Layers_DuplicateSources(t *testing.T) {
+	yamlPath := "loader/testdata/simple.yaml"
+	cfg, err := confii.New[any](context.Background(),
+		confii.WithLoaders(
+			loader.NewYAML(yamlPath),
+			loader.NewYAML(yamlPath),
+		),
+	)
+	require.NoError(t, err)
+
+	layers := cfg.Layers()
+	// Even though the same YAML file is loaded twice, Layers should deduplicate by source.
+	sourceCount := 0
+	for _, l := range layers {
+		if l["source"] == yamlPath {
+			sourceCount++
+		}
+	}
+	assert.Equal(t, 1, sourceCount, "duplicate source should be deduplicated")
+}
+
+// ===========================================================================
+// load with compose error (lines 165-168)
+// ===========================================================================
+
+func TestConfig_LoadWithComposeError(t *testing.T) {
+	// Create a YAML file with _include pointing to nonexistent file.
+	dir := t.TempDir()
+	yamlContent := "_include:\n  - nonexistent_file.yaml\nkey: value\n"
+	yamlPath := filepath.Join(dir, "cfg.yaml")
+	require.NoError(t, os.WriteFile(yamlPath, []byte(yamlContent), 0644))
+
+	// Should not error - compose error is just a warning, uses original data.
+	cfg, err := confii.New[any](context.Background(),
+		confii.WithLoaders(loader.NewYAML(yamlPath)),
+	)
+	require.NoError(t, err)
+
+	// The key from the original data should still be present.
+	val, err := cfg.Get("key")
+	require.NoError(t, err)
+	assert.Equal(t, "value", val)
+}
+
+// ===========================================================================
+// startWatching error path (lines 925-928)
+// ===========================================================================
+
+func TestConfig_StartWatching_NoFiles(t *testing.T) {
+	// A loader that returns no files (source is a non-file like "memory")
+	// should trigger the startWatching error path (fsnotify fails on non-existent dirs).
+	cfg, err := confii.New[any](context.Background(),
+		confii.WithLoaders(&memLoader{source: "/nonexistent_dir_test_confii/no_such_file.yaml", data: map[string]any{"k": "v"}}),
+		confii.WithDynamicReloading(true),
+	)
+	require.NoError(t, err)
+	defer cfg.StopWatching()
+
+	// Config should still work even though watcher failed to start.
+	val, err := cfg.Get("k")
+	require.NoError(t, err)
+	assert.Equal(t, "v", val)
+}
+
+// memLoader is a stub loader for tests in the external test package.
+type memLoader struct {
+	source string
+	data   map[string]any
+}
+
+func (l *memLoader) Load(_ context.Context) (map[string]any, error) {
+	return l.data, nil
+}
+
+func (l *memLoader) Source() string { return l.source }

@@ -229,6 +229,44 @@ func TestDecodeAndValidate_MapWithSliceValues(t *testing.T) {
 	assert.Equal(t, []int{1, 2, 3}, result.Items)
 }
 
+// ===========================================================================
+// Decode/DecodeAndValidate with data that fails mapstructure
+// ===========================================================================
+
+func TestDecode_FailsWithInvalidType(t *testing.T) {
+	// mapstructure with WeaklyTypedInput still fails for certain type mismatches.
+	type Strict struct {
+		Port int `mapstructure:"port"`
+	}
+	// "not_a_number" cannot be parsed as int even with WeaklyTypedInput.
+	_, err := Decode[Strict](map[string]any{"port": "not_a_number"})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "struct decode")
+}
+
+func TestDecodeAndValidate_DecodeFailurePath(t *testing.T) {
+	// DecodeAndValidate with a struct where required field validation fails.
+	type RequiredPort struct {
+		Port int `mapstructure:"port" validate:"required,min=1"`
+	}
+
+	_, err := DecodeAndValidate[RequiredPort](map[string]any{"port": 0})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "validation")
+}
+
+func TestStructValidator_Validate_DecodeFailurePath(t *testing.T) {
+	type Config struct {
+		Name string `mapstructure:"name" validate:"required"`
+	}
+
+	v := NewStructValidator[Config]()
+	// Empty data: decode succeeds (zero values) but validation fails
+	err := v.Validate(map[string]any{})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "validation")
+}
+
 // ---------------------------------------------------------------------------
 // JSON Schema Validate with non-ValidationError (edge case)
 // ---------------------------------------------------------------------------

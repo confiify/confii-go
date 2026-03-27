@@ -349,3 +349,85 @@ func TestMultiStore_GetSecret_NonNotFoundError(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "from-secondary", val)
 }
+
+// ===========================================================================
+// failingStore returns errors for all operations (non-ErrSecretNotFound)
+// ===========================================================================
+
+type failingStore struct {
+	err error
+}
+
+func (s *failingStore) GetSecret(_ context.Context, _ string, _ ...confii.SecretOption) (any, error) {
+	return nil, s.err
+}
+
+func (s *failingStore) SetSecret(_ context.Context, _ string, _ any, _ ...confii.SecretOption) error {
+	return s.err
+}
+
+func (s *failingStore) DeleteSecret(_ context.Context, _ string, _ ...confii.SecretOption) error {
+	return s.err
+}
+
+func (s *failingStore) ListSecrets(_ context.Context, _ string) ([]string, error) {
+	return nil, s.err
+}
+
+// Test GetSecret when store returns non-ErrSecretNotFound error (lines 54-56).
+func TestMultiStore_GetSecret_NonNotFoundError_FailingStore(t *testing.T) {
+	fail := &failingStore{err: errors.New("connection refused")}
+	working := NewDictStore(map[string]any{"key": "found"})
+
+	multi := NewMultiStore([]confii.SecretStore{fail, working})
+	ctx := context.Background()
+
+	// The failing store returns a non-ErrSecretNotFound error, which should be logged.
+	// Then it falls through to the working store.
+	val, err := multi.GetSecret(ctx, "key")
+	require.NoError(t, err)
+	assert.Equal(t, "found", val)
+}
+
+// Test SetSecret when a store in the chain fails (lines 70-72).
+func TestMultiStore_SetSecret_ChainFailure(t *testing.T) {
+	working := NewDictStore(nil)
+	fail := &failingStore{err: errors.New("write error")}
+
+	multi := NewMultiStore(
+		[]confii.SecretStore{working, fail},
+		WithWriteToFirst(false), // write to all stores
+	)
+
+	err := multi.SetSecret(context.Background(), "key", "value")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "write error")
+}
+
+// Test DeleteSecret when a store in the chain fails (lines 83-85).
+func TestMultiStore_DeleteSecret_ChainFailure(t *testing.T) {
+	working := NewDictStore(map[string]any{"key": "val"})
+	fail := &failingStore{err: errors.New("delete error")}
+
+	multi := NewMultiStore(
+		[]confii.SecretStore{working, fail},
+		WithWriteToFirst(false), // delete from all stores
+	)
+
+	err := multi.DeleteSecret(context.Background(), "key")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "delete error")
+}
+
+// Test ListSecrets when a store returns error (lines 96-97).
+func TestMultiStore_ListSecrets_StoreError(t *testing.T) {
+	fail := &failingStore{err: errors.New("list error")}
+	working := NewDictStore(map[string]any{"key1": "v1", "key2": "v2"})
+
+	multi := NewMultiStore([]confii.SecretStore{fail, working})
+
+	keys, err := multi.ListSecrets(context.Background(), "")
+	require.NoError(t, err)
+	// The failing store's error is silently skipped; we get keys from the working store.
+	assert.GreaterOrEqual(t, len(keys), 2)
+}

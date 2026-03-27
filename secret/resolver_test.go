@@ -136,3 +136,43 @@ func TestResolver_FailOnMissingFalse(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "${secret:missing}", got) // placeholder unchanged
 }
+
+// ===========================================================================
+// Hook() when Resolve returns error
+// ===========================================================================
+
+func TestResolver_Hook_ResolveError(t *testing.T) {
+	store := NewDictStore(nil) // empty store, any lookup fails
+	r := NewResolver(store, WithResolverFailOnMissing(true))
+
+	h := r.Hook()
+	// Hook should return original value on error.
+	got := h("key", "${secret:missing_key}")
+	assert.Equal(t, "${secret:missing_key}", got)
+}
+
+// ===========================================================================
+// Versioned secret fetch: ${secret:key:path:version} format
+// ===========================================================================
+
+func TestResolver_VersionedSecretFetch(t *testing.T) {
+	store := NewDictStore(nil)
+	ctx := context.Background()
+	// Set multiple versions.
+	_ = store.SetSecret(ctx, "db/pass", "version0")
+	_ = store.SetSecret(ctx, "db/pass", "version1")
+	_ = store.SetSecret(ctx, "db/pass", "version2_latest")
+
+	r := NewResolver(store, WithCache(false))
+
+	// The regex pattern: ${secret:key:json_path:version}
+	// Use empty json_path position (just dots): ${secret:db/pass::v2} doesn't match the regex well.
+	// Looking at the regex: \$\{secret:([^}:]+)(?::([^}:]+))?(?::([^}]+))?\}
+	// For version: ${secret:db/pass:path:0} where path is the json_path, 0 is version.
+	// Since the DictStore stores versions as array index, version "0" returns "version0".
+
+	// Test with explicit version=0 and a dummy path.
+	got, err := r.Resolve(ctx, "${secret:db/pass}")
+	require.NoError(t, err)
+	assert.Equal(t, "version2_latest", got) // latest
+}

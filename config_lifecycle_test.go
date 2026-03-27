@@ -901,3 +901,49 @@ func TestResolveSecretOptions_Empty(t *testing.T) {
 	o := ResolveSecretOptions()
 	assert.Equal(t, "", o.Version)
 }
+
+// ===========================================================================
+// Reload failure rollback (lines 645-650)
+// ===========================================================================
+
+type failOnReloadLoader struct {
+	source    string
+	data      map[string]any
+	callCount int
+}
+
+func (l *failOnReloadLoader) Load(_ context.Context) (map[string]any, error) {
+	l.callCount++
+	if l.callCount > 1 {
+		return nil, errors.New("simulated reload failure")
+	}
+	return l.data, nil
+}
+
+func (l *failOnReloadLoader) Source() string { return l.source }
+
+func TestReload_FailureRollback(t *testing.T) {
+	fLoader := &failOnReloadLoader{
+		source: "fail-on-reload",
+		data:   map[string]any{"key": "original"},
+	}
+
+	cfg, err := New[any](context.Background(),
+		WithLoaders(fLoader),
+		WithOnError(ErrorPolicyRaise),
+	)
+	require.NoError(t, err)
+
+	v, err := cfg.Get("key")
+	require.NoError(t, err)
+	assert.Equal(t, "original", v)
+
+	// Reload should fail because the loader now returns an error.
+	err = cfg.Reload(context.Background(), WithIncremental(false))
+	require.Error(t, err)
+
+	// After failed reload, the original config should be preserved (rollback).
+	v, err = cfg.Get("key")
+	require.NoError(t, err)
+	assert.Equal(t, "original", v)
+}

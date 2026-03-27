@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestMergeAll_SingleConfig(t *testing.T) {
@@ -220,4 +221,112 @@ func TestToSlice_AlreadySlice(t *testing.T) {
 func TestToSlice_NonSlice(t *testing.T) {
 	s := toSlice("hello")
 	assert.Equal(t, []any{"hello"}, s)
+}
+
+// ===========================================================================
+// AdvancedMerger with nested intersection where prefix != "" (lines 71-73)
+// ===========================================================================
+
+func TestAdvancedMerger_IntersectMaps_WithPrefix(t *testing.T) {
+	m := NewAdvanced(Intersection, map[string]Strategy{
+		"parent.child": Intersection,
+	})
+
+	base := map[string]any{
+		"parent": map[string]any{
+			"child": map[string]any{
+				"shared":    "base_val",
+				"only_base": "gone",
+			},
+		},
+	}
+	overlay := map[string]any{
+		"parent": map[string]any{
+			"child": map[string]any{
+				"shared":       "base_val",
+				"only_overlay": "new",
+			},
+		},
+	}
+	got := m.Merge(base, overlay)
+	parent, ok := got["parent"].(map[string]any)
+	require.True(t, ok)
+	child, ok := parent["child"].(map[string]any)
+	require.True(t, ok)
+	// Intersection: only "shared" with equal values should be kept.
+	assert.Equal(t, "base_val", child["shared"])
+	_, hasOnlyBase := child["only_base"]
+	assert.False(t, hasOnlyBase)
+	_, hasOnlyOverlay := child["only_overlay"]
+	assert.False(t, hasOnlyOverlay)
+}
+
+// ===========================================================================
+// resolveStrategy parent path matching (lines 88-95)
+// ===========================================================================
+
+func TestAdvancedMerger_ResolveStrategy_DeepParentPath(t *testing.T) {
+	m := NewAdvanced(DeepMergeStrategy, map[string]Strategy{
+		"database": Replace,
+	})
+
+	// "database.connection.host" should resolve to parent "database" -> Replace.
+	base := map[string]any{
+		"database": map[string]any{
+			"connection": map[string]any{
+				"host": "localhost",
+				"port": 5432,
+			},
+		},
+	}
+	overlay := map[string]any{
+		"database": map[string]any{
+			"connection": map[string]any{
+				"host": "prod-db",
+			},
+		},
+	}
+	got := m.Merge(base, overlay)
+	db := got["database"].(map[string]any)
+	// With Replace strategy on "database", the entire "database" map is replaced.
+	conn, ok := db["connection"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "prod-db", conn["host"])
+	_, hasPort := conn["port"]
+	assert.False(t, hasPort, "Replace should not keep port from base")
+}
+
+// ===========================================================================
+// intersect with nested maps on both sides (lines 162-166)
+// ===========================================================================
+
+func TestIntersect_NestedMapsOnBothSides(t *testing.T) {
+	base := map[string]any{
+		"level1": map[string]any{
+			"shared": map[string]any{
+				"a": "same",
+				"b": "diff_base",
+			},
+			"only_base": "gone",
+		},
+	}
+	overlay := map[string]any{
+		"level1": map[string]any{
+			"shared": map[string]any{
+				"a": "same",
+				"b": "diff_overlay",
+			},
+			"only_overlay": "new",
+		},
+	}
+
+	result := intersect(base, overlay)
+	require.NotNil(t, result)
+	rm := result.(map[string]any)
+	level1 := rm["level1"].(map[string]any)
+	shared := level1["shared"].(map[string]any)
+	assert.Equal(t, "same", shared["a"])
+	// "b" differs so it should not be in the intersection.
+	_, hasB := shared["b"]
+	assert.False(t, hasB)
 }

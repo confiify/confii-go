@@ -34,6 +34,17 @@ func TestEnvironmentLoader_NoMatches(t *testing.T) {
 	assert.Nil(t, result)
 }
 
+func TestEnvironmentLoader_EnvVarWithEmptyValue(t *testing.T) {
+	// An env var with no value after = should still be picked up.
+	t.Setenv("EMPTYVAL_KEY", "")
+
+	l := NewEnvironment("EMPTYVAL")
+	result, err := l.Load(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, "", result["key"])
+}
+
 func TestEnvironmentLoader_CustomSeparator(t *testing.T) {
 	t.Setenv("MYAPP_DB_HOST", "dbhost")
 

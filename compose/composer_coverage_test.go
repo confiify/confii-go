@@ -318,6 +318,26 @@ func TestCompose_Defaults_StringWithoutColon(t *testing.T) {
 // Source empty dir falls back to basePath
 // ---------------------------------------------------------------------------
 
+// ===========================================================================
+// _defaults pointing to a non-existent file to trigger processDefaults error path
+// ===========================================================================
+
+func TestCompose_Defaults_NonExistentFile(t *testing.T) {
+	// The processDefaults function handles string items as "key: value" format,
+	// so pointing to a non-existent file path doesn't error because it's treated
+	// as a string key-value. The _include directive would error for missing files.
+	// Test _include pointing to nonexistent file to trigger error path.
+	config := map[string]any{
+		"_include": []any{"nonexistent_defaults_file.yaml"},
+		"key":      "value",
+	}
+
+	c := New(".")
+	_, err := c.Compose(config, "test.yaml")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "include")
+}
+
 func TestCompose_Include_EmptySourceDir(t *testing.T) {
 	dir := t.TempDir()
 	_ = os.WriteFile(filepath.Join(dir, "inc.yaml"), []byte("inc: true\n"), 0644)

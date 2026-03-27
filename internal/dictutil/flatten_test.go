@@ -49,6 +49,20 @@ func TestFlatKeysWithPrefix(t *testing.T) {
 	assert.Equal(t, []string{"host", "port"}, keys)
 }
 
+func TestFlatKeysWithPrefix_EmptyPrefix(t *testing.T) {
+	data := map[string]any{
+		"database": map[string]any{
+			"host": "localhost",
+			"port": 5432,
+		},
+		"debug": true,
+	}
+	keys := FlatKeysWithPrefix(data, "")
+	sort.Strings(keys)
+	// With empty prefix, all keys should be returned.
+	assert.Equal(t, []string{"database.host", "database.port", "debug"}, keys)
+}
+
 func TestUnflatten(t *testing.T) {
 	flat := map[string]any{
 		"database.host": "localhost",
