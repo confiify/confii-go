@@ -88,6 +88,46 @@ go get github.com/confiify/confii-go
     fmt.Println(model.Database.Host) // IDE autocomplete works
     ```
 
+=== "Self-Config"
+
+    Drop a `.confii.yaml` in your project root — zero Go code to configure Confii itself:
+
+    ```yaml title=".confii.yaml"
+    # Confii finds this file automatically
+    default_environment: production
+    env_switcher: APP_ENV
+    validate_on_load: true
+    use_env_expander: true
+    freeze_on_load: true
+    deep_merge: true
+    log_level: warn
+    schema_path: schema.json
+
+    sources:
+      - type: yaml
+        path: config/base.yaml
+      - type: yaml
+        path: config/prod.yaml
+      - type: env
+        prefix: APP
+
+    secrets:
+      provider: vault
+      address: https://vault.internal:8200
+      auth: kubernetes
+    ```
+
+    ```go title="main.go"
+    // That's it — Confii reads .confii.yaml automatically
+    cfg, err := confii.New[AppConfig](ctx)
+    if err != nil {
+        log.Fatal(err)
+    }
+    model, _ := cfg.Typed()
+    ```
+
+    No `WithLoaders()`, no `WithEnv()`, no `WithValidateOnLoad()` — everything is declared in the config file. Constructor arguments still override self-config values when you need them.
+
 === "Builder"
 
     ```go
