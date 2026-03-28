@@ -39,6 +39,23 @@ All checks must pass. Target 90%+ test coverage for new code.
 - Run `gofmt -s` before committing (or `make fmt`)
 - No `golangci-lint` warnings allowed
 
+## Testing Policy
+
+All new functionality **must** include tests. This is enforced through:
+
+- **Coverage target:** New code must maintain 90%+ test coverage. The CI pipeline reports coverage via Codecov on every PR.
+- **Test with PR:** Every pull request must include tests that cover the new or changed functionality. PRs without tests for new features will not be merged.
+- **Race detection:** Tests are run with `-race` in CI to catch concurrency issues.
+- **Linting:** `golangci-lint` enforces error checking (`errcheck`), unused code detection, and other quality rules.
+
+Run the full test suite locally before submitting:
+
+```bash
+make test          # unit tests
+make test-race     # with race detector
+make test-cover    # with coverage report
+```
+
 ## Pull Request Guidelines
 
 - Keep PRs focused on a single change
