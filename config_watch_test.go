@@ -60,7 +60,7 @@ func captureLogger() (*slog.Logger, *safeBuffer) {
 	return slog.New(h), buf
 }
 
-// TestG20Residual_StartWatching_FiltersNonFileSources observable: when a
+// TestStartWatching_FiltersNonFileSources observable: when a
 // Config is constructed with a mix of file and non-file loaders under
 // WithDynamicReloading(true), the watch package's "skipping non-file
 // source" warning MUST NOT appear in the captured log output. Pre-Wave 21
@@ -68,7 +68,7 @@ func captureLogger() (*slog.Logger, *safeBuffer) {
 // "environment:APP" and "http(s)://...") to watch.New, which then logged
 // each at warn level. Post-fix the call site filters those sources before
 // watch.New ever sees them.
-func TestG20Residual_StartWatching_FiltersNonFileSources(t *testing.T) {
+func TestStartWatching_FiltersNonFileSources(t *testing.T) {
 	dir := t.TempDir()
 	yamlPath := filepath.Join(dir, "real.yaml")
 	require.NoError(t, os.WriteFile(yamlPath, []byte("k: v\n"), 0644))
@@ -118,10 +118,10 @@ func TestG20Residual_StartWatching_FiltersNonFileSources(t *testing.T) {
 	}
 }
 
-// TestG20Residual_StartWatching_FileSources_StillWatched observable:
+// TestStartWatching_FileSources_StillWatched observable:
 // filtering must NOT break the happy path. Mutating a watched YAML file
 // still fires the reload pipeline.
-func TestG20Residual_StartWatching_FileSources_StillWatched(t *testing.T) {
+func TestStartWatching_FileSources_StillWatched(t *testing.T) {
 	dir := t.TempDir()
 	yamlPath := filepath.Join(dir, "watched.yaml")
 	require.NoError(t, os.WriteFile(yamlPath, []byte("k: before\n"), 0644))

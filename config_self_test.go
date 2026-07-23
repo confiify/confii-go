@@ -47,13 +47,13 @@ func chdirToSelfConfig(t *testing.T, confiiYAML string) string {
 	return dir
 }
 
-// TestG04_DefaultPrefix_AppliesEnvPrefix pins the documented contract that
+// TestDefaultPrefix_AppliesEnvPrefix pins the documented contract that
 // self-config `default_prefix: APP` is functionally equivalent to an
 // explicit confii.WithEnvPrefix("APP") call: setting APP_HOST in the OS
 // environment must surface as cfg.Get("host") via the loader pipeline
 // (G03's envPrefixAutoLoader wiring), not merely as a sysenv-fallback
 // shortcut.
-func TestG04_DefaultPrefix_AppliesEnvPrefix(t *testing.T) {
+func TestDefaultPrefix_AppliesEnvPrefix(t *testing.T) {
 	chdirToSelfConfig(t, "default_prefix: APP\n")
 	t.Setenv("APP_HOST", "example.com")
 
@@ -79,11 +79,11 @@ func TestG04_DefaultPrefix_AppliesEnvPrefix(t *testing.T) {
 		"G04: self-config default_prefix must surface as an environment:APP layer")
 }
 
-// TestG04_DefaultPrefix_ExplicitWithEnvPrefix_Wins pins the explicit >
+// TestDefaultPrefix_ExplicitWithEnvPrefix_Wins pins the explicit >
 // self-config priority: an explicit confii.WithEnvPrefix("MYSVC") must
 // suppress a self-config default_prefix:APP value end-to-end. Observable:
 // MYSVC_HOST surfaces, APP_HOST does not.
-func TestG04_DefaultPrefix_ExplicitWithEnvPrefix_Wins(t *testing.T) {
+func TestDefaultPrefix_ExplicitWithEnvPrefix_Wins(t *testing.T) {
 	chdirToSelfConfig(t, "default_prefix: APP\n")
 	t.Setenv("MYSVC_HOST", "from-mysvc")
 	t.Setenv("APP_HOST", "from-app")
@@ -108,13 +108,13 @@ func TestG04_DefaultPrefix_ExplicitWithEnvPrefix_Wins(t *testing.T) {
 	}
 }
 
-// TestG04_LogLevel_ConstructsLogger pins that self-config `log_level:
+// TestLogLevel_ConstructsLogger pins that self-config `log_level:
 // debug` builds an *slog.Logger at debug level and assigns it to
 // opts.Logger. Observable: a log record emitted at debug level by the
 // resulting Config's logger is captured by the underlying handler. We
 // verify by reading back cfg.Logger() and confirming it accepts a Debug
 // record (handler.Enabled returns true at slog.LevelDebug).
-func TestG04_LogLevel_ConstructsLogger(t *testing.T) {
+func TestLogLevel_ConstructsLogger(t *testing.T) {
 	chdirToSelfConfig(t, "log_level: debug\n")
 
 	cfg, err := confii.New[any](context.Background())
@@ -131,11 +131,11 @@ func TestG04_LogLevel_ConstructsLogger(t *testing.T) {
 		"G04: self-config log_level must construct a new logger, not return slog.Default()")
 }
 
-// TestG04_LogLevel_InvalidString_TypedError pins the G07-style typed
+// TestLogLevel_InvalidString_TypedError pins the G07-style typed
 // error contract: an unrecognised log_level surfaces as a typed
 // *ConfigError wrapping ErrConfigLoad rather than being silently
 // coerced or ignored. Caller can detect via errors.As / errors.Is.
-func TestG04_LogLevel_InvalidString_TypedError(t *testing.T) {
+func TestLogLevel_InvalidString_TypedError(t *testing.T) {
 	chdirToSelfConfig(t, "log_level: bogus\n")
 
 	_, err := confii.New[any](context.Background())
@@ -150,11 +150,11 @@ func TestG04_LogLevel_InvalidString_TypedError(t *testing.T) {
 		"G04: invalid log_level error must mention the offending value")
 }
 
-// TestG04_LogLevel_ExplicitWithLogger_Wins pins the explicit >
+// TestLogLevel_ExplicitWithLogger_Wins pins the explicit >
 // self-config priority for log_level: an explicit confii.WithLogger must
 // be untouched by self-config log_level: debug. We supply a captured
 // logger and assert cfg.Logger() returns the same pointer.
-func TestG04_LogLevel_ExplicitWithLogger_Wins(t *testing.T) {
+func TestLogLevel_ExplicitWithLogger_Wins(t *testing.T) {
 	chdirToSelfConfig(t, "log_level: debug\n")
 
 	var buf bytes.Buffer
@@ -173,11 +173,11 @@ func TestG04_LogLevel_ExplicitWithLogger_Wins(t *testing.T) {
 		"G04: explicit WithLogger preserves its own level (LevelError); debug must be filtered out")
 }
 
-// TestG04_Sources_AppendsToLoaders pins that self-config `sources:` is
+// TestSources_AppendsToLoaders pins that self-config `sources:` is
 // translated into Loader instances and appended to opts.Loaders. The
 // observable is two-fold: (1) cfg.Layers() lists the declared paths and
 // (2) cfg.Get can read keys from the declared sources.
-func TestG04_Sources_AppendsToLoaders(t *testing.T) {
+func TestSources_AppendsToLoaders(t *testing.T) {
 	dir := chdirToSelfConfig(t, `
 sources:
   - type: yaml
@@ -222,10 +222,10 @@ sources:
 	assert.True(t, sources["environment:APPCFG"], "G04: cfg.Layers() must list environment:APPCFG; got %v", sources)
 }
 
-// TestG04_Sources_UnknownType_TypedError pins that an unsupported source
+// TestSources_UnknownType_TypedError pins that an unsupported source
 // type surfaces as a typed *ConfigError instead of silently dropping
 // the declared loader.
-func TestG04_Sources_UnknownType_TypedError(t *testing.T) {
+func TestSources_UnknownType_TypedError(t *testing.T) {
 	chdirToSelfConfig(t, `
 sources:
   - type: redis
@@ -242,12 +242,12 @@ sources:
 		"G04: unknown source type must wrap ErrConfigLoad")
 }
 
-// TestG04_Secrets_RegistersStores pins that self-config `secrets:` with
+// TestSecrets_RegistersStores pins that self-config `secrets:` with
 // `provider: env` installs a global hook on the Config that resolves
 // ${secret:KEY} placeholders against OS environment variables. The
 // observable: a value containing ${secret:db/password} (read via
 // cfg.GetCtx) returns the resolved env-var value.
-func TestG04_Secrets_RegistersStores(t *testing.T) {
+func TestSecrets_RegistersStores(t *testing.T) {
 	dir := chdirToSelfConfig(t, `
 default_files:
   - app.yaml
@@ -269,11 +269,11 @@ secrets:
 	assert.Equal(t, "s3cr3t", pw)
 }
 
-// TestG04_Secrets_UnknownProvider_TypedError pins that an unrecognised
+// TestSecrets_UnknownProvider_TypedError pins that an unrecognised
 // secrets.provider surfaces as a typed *ConfigError so operator typos
 // in .confii.yaml fail loudly instead of silently installing a no-op
 // hook.
-func TestG04_Secrets_UnknownProvider_TypedError(t *testing.T) {
+func TestSecrets_UnknownProvider_TypedError(t *testing.T) {
 	chdirToSelfConfig(t, `
 secrets:
   provider: bogusvault
@@ -290,7 +290,7 @@ secrets:
 	assert.Contains(t, err.Error(), "bogusvault")
 }
 
-// TestG04_AllSettings_NoOpWhenAlreadyExplicit is the integration
+// TestAllSettings_NoOpWhenAlreadyExplicit is the integration
 // regression: with all four parsed-but-unused settings declared in
 // self-config AND all four also explicitly overridden via constructor
 // options, the explicit values must win across the board. Pin via
@@ -307,7 +307,7 @@ secrets:
 //     the call and returns "explicit-resolved"); the env-store hook is
 //     not installed (env var holding the secret is unset, so an
 //     accidental fallback would error).
-func TestG04_AllSettings_NoOpWhenAlreadyExplicit(t *testing.T) {
+func TestAllSettings_NoOpWhenAlreadyExplicit(t *testing.T) {
 	dir := chdirToSelfConfig(t, `
 default_prefix: APP
 log_level: debug

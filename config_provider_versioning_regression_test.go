@@ -25,7 +25,7 @@ import (
 // V-05_a — `int(8080)` to `float64(8080)` is a real type drift; the
 // callback must fire so downstream type-aware consumers can re-coerce.
 // Pre-V-05 the diff was suppressed because both sides stringify to "8080".
-func TestV05_OnChange_FiresOnTypeDrift_IntToFloat(t *testing.T) {
+func TestOnChange_FiresOnTypeDrift_IntToFloat(t *testing.T) {
 	cfg, err := confii.New[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML("loader/testdata/simple.yaml")),
 	)
@@ -75,7 +75,7 @@ func TestV05_OnChange_FiresOnTypeDrift_IntToFloat(t *testing.T) {
 
 // V-05_b — Genuine no-op Set (same value, same type) must NOT fire.
 // Regression check: reflect.DeepEqual must still suppress identical values.
-func TestV05_OnChange_NoopSet_DoesNotFire(t *testing.T) {
+func TestOnChange_NoopSet_DoesNotFire(t *testing.T) {
 	cfg, err := confii.New[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML("loader/testdata/simple.yaml")),
 	)
@@ -102,7 +102,7 @@ func TestV05_OnChange_NoopSet_DoesNotFire(t *testing.T) {
 // EnableVersioning must result in the user-supplied storagePath taking
 // effect. Pre-V-06 the sync.Once consumed the SaveVersion zero-arg
 // init and the subsequent EnableVersioning silently became a no-op.
-func TestV06_EnableVersioningAfterSaveVersion_PathTakesEffect(t *testing.T) {
+func TestEnableVersioningAfterSaveVersion_PathTakesEffect(t *testing.T) {
 	dir := t.TempDir()
 	cfg, err := confii.New[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML("loader/testdata/simple.yaml")),
@@ -131,7 +131,7 @@ func TestV06_EnableVersioningAfterSaveVersion_PathTakesEffect(t *testing.T) {
 
 // V-06_b — Concurrent SaveVersion + EnableVersioning under -race.
 // Tests the new lock-guarded init has no torn-state hazard.
-func TestV06_ConcurrentSaveVersionAndEnableVersioning(t *testing.T) {
+func TestConcurrentSaveVersionAndEnableVersioning(t *testing.T) {
 	dir := t.TempDir()
 	cfg, err := confii.New[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML("loader/testdata/simple.yaml")),
@@ -165,7 +165,7 @@ func TestV06_ConcurrentSaveVersionAndEnableVersioning(t *testing.T) {
 
 // V-08_a — provider="dict" must build a working hook. Pre-V-08 this
 // returned a hard *ConfigError "unsupported provider".
-func TestV08_DictProvider_Registered(t *testing.T) {
+func TestDictProvider_Registered(t *testing.T) {
 	factory, ok := confii.LookupSelfConfigSecretProvider("dict")
 	require.True(t, ok, "V-08: dict provider must be registered")
 	require.NotNil(t, factory)
@@ -184,7 +184,7 @@ func TestV08_DictProvider_Registered(t *testing.T) {
 	require.ErrorIs(t, err, confii.ErrSecretNotFound)
 }
 
-func TestV08_DictProvider_InputShapes(t *testing.T) {
+func TestDictProvider_InputShapes(t *testing.T) {
 	factory, ok := confii.LookupSelfConfigSecretProvider("dict")
 	require.True(t, ok)
 
@@ -206,7 +206,7 @@ func TestV08_DictProvider_InputShapes(t *testing.T) {
 }
 
 // V-08_b — provider="file" must build a working hook.
-func TestV08_FileProvider_Registered(t *testing.T) {
+func TestFileProvider_Registered(t *testing.T) {
 	factory, ok := confii.LookupSelfConfigSecretProvider("file")
 	require.True(t, ok, "V-08: file provider must be registered")
 	require.NotNil(t, factory)
@@ -219,7 +219,7 @@ func TestV08_FileProvider_Registered(t *testing.T) {
 	require.NotNil(t, store)
 }
 
-func TestV08_FileProvider_ReadOptionsAndErrors(t *testing.T) {
+func TestFileProvider_ReadOptionsAndErrors(t *testing.T) {
 	factory, ok := confii.LookupSelfConfigSecretProvider("file")
 	require.True(t, ok)
 
@@ -256,7 +256,7 @@ func TestV08_FileProvider_ReadOptionsAndErrors(t *testing.T) {
 }
 
 // V-08_c — provider="env" remains supported (regression).
-func TestV08_EnvProvider_StillRegistered(t *testing.T) {
+func TestEnvProvider_StillRegistered(t *testing.T) {
 	_, ok := confii.LookupSelfConfigSecretProvider("env")
 	require.True(t, ok, "V-08: env provider must remain registered")
 }
@@ -264,14 +264,14 @@ func TestV08_EnvProvider_StillRegistered(t *testing.T) {
 // V-08_d — Unknown provider returns a typed *ConfigError that lists
 // the actual registered names so the operator can see what's available
 // in their build configuration.
-func TestV08_UnknownProvider_TypedErrorListsRegisteredNames(t *testing.T) {
+func TestUnknownProvider_TypedErrorListsRegisteredNames(t *testing.T) {
 	_, ok := confii.LookupSelfConfigSecretProvider("nonexistent_provider_v24")
 	require.False(t, ok, "V-08: unknown provider must not resolve")
 }
 
 // V-08_e — Custom provider registration via the public API (canonical
 // "database/sql driver" pattern).
-func TestV08_RegisterCustomProvider_Works(t *testing.T) {
+func TestRegisterCustomProvider_Works(t *testing.T) {
 	confii.RegisterSelfConfigSecretProvider("v24-test-provider", func(cfg map[string]any) (confii.SelfConfigSecretStore, error) {
 		return v24FakeStore{}, nil
 	})
@@ -294,7 +294,7 @@ func (v24FakeStore) GetSecret(_ context.Context, _ string) (any, error) {
 }
 
 // V-08_f — File provider rejects path-traversal keys.
-func TestV08_FileProvider_RejectsPathTraversal(t *testing.T) {
+func TestFileProvider_RejectsPathTraversal(t *testing.T) {
 	factory, ok := confii.LookupSelfConfigSecretProvider("file")
 	require.True(t, ok)
 	tmp := t.TempDir()
@@ -314,7 +314,7 @@ func TestV08_FileProvider_RejectsPathTraversal(t *testing.T) {
 	}
 }
 
-func TestV08_FileProvider_RejectsSymlinkEscape(t *testing.T) {
+func TestFileProvider_RejectsSymlinkEscape(t *testing.T) {
 	factory, ok := confii.LookupSelfConfigSecretProvider("file")
 	require.True(t, ok)
 	base := t.TempDir()

@@ -10,14 +10,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestG02_WithEnv_BeatsEnvSwitcher_OptionsOrderForward is the end-to-end
+// TestWithEnv_BeatsEnvSwitcher_OptionsOrderForward is the end-to-end
 // regression test for Validated Gap G02. Before the fix, the OS-variable
 // lookup driven by WithEnvSwitcher unconditionally overwrote opts.Env even
 // when the caller had explicitly chosen an environment via WithEnv,
 // contradicting the documented precedence "explicit WithEnv() >
 // WithEnvSwitcher() OS variable > self-config default_environment > empty
 // string". This test pins the explicit-wins rule.
-func TestG02_WithEnv_BeatsEnvSwitcher_OptionsOrderForward(t *testing.T) {
+func TestWithEnv_BeatsEnvSwitcher_OptionsOrderForward(t *testing.T) {
 	t.Setenv("CONFII_G02_APP_ENV", "staging")
 
 	cfg, err := confii.New[any](context.Background(),
@@ -37,12 +37,12 @@ func TestG02_WithEnv_BeatsEnvSwitcher_OptionsOrderForward(t *testing.T) {
 	assert.Equal(t, "prod-db.example.com", host)
 }
 
-// TestG02_WithEnv_BeatsEnvSwitcher_OptionsOrderReverse exercises the same
+// TestWithEnv_BeatsEnvSwitcher_OptionsOrderReverse exercises the same
 // precedence rule but with the option list in the opposite order, proving
 // the fix is order-independent. A naive guard inside WithEnvSwitcher alone
 // would fail this test because WithEnvSwitcher is applied first and would
 // have to be unwound retroactively when WithEnv is later applied.
-func TestG02_WithEnv_BeatsEnvSwitcher_OptionsOrderReverse(t *testing.T) {
+func TestWithEnv_BeatsEnvSwitcher_OptionsOrderReverse(t *testing.T) {
 	t.Setenv("CONFII_G02_APP_ENV", "staging")
 
 	cfg, err := confii.New[any](context.Background(),
@@ -60,10 +60,10 @@ func TestG02_WithEnv_BeatsEnvSwitcher_OptionsOrderReverse(t *testing.T) {
 	assert.Equal(t, "prod-db.example.com", host)
 }
 
-// TestG02_EnvSwitcher_AppliesWithoutExplicitEnv confirms that the audit fix
+// TestEnvSwitcher_AppliesWithoutExplicitEnv confirms that the audit fix
 // did not regress the legitimate path: when WithEnv is NOT supplied, the
 // OS-variable lookup must still drive env selection.
-func TestG02_EnvSwitcher_AppliesWithoutExplicitEnv(t *testing.T) {
+func TestEnvSwitcher_AppliesWithoutExplicitEnv(t *testing.T) {
 	t.Setenv("CONFII_G02_APP_ENV", "staging")
 
 	cfg, err := confii.New[any](context.Background(),

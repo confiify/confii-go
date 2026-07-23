@@ -28,7 +28,7 @@ import (
 // avoid double-application.
 // =============================================================================
 
-// TestG03_WithEnvPrefix_AppendsEnvironmentLoader pins the core post-fix
+// TestWithEnvPrefix_AppendsEnvironmentLoader pins the core post-fix
 // contract: WithEnvPrefix("APP") plus an OS env APP_HOST=example.com
 // must surface "example.com" via cfg.Get("host") through the loader
 // pipeline (i.e., merged into mergedConfig), NOT only as an
@@ -38,7 +38,7 @@ import (
 // also enabled (because lookupSysenv would synthesize the value), but
 // here SysenvFallback is left off. With the loader missing, Get would
 // return ErrNotFound. Post-fix the value must be in the merged config.
-func TestG03_WithEnvPrefix_AppendsEnvironmentLoader(t *testing.T) {
+func TestWithEnvPrefix_AppendsEnvironmentLoader(t *testing.T) {
 	t.Setenv("APP_HOST", "example.com")
 
 	cfg, err := confii.New[any](context.Background(),
@@ -56,12 +56,12 @@ func TestG03_WithEnvPrefix_AppendsEnvironmentLoader(t *testing.T) {
 	assert.Equal(t, "example.com", host)
 }
 
-// TestG03_WithEnvPrefix_NestedDoubleUnderscore exercises the canonical
+// TestWithEnvPrefix_NestedDoubleUnderscore exercises the canonical
 // "__" double-underscore nesting separator: APP_DB__HOST=postgres maps
 // to db.host. This convention matches loader.EnvironmentLoader's default,
 // confirming the auto-installed loader is behaviorally equivalent to a
 // user-supplied loader.NewEnvironment(prefix).
-func TestG03_WithEnvPrefix_NestedDoubleUnderscore(t *testing.T) {
+func TestWithEnvPrefix_NestedDoubleUnderscore(t *testing.T) {
 	t.Setenv("APP_DB__HOST", "postgres.example.com")
 	t.Setenv("APP_DB__PORT", "5432")
 
@@ -82,12 +82,12 @@ func TestG03_WithEnvPrefix_NestedDoubleUnderscore(t *testing.T) {
 		"G03: APP_DB__PORT must surface as a coerced numeric value")
 }
 
-// TestG03_WithEnvPrefix_LayersIncludesEnvironmentLoader proves the
+// TestWithEnvPrefix_LayersIncludesEnvironmentLoader proves the
 // auto-installed loader is part of the live load pipeline (not merely a
 // hidden Get-time shortcut). cfg.Layers() must list the canonical
 // `environment:APP` source identifier matching
 // loader.EnvironmentLoader.Source().
-func TestG03_WithEnvPrefix_LayersIncludesEnvironmentLoader(t *testing.T) {
+func TestWithEnvPrefix_LayersIncludesEnvironmentLoader(t *testing.T) {
 	t.Setenv("APP_PRESENT", "yes")
 
 	cfg, err := confii.New[any](context.Background(),
@@ -109,7 +109,7 @@ func TestG03_WithEnvPrefix_LayersIncludesEnvironmentLoader(t *testing.T) {
 			"got layers: %v", layers)
 }
 
-// TestG03_WithEnvPrefix_NoDoubleApplyWithExplicitLoader verifies the
+// TestWithEnvPrefix_NoDoubleApplyWithExplicitLoader verifies the
 // dedup contract: when a user supplies their own loader.NewEnvironment("APP")
 // via WithLoaders AND ALSO calls WithEnvPrefix("APP"), the env-loader
 // layer must appear exactly once. Otherwise the same env vars would be
@@ -119,7 +119,7 @@ func TestG03_WithEnvPrefix_LayersIncludesEnvironmentLoader(t *testing.T) {
 //
 // Detection uses the shared Source() identifier "environment:APP" so the
 // auto-loader and the explicit loader collide on identity.
-func TestG03_WithEnvPrefix_NoDoubleApplyWithExplicitLoader(t *testing.T) {
+func TestWithEnvPrefix_NoDoubleApplyWithExplicitLoader(t *testing.T) {
 	t.Setenv("APP_HOST", "example.com")
 
 	// Order matters: WithLoaders must come BEFORE WithEnvPrefix because
@@ -149,7 +149,7 @@ func TestG03_WithEnvPrefix_NoDoubleApplyWithExplicitLoader(t *testing.T) {
 	assert.Equal(t, "example.com", host)
 }
 
-// TestG03_RegressionBaseline_WithoutFix_FallbackOnly is the regression
+// TestRegressionBaseline_WithoutFix_FallbackOnly is the regression
 // baseline test. It pins a marker behavior that the pre-fix code path
 // CANNOT produce: a key that the new env loader places into mergedConfig
 // (and therefore surfaces via cfg.Layers() with a non-zero key_count for
@@ -167,7 +167,7 @@ func TestG03_WithEnvPrefix_NoDoubleApplyWithExplicitLoader(t *testing.T) {
 //  3. Sysenv fallback for the same key (with single-underscore) would NOT
 //     have found it, since APP_DB_SOCKET is unset — confirming the loader
 //     is the only mechanism that can surface this value.
-func TestG03_RegressionBaseline_WithoutFix_FallbackOnly(t *testing.T) {
+func TestRegressionBaseline_WithoutFix_FallbackOnly(t *testing.T) {
 	t.Setenv("APP_DB__SOCKET", "/tmp/g03.sock")
 	// Defensive: explicitly ensure the single-underscore variant is unset
 	// so sysenv fallback (even if accidentally enabled) cannot resolve it.
