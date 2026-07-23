@@ -266,3 +266,41 @@ jobs:
 
       - name: Scan release tree
         run: gitleaks dir . --redact --no-banner --exit-code 1
+
+  required:
+    name: CI required
+    if: always()
+    needs:
+      - build
+      - test
+      - test-cloud-tags
+      - test-integration
+      - fuzz
+      - coverage
+      - lint
+      - module-integrity
+      - dependency-review
+      - secret-scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Verify required jobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test '${{ needs.build.result }}' = success
+          test '${{ needs.test.result }}' = success
+          test '${{ needs.test-cloud-tags.result }}' = success
+          test '${{ needs.test-integration.result }}' = success
+          test '${{ needs.fuzz.result }}' = success
+          test '${{ needs.coverage.result }}' = success
+          test '${{ needs.lint.result }}' = success
+          test '${{ needs.module-integrity.result }}' = success
+          test '${{ needs.secret-scan.result }}' = success
+
+          # Dependency review runs on pull requests and is intentionally
+          # skipped on the post-merge push to main.
+          case '${{ needs.dependency-review.result }}' in
+            success|skipped) ;;
+            *) exit 1 ;;
+          esac

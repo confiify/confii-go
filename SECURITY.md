@@ -13,7 +13,11 @@ We take security seriously. If you discover a vulnerability in Confii, please re
 
 **Do NOT open a public GitHub issue for security vulnerabilities.**
 
-Instead, please report vulnerabilities by emailing:
+Please use GitHub's private vulnerability reporting form:
+
+**https://github.com/confiify/confii-go/security/advisories/new**
+
+If GitHub private reporting is unavailable, email:
 
 **confii.connect@gmail.com**
 
