@@ -47,7 +47,11 @@ type OverrideEntry struct {
 // mutate, retain, or share returned values without aliasing hazards
 // (D06/D08 / F-Tracker-GetConflicts-Aliasing contract).
 type Tracker struct {
-	mu        sync.RWMutex
+	mu sync.RWMutex
+	// exportMu serializes replacement of a debug report file. Snapshotting is
+	// independently concurrent, but two os.WriteFile calls to the same path can
+	// otherwise truncate/interleave and leave malformed JSON.
+	exportMu  sync.Mutex
 	sources   map[string]*SourceInfo
 	debugMode bool
 }
@@ -304,6 +308,8 @@ func (t *Tracker) ExportDebugReport(outputPath string) error {
 	if err != nil {
 		return err
 	}
+	t.exportMu.Lock()
+	defer t.exportMu.Unlock()
 	return os.WriteFile(outputPath, data, 0644)
 }
 

@@ -66,45 +66,34 @@ func TestAdvancedMerger_Prepend(t *testing.T) {
 	assert.Equal(t, []any{"c", "a", "b"}, got["items"])
 }
 
-// TestStrategyAppend_TypeMismatch_DocumentedBehavior pins the corrected
-// Append semantic: when either side is not a list, Append falls back to
-// Replace and returns the overlay verbatim. The previous implementation
-// silently coerced scalars to single-element lists, e.g. emitting
-// []any{"a", "b"} for two scalar values.
+// TestStrategyAppend_TypeMismatch_DocumentedBehavior pins the documented
+// scalar-to-list coercion used by Append.
 func TestStrategyAppend_TypeMismatch_DocumentedBehavior(t *testing.T) {
 	m := NewAdvanced(Append, nil)
 
-	// Both scalars — type mismatch with the list contract → overlay wins.
 	got := m.Merge(map[string]any{"val": "a"}, map[string]any{"val": "b"})
-	assert.Equal(t, "b", got["val"])
+	assert.Equal(t, []any{"a", "b"}, got["val"])
 
-	// Base scalar, overlay list — overlay wins (no implicit wrapping).
 	got = m.Merge(map[string]any{"val": "a"}, map[string]any{"val": []any{"x", "y"}})
-	assert.Equal(t, []any{"x", "y"}, got["val"])
+	assert.Equal(t, []any{"a", "x", "y"}, got["val"])
 
-	// Base list, overlay scalar — overlay wins.
 	got = m.Merge(map[string]any{"val": []any{"x", "y"}}, map[string]any{"val": "a"})
-	assert.Equal(t, "a", got["val"])
+	assert.Equal(t, []any{"x", "y", "a"}, got["val"])
 }
 
-// TestStrategyPrepend_TypeMismatch_DocumentedBehavior pins the corrected
-// Prepend semantic: when either side is not a list, Prepend falls back
-// to Replace and returns the overlay verbatim. The previous behavior
-// silently coerced scalars to single-element lists.
+// TestStrategyPrepend_TypeMismatch_DocumentedBehavior pins the documented
+// scalar-to-list coercion used by Prepend.
 func TestStrategyPrepend_TypeMismatch_DocumentedBehavior(t *testing.T) {
 	m := NewAdvanced(Prepend, nil)
 
-	// Both scalars — type mismatch with the list contract → overlay wins.
 	got := m.Merge(map[string]any{"val": "a"}, map[string]any{"val": "b"})
-	assert.Equal(t, "b", got["val"])
+	assert.Equal(t, []any{"b", "a"}, got["val"])
 
-	// Base scalar, overlay list — overlay wins.
 	got = m.Merge(map[string]any{"val": "a"}, map[string]any{"val": []any{"x", "y"}})
-	assert.Equal(t, []any{"x", "y"}, got["val"])
+	assert.Equal(t, []any{"x", "y", "a"}, got["val"])
 
-	// Base list, overlay scalar — overlay wins.
 	got = m.Merge(map[string]any{"val": []any{"x", "y"}}, map[string]any{"val": "a"})
-	assert.Equal(t, "a", got["val"])
+	assert.Equal(t, []any{"a", "x", "y"}, got["val"])
 }
 
 func TestAdvancedMerger_Intersection(t *testing.T) {

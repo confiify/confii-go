@@ -289,12 +289,9 @@ func TestG01_ValidateOnLoad_False_NoOp(t *testing.T) {
 	require.NotNil(t, cfg)
 }
 
-// TestG01_ValidateOnLoad_True_NoSchema_NoOp pins:
-//
-//   - Observable: WithValidateOnLoad(true) without any schema is a
-//     no-op (no error, no panic). This preserves backward compatibility
-//     with callers who pre-set the flag in self-config and configure
-//     the schema lazily.
+// TestG01_ValidateOnLoad_True_NoSchema_NoOp pins the untyped behavior:
+// Config[any] has no struct tags to validate, so validate-on-load remains
+// a no-op unless a JSON Schema is supplied.
 func TestG01_ValidateOnLoad_True_NoSchema_NoOp(t *testing.T) {
 	l := &stubLoader{source: "s", data: map[string]any{"port": 80}}
 	cfg, err := New[any](context.Background(),
@@ -304,6 +301,21 @@ func TestG01_ValidateOnLoad_True_NoSchema_NoOp(t *testing.T) {
 	require.NoError(t, err,
 		"validate-on-load without a schema must not error")
 	require.NotNil(t, cfg)
+}
+
+func TestG01_ValidateOnLoad_TypedConfigDoesNotRequireWithSchema(t *testing.T) {
+	type appConfig struct {
+		Port int `mapstructure:"port" validate:"gte=1,lte=65535"`
+	}
+
+	l := &stubLoader{source: "s", data: map[string]any{"port": 0}}
+	_, err := New[appConfig](context.Background(),
+		WithLoaders(l),
+		WithValidateOnLoad(true),
+		WithStrictValidation(true),
+	)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrConfigValidation)
 }
 
 // ---------------------------------------------------------------------------

@@ -39,7 +39,7 @@ Confii loads, merges, validates, and manages configuration from **any source** �
 - **Dynamic reloading** — File watching via fsnotify, incremental reload (mtime + SHA256)
 - **Observability** — Access metrics, event emission, change callbacks
 - **CLI tool** — 10 commands: load, get, validate, export, diff, debug, explain, lint, docs, migrate
-- **Thread-safe** — `sync.RWMutex`, zero global state, safe for concurrent reads
+- **Thread-safe** — synchronized Config instances, callback-safe lifecycle events, and concurrency-safe process registries/caches
 
 ## Install
 

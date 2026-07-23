@@ -26,11 +26,10 @@ import (
 //   - Intersection: keeps only keys present in both maps with equal
 //     values; unequal scalar values and type mismatches are omitted
 //     entirely (not preserved as nil placeholders).
-//   - Append / Prepend: when both values are lists, appends/prepends
-//     overlay items relative to the base list. On any type mismatch
-//     (one side scalar, one side list, etc.) Append and Prepend fall
-//     back to Replace and return the overlay verbatim — they no longer
-//     silently coerce scalars to single-element lists.
+//   - Append / Prepend: appends/prepends overlay items relative to the
+//     base list. Non-list operands are treated as single-element lists,
+//     making the strategy useful while a source evolves from one value to
+//     several values.
 type AdvancedMerger struct {
 	DefaultStrategy Strategy
 	StrategyMap     map[string]Strategy // dot-separated path → strategy
@@ -206,32 +205,22 @@ func (m *AdvancedMerger) intersectValues(base, overlay any, path string) (any, b
 	return nil, false
 }
 
-// appendLists appends overlay's list elements after base's list
-// elements. On any type mismatch (either side is not []any) the
-// strategy falls back to Replace and returns the overlay verbatim
-// rather than silently wrapping a scalar in a single-element list.
+// appendLists appends overlay's list elements after base's list elements.
+// Non-list operands are wrapped as one-element lists.
 func appendLists(base, overlay any) any {
-	baseList, baseOk := base.([]any)
-	overlayList, overlayOk := overlay.([]any)
-	if !baseOk || !overlayOk {
-		return overlay
-	}
+	baseList := toSlice(base)
+	overlayList := toSlice(overlay)
 	merged := make([]any, 0, len(baseList)+len(overlayList))
 	merged = append(merged, baseList...)
 	merged = append(merged, overlayList...)
 	return merged
 }
 
-// prependLists prepends overlay's list elements before base's list
-// elements. On any type mismatch (either side is not []any) the
-// strategy falls back to Replace and returns the overlay verbatim
-// rather than silently wrapping a scalar in a single-element list.
+// prependLists prepends overlay's list elements before base's list elements.
+// Non-list operands are wrapped as one-element lists.
 func prependLists(base, overlay any) any {
-	baseList, baseOk := base.([]any)
-	overlayList, overlayOk := overlay.([]any)
-	if !baseOk || !overlayOk {
-		return overlay
-	}
+	baseList := toSlice(base)
+	overlayList := toSlice(overlay)
 	merged := make([]any, 0, len(overlayList)+len(baseList))
 	merged = append(merged, overlayList...)
 	merged = append(merged, baseList...)
@@ -276,9 +265,8 @@ func intersect(base, overlay any) any {
 	return result
 }
 
-// toSlice is retained for backward compatibility with external callers.
-// It is no longer used internally because Append/Prepend now fall back
-// to Replace on type mismatch instead of coercing scalars to lists.
+// toSlice converts a merge operand into the list representation used by
+// Append and Prepend.
 func toSlice(v any) []any {
 	if s, ok := v.([]any); ok {
 		return s

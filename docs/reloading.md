@@ -127,22 +127,24 @@ go func() {
 
 ## Incremental Reload
 
-When reload is triggered (either by the file watcher or manually), Confii uses a two-step change detection to avoid unnecessary work:
+When reload is triggered (either by the file watcher or manually), Confii fingerprints each local file with metadata and SHA-256 content hashing:
 
-1. **mtime check** -- compare the file's modification time against the last known value
-2. **SHA256 hash** -- if mtime changed, compute and compare the file's content hash
+1. **mtime metadata** -- records when the filesystem reports a source update
+2. **SHA-256 hash** -- decides whether the file content actually changed
 
 This means:
 
-- If you `touch` a file without changing its content, the mtime changes but the hash stays the same -- the file is still considered "changed" (mtime is checked first for speed)
-- If the OS updates mtime due to a copy or move, the hash comparison catches false positives
+- If you `touch` or copy an identical file, the hash suppresses a false reload.
+- If content changes without an observable mtime tick, the hash still detects it.
+- Only changed file loaders run; unchanged composed layers are reused and re-merged in their original precedence order.
+- HTTP, cloud, environment, and other sources without a local fingerprint are refreshed on every incremental call so remote changes do not become permanently stale.
 
 ```go
 // Manual incremental reload
 err := cfg.Reload(ctx, confii.WithIncremental(true))
 ```
 
-The file watcher triggers a full `Reload(ctx)` which defaults to incremental behavior (the `reloadOpts` default `incremental` is `true`).
+The file watcher calls `Reload(ctx)`, whose default is the incremental behavior above. Pass `WithIncremental(false)` to force every loader to run.
 
 ---
 

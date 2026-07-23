@@ -80,16 +80,12 @@ func TestAdvancedMerger_UnionNonMapFallsToReplace(t *testing.T) {
 }
 
 func TestAdvancedMerger_PrependNonList(t *testing.T) {
-	// Type-mismatch policy: Prepend with non-list operands now falls
-	// back to Replace and returns the overlay verbatim instead of
-	// silently coercing scalars to a [overlay, base] list. See
-	// TestStrategyPrepend_TypeMismatch_DocumentedBehavior for the full
-	// matrix of mismatched cases.
+	// Non-list operands are wrapped and prepended in documented order.
 	m := NewAdvanced(Prepend, nil)
 	base := map[string]any{"val": "a"}
 	overlay := map[string]any{"val": "b"}
 	got := m.Merge(base, overlay)
-	assert.Equal(t, "b", got["val"])
+	assert.Equal(t, []any{"b", "a"}, got["val"])
 }
 
 func TestAdvancedMerger_NewKeyAddedRegardlessOfStrategy(t *testing.T) {

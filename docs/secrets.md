@@ -300,16 +300,23 @@ HashiCorp Vault supports 9 authentication methods. Pass them via `WithVaultAuth`
 
     ```go
     cloud.WithVaultAuth(&cloud.AWSIAMAuth{
-        Role:       "my-aws-role",
-        MountPoint: "aws",  // default: "aws"
+        Role:                  "my-aws-role",
+        MountPoint:            "aws",  // default: "aws"
+        IAMHTTPRequestMethod:  signed.Method,
+        IAMHTTPRequestURL:     signed.URLBase64,
+        IAMHTTPRequestBody:    signed.BodyBase64,
+        IAMHTTPRequestHeaders: signed.HeadersBase64,
     })
     ```
+
+    The application signs an STS `GetCallerIdentity` request with the AWS SDK and supplies Vault's four base64-encoded IAM request fields.
 
 === "Azure"
 
     ```go
     cloud.WithVaultAuth(&cloud.AzureAuth{
         Role:       "my-azure-role",
+        JWT:        azureIdentityToken,
         Resource:   "https://vault.example.com",  // optional
         MountPoint: "azure",  // default: "azure"
     })
@@ -320,7 +327,7 @@ HashiCorp Vault supports 9 authentication methods. Pass them via `WithVaultAuth`
     ```go
     cloud.WithVaultAuth(&cloud.GCPAuth{
         Role:       "my-gcp-role",
-        JWT:        "eyJhbGci...",  // optional for GCE metadata
+        JWT:        "eyJhbGci...",  // signed IAM/GCE identity JWT
         MountPoint: "gcp",  // default: "gcp"
     })
     ```
@@ -329,16 +336,49 @@ HashiCorp Vault supports 9 authentication methods. Pass them via `WithVaultAuth`
 
     ```go
     cloud.WithVaultAuth(&cloud.OIDCAuth{
-        Role:       "my-oidc-role",
-        MountPoint: "oidc",  // default: "oidc"
+        Role:         "my-oidc-role",
+        MountPoint:   "oidc",  // default: "oidc"
+        RedirectURI:  "http://localhost:8250/oidc/callback",
     })
     ```
+
+    OIDC starts a loopback callback server, opens the provider login in the default browser, validates the returned state and nonce, and exchanges the authorization code with Vault. The redirect URI must be allowed by both the Vault role and the OIDC provider. Embedded/headless applications can set `CallbackProvider` to collect and return the full callback URL themselves; `CallbackTimeout` and `OpenBrowser` customize the interactive flow.
 
 You can also use the shorthand `WithVaultAppRole` for AppRole auth:
 
 ```go
 cloud.WithVaultAppRole("role-id", "secret-id")
 ```
+
+---
+
+## Declarative Self-Config Providers
+
+Cloud stores can be wired through `.confii.yaml` when the application blank-imports `github.com/confiify/confii-go/secret/cloud` and builds with the matching tag. Each tagged package registers its provider during `init`.
+
+```yaml
+secrets:
+  provider: vault
+  address: https://vault.internal:8200
+  mount_point: secret
+  kv_version: 2
+  verify: true
+  auth:
+    method: kubernetes
+    role: confii-production
+    token_path: /var/run/secrets/kubernetes.io/serviceaccount/token
+```
+
+Provider-specific fields:
+
+| Provider | Required/configuration fields |
+| --- | --- |
+| `aws` | `region`; optional `access_key`, `secret_key`, `session_token`, `endpoint` (otherwise the AWS default credential chain is used) |
+| `azure` | `vault_url` (aliases: `address`, `url`); Azure Default Credential is used |
+| `gcp` | `project_id`; optional `credentials_file` (otherwise Application Default Credentials are used) |
+| `vault` | `address` or `VAULT_ADDR`; optional `namespace`, `mount_point`, `kv_version`, `verify`, and `auth` |
+
+Vault self-config accepts all nine auth methods: `token`, `approle`, `ldap`, `jwt`, `kubernetes`, `aws_iam`, `azure`, `gcp`, and interactive `oidc`. `auth` may be a method string with fields alongside it or a nested map with `method`. A root `token` or `VAULT_TOKEN` is used for token auth. The same build can register multiple providers by enabling multiple tags, for example `-tags="aws,vault"`.
 
 ---
 

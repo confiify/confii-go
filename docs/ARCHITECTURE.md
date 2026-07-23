@@ -338,7 +338,9 @@ import confii "github.com/confiify/confii-go"
 
 func init() {
     confii.RegisterSelfConfigSecretProvider("aws", func(cfg map[string]any) (confii.SelfConfigSecretStore, error) {
-        return NewAWSSecretsManager(cfg)
+        store, err := NewAWSSecretsManager(context.Background(), optionsFrom(cfg)...)
+        if err != nil { return nil, err }
+        return readOnlySelfConfigAdapter(store), nil
     })
 }
 ```

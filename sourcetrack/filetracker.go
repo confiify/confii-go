@@ -83,8 +83,9 @@ func (ft *FileTracker) Track(path string) error {
 	return nil
 }
 
-// HasChanged returns true if the file's mtime or hash differs from the
-// last tracked state.
+// HasChanged returns true when the file's content hash differs from the
+// last tracked state. mtime is retained as diagnostic metadata, but content
+// is authoritative so a metadata-only touch does not trigger a reload.
 //
 // G20: HasChanged enforces the source-capability model. The decision
 // tree is:
@@ -135,7 +136,11 @@ func (ft *FileTracker) HasChanged(path string) bool {
 		return false
 	}
 
-	return current.mtime != old.mtime || current.hash != old.hash
+	// Content is authoritative. mtime remains useful metadata and a cheap
+	// first signal, but touching/copying an unchanged file must not trigger a
+	// reload. The hash also catches edits on filesystems whose mtime did not
+	// advance between rapid writes.
+	return current.hash != old.hash
 }
 
 // IsTrackable reports whether the given source has been classified as

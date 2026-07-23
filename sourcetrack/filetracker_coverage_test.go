@@ -49,6 +49,18 @@ func TestFileTracker_HasChanged_Unchanged(t *testing.T) {
 	assert.False(t, ft.HasChanged(f))
 }
 
+func TestFileTracker_HasChanged_MetadataOnlyTouchIsUnchanged(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "config.yaml")
+	require.NoError(t, os.WriteFile(f, []byte("key: value\n"), 0o600))
+	ft := NewFileTracker()
+	require.NoError(t, ft.Track(f))
+
+	future := time.Now().Add(2 * time.Second)
+	require.NoError(t, os.Chtimes(f, future, future))
+	assert.False(t, ft.HasChanged(f), "mtime-only changes must be suppressed by the content hash")
+}
+
 func TestFileTracker_HasChanged_Modified(t *testing.T) {
 	dir := t.TempDir()
 	f := filepath.Join(dir, "config.yaml")

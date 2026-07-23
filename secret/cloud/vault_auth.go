@@ -3,18 +3,27 @@
 package cloud
 
 import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"net"
+	"net/http"
+	"net/url"
 	"os"
+	"strings"
+	"time"
 
 	confii "github.com/confiify/confii-go"
 	"github.com/hashicorp/vault/api"
+	"github.com/pkg/browser"
 )
 
 // ErrVaultAuthUnsupported is returned by Vault auth methods that require a
 // credential or assertion the consumer must construct out-of-band (signed
-// STS request for AWS IAM, Azure AD JWT from IMDS, signed JWT for GCP, OIDC
-// callback flow). These flows deliberately accept pre-built credentials so
+// STS request for AWS IAM, Azure AD JWT from IMDS, or signed JWT for GCP).
+// These flows deliberately accept pre-built credentials so
 // the Vault auth API is not coupled to provider-specific signing clients.
 //
 // Wrap this with [confii.ErrVaultAuth] when surfacing to higher layers; the
@@ -209,7 +218,10 @@ func (a *KubernetesAuth) Authenticate(client *api.Client) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("%w: read service account token %q: %v", confii.ErrVaultAuth, path, err)
 		}
-		jwt = string(data)
+		jwt = strings.TrimSpace(string(data))
+		if jwt == "" {
+			return "", fmt.Errorf("%w: service account token %q is empty", confii.ErrVaultAuth, path)
+		}
 	}
 	mp := a.MountPoint
 	if mp == "" {
@@ -425,40 +437,229 @@ func (a *GCPAuth) Authenticate(client *api.Client) (string, error) {
 	return secret.Auth.ClientToken, nil
 }
 
-// OIDCAuth authenticates via the interactive OIDC callback flow.
+// OIDCAuth authenticates through Vault's browser-based OIDC authorization
+// code flow. By default it listens on the loopback RedirectURI, opens the
+// authorization URL in the user's browser, validates the returned state and
+// nonce, and exchanges the callback parameters with Vault for a client token.
 //
-// DEFERRED — interactive flow requires browser callback handling.
-//
-// The OIDC callback flow requires:
-//
-//  1. Calling auth/<mount>/oidc/auth_url to obtain an authorization URL.
-//  2. Driving the user's browser through the IdP and capturing the
-//     redirect with `state` and `code` query parameters.
-//  3. Posting them to auth/<mount>/oidc/callback to mint the Vault token.
-//
-// This is a UX flow, not a service-to-service flow, and confii-go is
-// designed for service-to-service auth. Authenticate therefore returns
-// [ErrVaultAuthUnsupported] wrapped with [confii.ErrVaultAuth] and
-// suggests the supported alternatives:
-//
-//   - For machine workloads, use [JWTAuth] with a pre-issued ID token
-//     (the OIDC mount accepts JWT logins as well: set MountPoint = "oidc").
-//   - For human/CLI flows, run `vault login -method=oidc` externally and
-//     pass the resulting token via [TokenAuth].
+// A custom CallbackProvider can be supplied by headless applications or UIs.
+// It receives Vault's authorization URL and must return the full redirect URL
+// received from the identity provider. RedirectURI still has to match one of
+// the role's allowed_redirect_uris in Vault and in the OIDC provider.
 type OIDCAuth struct {
-	// Role is the Vault OIDC role. Used only by the diagnostic error.
+	// Role is the Vault OIDC role. It may be empty when the auth mount has a
+	// default_role configured.
 	Role string
 	// MountPoint overrides the auth method mount path (default "oidc").
 	MountPoint string
+	// RedirectURI defaults to http://localhost:8250/oidc/callback.
+	RedirectURI string
+	// ClientNonce optionally supplies the nonce that binds auth_url to the
+	// callback exchange. A cryptographically random value is generated when
+	// this field is empty.
+	ClientNonce string
+	// CallbackTimeout bounds the built-in loopback callback wait. It defaults
+	// to two minutes.
+	CallbackTimeout time.Duration
+	// OpenBrowser overrides the browser launcher, primarily for embedded UIs
+	// and tests. It defaults to browser.OpenURL.
+	OpenBrowser func(string) error
+	// CallbackProvider replaces the built-in loopback HTTP listener. The
+	// returned string must be the complete callback URL, including state,
+	// nonce, and code query parameters.
+	CallbackProvider func(authorizationURL string) (callbackURL string, err error)
 }
 
-// Authenticate is not yet supported; see the [OIDCAuth] doc comment for the
-// recommended alternatives. The error wraps both [confii.ErrVaultAuth] and
-// [ErrVaultAuthUnsupported] so callers can distinguish "configuration is
-// wrong" from "this flow is intentionally not implemented".
+// Authenticate completes Vault's OIDC auth_url and callback protocol.
 func (a *OIDCAuth) Authenticate(client *api.Client) (string, error) {
-	_ = client
-	return "", fmt.Errorf("OIDCAuth interactive callback flow is not implemented; "+
-		"use JWTAuth with a pre-issued ID token, or TokenAuth with a token minted via `vault login -method=oidc`: %w",
-		errors.Join(confii.ErrVaultAuth, ErrVaultAuthUnsupported))
+	if client == nil {
+		return "", fmt.Errorf("%w: OIDCAuth requires a Vault client", confii.ErrVaultAuth)
+	}
+	mp := strings.Trim(a.MountPoint, "/")
+	if mp == "" {
+		mp = "oidc"
+	}
+	redirectURI := a.RedirectURI
+	if redirectURI == "" {
+		redirectURI = "http://localhost:8250/oidc/callback"
+	}
+	redirect, err := url.Parse(redirectURI)
+	if err != nil || redirect.Scheme == "" || redirect.Host == "" {
+		return "", fmt.Errorf("%w: invalid OIDC redirect URI %q", confii.ErrVaultAuth, redirectURI)
+	}
+
+	clientNonce := a.ClientNonce
+	if clientNonce == "" {
+		clientNonce, err = randomOIDCNonce()
+		if err != nil {
+			return "", fmt.Errorf("%w: generate OIDC client nonce: %v", confii.ErrVaultAuth, err)
+		}
+	}
+
+	var callbackURL func(string) (string, error)
+	var listener net.Listener
+	if a.CallbackProvider != nil {
+		callbackURL = a.CallbackProvider
+	} else {
+		listener, err = listenOIDCCallback(redirect)
+		if err != nil {
+			return "", err
+		}
+		defer listener.Close()
+	}
+
+	payload := map[string]any{
+		"redirect_uri": redirectURI,
+		"client_nonce": clientNonce,
+	}
+	if a.Role != "" {
+		payload["role"] = a.Role
+	}
+	authURLSecret, err := client.Logical().Write(fmt.Sprintf("auth/%s/oidc/auth_url", mp), payload)
+	if err != nil {
+		return "", fmt.Errorf("%w: request OIDC authorization URL: %v", confii.ErrVaultAuth, err)
+	}
+	authURL, ok := secretString(authURLSecret, "auth_url")
+	if !ok {
+		return "", fmt.Errorf("%w: OIDC auth_url response did not contain auth_url", confii.ErrVaultAuth)
+	}
+	expected, err := url.Parse(authURL)
+	if err != nil {
+		return "", fmt.Errorf("%w: Vault returned an invalid OIDC authorization URL", confii.ErrVaultAuth)
+	}
+	expectedState := expected.Query().Get("state")
+	expectedNonce := expected.Query().Get("nonce")
+	if expectedState == "" || expectedNonce == "" {
+		return "", fmt.Errorf("%w: Vault OIDC authorization URL omitted state or nonce", confii.ErrVaultAuth)
+	}
+
+	var returnedURL string
+	if callbackURL != nil {
+		returnedURL, err = callbackURL(authURL)
+	} else {
+		timeout := a.CallbackTimeout
+		if timeout <= 0 {
+			timeout = 2 * time.Minute
+		}
+		opener := a.OpenBrowser
+		if opener == nil {
+			opener = browser.OpenURL
+		}
+		returnedURL, err = receiveOIDCCallback(listener, redirect.Path, authURL, opener, timeout)
+	}
+	if err != nil {
+		return "", fmt.Errorf("%w: OIDC callback: %v", confii.ErrVaultAuth, err)
+	}
+	callback, err := url.Parse(returnedURL)
+	if err != nil {
+		return "", fmt.Errorf("%w: invalid OIDC callback URL: %v", confii.ErrVaultAuth, err)
+	}
+	if callback.Scheme != redirect.Scheme || callback.Host != redirect.Host || callback.Path != redirect.Path {
+		return "", fmt.Errorf("%w: OIDC callback URL did not match RedirectURI", confii.ErrVaultAuth)
+	}
+	q := callback.Query()
+	if providerErr := q.Get("error"); providerErr != "" {
+		return "", fmt.Errorf("%w: OIDC provider returned %s: %s", confii.ErrVaultAuth, providerErr, q.Get("error_description"))
+	}
+	if q.Get("state") != expectedState || q.Get("nonce") != expectedNonce {
+		return "", fmt.Errorf("%w: OIDC callback state or nonce did not match the authorization request", confii.ErrVaultAuth)
+	}
+	if q.Get("code") == "" {
+		return "", fmt.Errorf("%w: OIDC callback omitted authorization code", confii.ErrVaultAuth)
+	}
+
+	secret, err := client.Logical().ReadWithData(fmt.Sprintf("auth/%s/oidc/callback", mp), map[string][]string{
+		"state":        {q.Get("state")},
+		"nonce":        {q.Get("nonce")},
+		"code":         {q.Get("code")},
+		"client_nonce": {clientNonce},
+	})
+	if err != nil {
+		return "", fmt.Errorf("%w: exchange OIDC callback: %v", confii.ErrVaultAuth, err)
+	}
+	if secret == nil || secret.Auth == nil || secret.Auth.ClientToken == "" {
+		return "", fmt.Errorf("%w: OIDC callback returned no auth token", confii.ErrVaultAuth)
+	}
+	return secret.Auth.ClientToken, nil
+}
+
+func randomOIDCNonce() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
+}
+
+func secretString(secret *api.Secret, key string) (string, bool) {
+	if secret == nil || secret.Data == nil {
+		return "", false
+	}
+	v, ok := secret.Data[key].(string)
+	return v, ok && v != ""
+}
+
+func listenOIDCCallback(redirect *url.URL) (net.Listener, error) {
+	if redirect.Scheme != "http" {
+		return nil, fmt.Errorf("%w: built-in OIDC callback requires an http loopback RedirectURI", confii.ErrVaultAuth)
+	}
+	hostname := redirect.Hostname()
+	ip := net.ParseIP(hostname)
+	if hostname != "localhost" && (ip == nil || !ip.IsLoopback()) {
+		return nil, fmt.Errorf("%w: built-in OIDC callback may listen only on loopback", confii.ErrVaultAuth)
+	}
+	if redirect.Port() == "" {
+		return nil, fmt.Errorf("%w: built-in OIDC callback RedirectURI requires an explicit port", confii.ErrVaultAuth)
+	}
+	listener, err := net.Listen("tcp", redirect.Host)
+	if err != nil {
+		return nil, fmt.Errorf("%w: listen for OIDC callback: %v", confii.ErrVaultAuth, err)
+	}
+	return listener, nil
+}
+
+func receiveOIDCCallback(listener net.Listener, callbackPath, authURL string, opener func(string) error, timeout time.Duration) (string, error) {
+	result := make(chan string, 1)
+	server := &http.Server{ReadHeaderTimeout: 5 * time.Second}
+	server.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != callbackPath {
+			http.NotFound(w, r)
+			return
+		}
+		if err := r.ParseForm(); err != nil {
+			http.Error(w, "invalid OIDC callback", http.StatusBadRequest)
+			return
+		}
+		callback := *r.URL
+		callback.Scheme = "http"
+		callback.Host = r.Host
+		callback.RawQuery = r.Form.Encode()
+		select {
+		case result <- callback.String():
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = w.Write([]byte("<!doctype html><title>Vault login complete</title><p>Authentication received. You may close this window.</p>"))
+		default:
+			http.Error(w, "OIDC callback already received", http.StatusConflict)
+		}
+	})
+	serveErr := make(chan error, 1)
+	go func() { serveErr <- server.Serve(listener) }()
+	defer server.Shutdown(context.Background())
+
+	if err := opener(authURL); err != nil {
+		return "", fmt.Errorf("open browser: %w", err)
+	}
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case callback := <-result:
+		return callback, nil
+	case err := <-serveErr:
+		if errors.Is(err, http.ErrServerClosed) {
+			return "", errors.New("OIDC callback listener closed")
+		}
+		return "", err
+	case <-timer.C:
+		return "", fmt.Errorf("timed out after %s", timeout)
+	}
 }

@@ -16,8 +16,7 @@
 // AzureAuth, GCPAuth, and OIDCAuth submitted only role/resource fields
 // and did not validate that the consumer had supplied the
 // credential/assertion the SDK actually needs. This file covers each
-// newly-implemented auth method and asserts the typed-error path for
-// the deferred OIDCAuth callback flow.
+// auth method, including the complete OIDC auth_url/callback exchange.
 //
 // Build-tag gating: //go:build vault, same rationale as
 // vault_behavior_test.go.
@@ -28,7 +27,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -366,22 +367,107 @@ func TestVaultAuth_GCP_MissingJWT(t *testing.T) {
 	}
 }
 
-// TestVaultAuth_OIDC_NotSupported asserts the deferred OIDC callback
-// flow returns the typed error and points to the supported alternatives.
-func TestVaultAuth_OIDC_NotSupported(t *testing.T) {
-	auth := &OIDCAuth{Role: "demo"}
-	_, err := auth.Authenticate(nil)
-	if err == nil {
-		t.Fatal("expected ErrVaultAuthUnsupported, got nil")
+func TestVaultAuth_OIDC_HappyPath(t *testing.T) {
+	f := newAuthFixture(t)
+	f.handle("/v1/auth/custom-oidc/oidc/auth_url", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{
+			"auth_url": "https://idp.example/authorize?state=vault-state&nonce=vault-nonce",
+		}})
+	})
+	f.handle("/v1/auth/custom-oidc/oidc/callback", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		if q.Get("state") != "vault-state" || q.Get("nonce") != "vault-nonce" || q.Get("code") != "provider-code" {
+			t.Errorf("callback query: got %v", q)
+		}
+		if q.Get("client_nonce") != "client-nonce" {
+			t.Errorf("client_nonce: got %q", q.Get("client_nonce"))
+		}
+		writeAuthOK(w, "oidc-minted-token")
+	})
+
+	auth := &OIDCAuth{
+		Role:        "demo",
+		MountPoint:  "custom-oidc",
+		RedirectURI: "http://localhost:8250/oidc/callback",
+		ClientNonce: "client-nonce",
+		CallbackProvider: func(authURL string) (string, error) {
+			if !strings.Contains(authURL, "state=vault-state") {
+				t.Errorf("authorization URL: got %q", authURL)
+			}
+			return "http://localhost:8250/oidc/callback?state=vault-state&nonce=vault-nonce&code=provider-code", nil
+		},
 	}
-	if !errors.Is(err, confii.ErrVaultAuth) {
-		t.Errorf("error: got %v, want wrapping ErrVaultAuth", err)
+	token, err := auth.Authenticate(f.client(t))
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
 	}
-	if !errors.Is(err, ErrVaultAuthUnsupported) {
-		t.Errorf("error: got %v, want wrapping ErrVaultAuthUnsupported", err)
+	if token != "oidc-minted-token" {
+		t.Errorf("token: got %q, want oidc-minted-token", token)
 	}
-	if !strings.Contains(err.Error(), "JWTAuth") || !strings.Contains(err.Error(), "TokenAuth") {
-		t.Errorf("error message %q should reference JWTAuth/TokenAuth alternatives", err.Error())
+}
+
+func TestVaultAuth_OIDC_RejectsMismatchedState(t *testing.T) {
+	f := newAuthFixture(t)
+	f.handle("/v1/auth/oidc/oidc/auth_url", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{
+			"auth_url": "https://idp.example/authorize?state=expected&nonce=expected-nonce",
+		}})
+	})
+	auth := &OIDCAuth{
+		ClientNonce: "client-nonce",
+		CallbackProvider: func(string) (string, error) {
+			return "http://localhost:8250/oidc/callback?state=attacker&nonce=expected-nonce&code=code", nil
+		},
+	}
+	_, err := auth.Authenticate(f.client(t))
+	if err == nil || !errors.Is(err, confii.ErrVaultAuth) {
+		t.Fatalf("error: got %v, want ErrVaultAuth", err)
+	}
+	if !strings.Contains(err.Error(), "state or nonce") {
+		t.Errorf("error: got %v, want state/nonce mismatch", err)
+	}
+}
+
+func TestVaultAuth_OIDC_BuiltInLoopbackCallback(t *testing.T) {
+	probe, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("loopback unavailable: %v", err)
+	}
+	port := probe.Addr().(*net.TCPAddr).Port
+	_ = probe.Close()
+	redirectURI := fmt.Sprintf("http://127.0.0.1:%d/oidc/callback", port)
+
+	f := newAuthFixture(t)
+	f.handle("/v1/auth/oidc/oidc/auth_url", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{
+			"auth_url": "https://idp.example/authorize?state=loopback-state&nonce=loopback-nonce",
+		}})
+	})
+	f.handle("/v1/auth/oidc/oidc/callback", func(w http.ResponseWriter, _ *http.Request) {
+		writeAuthOK(w, "loopback-token")
+	})
+
+	auth := &OIDCAuth{
+		RedirectURI: redirectURI,
+		ClientNonce: "loopback-client-nonce",
+		OpenBrowser: func(string) error {
+			callback := redirectURI + "?state=loopback-state&nonce=loopback-nonce&code=loopback-code"
+			resp, getErr := http.Get(callback)
+			if resp != nil {
+				_ = resp.Body.Close()
+			}
+			return getErr
+		},
+	}
+	token, err := auth.Authenticate(f.client(t))
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+	if token != "loopback-token" {
+		t.Fatalf("token: got %q, want loopback-token", token)
 	}
 }
 

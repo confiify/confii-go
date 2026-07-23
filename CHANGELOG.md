@@ -180,4 +180,4 @@ public functions extend the self-config secret provider story.
 - CLI tool with 10 commands: load, get, validate, export, diff, debug, explain, lint, docs, migrate
 - 19 runnable examples
 - GitHub Actions CI/CD: test matrix, CodeQL, govulncheck, OSSF Scorecard
-- 96%+ test coverage
+- Broad unit, integration, race, fuzz, and cross-platform test coverage

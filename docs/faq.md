@@ -12,7 +12,7 @@ Confii provides a **complete configuration lifecycle**, not just loading and rea
 - **Observability** -- access metrics, event emission, change callbacks
 - **Config composition** -- Hydra-style `_include` and `_defaults` with cycle detection
 - **Type-safe generics** -- `Config[T]` with `Typed()` returning `*T`
-- **Thread safety** -- `sync.RWMutex` with zero global state (Viper has [known concurrency issues](https://github.com/spf13/viper/issues/268))
+- **Thread safety** -- synchronized Config instances and concurrency-safe process registries/caches (Viper has [known concurrency issues](https://github.com/spf13/viper/issues/268))
 
 If you only need to read a YAML file and access values, Viper or Koanf may be sufficient. If you need production-grade config management with auditing, drift detection, and secret resolution, Confii fills that gap.
 
@@ -38,9 +38,7 @@ go func() {
 
 ## What Go version is required?
 
-Go **1.25+** is required due to cloud provider SDK dependencies. The core library itself uses Go 1.21 features (generics with type constraints).
-
-If you do not use cloud providers (no build tags), the core library compiles with Go 1.21+.
+Go **1.25+** is required by the current module manifests. Cloud integrations live in separate opt-in modules so applications that use only the core do not download their SDK dependency graphs.
 
 ---
 

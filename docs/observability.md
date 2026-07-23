@@ -12,12 +12,12 @@ Confii provides built-in observability through two systems: **metrics collection
 metrics := cfg.EnableObservability()
 ```
 
-`EnableObservability` returns an `*observe.Metrics` instance. Once enabled, Confii automatically records reload and change events. You can also record access events manually.
+`EnableObservability` returns an `*observe.Metrics` instance. Once enabled, Confii automatically records successful `Get`/`GetCtx` accesses, reloads, extensions, mutations, failures, and change events. Failed key lookups are not counted as accesses.
 
 ### Recording Events
 
 ```go
-// Record a key access with its duration
+// Optional: record a synthetic/non-Config access with its duration
 metrics.RecordAccess("database.host", 50*time.Microsecond)
 
 // Record a reload event (automatically called during cfg.Reload)
@@ -28,7 +28,7 @@ metrics.RecordChange()
 ```
 
 !!! note "Automatic recording"
-    `RecordReload` and `RecordChange` are called automatically by `cfg.Reload()` when observability is enabled. You only need to call `RecordAccess` yourself if you want per-key access tracking.
+    Config operations record their own metrics automatically. Call `RecordAccess` directly only for a synthetic access that does not pass through `cfg.Get` or `cfg.GetCtx`.
 
 ### Reading Statistics
 
@@ -285,10 +285,10 @@ func main() {
         fmt.Println("Config values changed")
     })
 
-    // Simulate access tracking
-    metrics.RecordAccess("database.host", 10*time.Microsecond)
-    metrics.RecordAccess("database.host", 8*time.Microsecond)
-    metrics.RecordAccess("database.port", 5*time.Microsecond)
+    // Successful Config reads are tracked automatically
+    _, _ = cfg.Get("database.host")
+    _, _ = cfg.Get("database.host")
+    _, _ = cfg.Get("database.port")
 
     // Trigger a reload
     _ = cfg.Reload(ctx)

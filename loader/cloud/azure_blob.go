@@ -6,7 +6,9 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
+	"strings"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
@@ -18,6 +20,10 @@ import (
 // AzureBlobLoader loads configuration from Azure Blob Storage.
 type AzureBlobLoader struct {
 	containerURL     string
+	containerName    string
+	serviceURL       string
+	embeddedSAS      string
+	addressError     error
 	blobName         string
 	accountName      string
 	accountKey       string
@@ -51,8 +57,13 @@ func WithAzureConnectionString(cs string) AzureBlobOption {
 
 // NewAzureBlob creates a new Azure Blob Storage loader.
 func NewAzureBlob(containerURL, blobName string, opts ...AzureBlobOption) *AzureBlobLoader {
+	serviceURL, containerName, embeddedSAS, addressErr := parseAzureContainerURL(containerURL)
 	l := &AzureBlobLoader{
 		containerURL:     containerURL,
+		containerName:    containerName,
+		serviceURL:       serviceURL,
+		embeddedSAS:      embeddedSAS,
+		addressError:     addressErr,
 		blobName:         blobName,
 		accountName:      os.Getenv("AZURE_STORAGE_ACCOUNT"),
 		accountKey:       os.Getenv("AZURE_STORAGE_KEY"),
@@ -72,12 +83,15 @@ func (l *AzureBlobLoader) Source() string {
 
 // Load fetches configuration from the Azure Blob Storage container at the configured URL and parses its contents.
 func (l *AzureBlobLoader) Load(ctx context.Context) (map[string]any, error) {
+	if l.addressError != nil {
+		return nil, confii.NewLoadError(l.Source(), l.addressError)
+	}
 	client, err := l.createClient()
 	if err != nil {
 		return nil, confii.NewLoadError(l.Source(), err)
 	}
 
-	resp, err := client.DownloadStream(ctx, l.containerURL, l.blobName, nil)
+	resp, err := client.DownloadStream(ctx, l.containerName, l.blobName, nil)
 	if err != nil {
 		return nil, confii.NewLoadError(l.Source(), err)
 	}
@@ -102,7 +116,7 @@ func (l *AzureBlobLoader) createClient() (*azblob.Client, error) {
 		return azblob.NewClientFromConnectionString(l.connectionString, nil)
 	}
 
-	serviceURL := fmt.Sprintf("https://%s.blob.core.windows.net", l.accountName)
+	serviceURL := l.serviceURL
 
 	if l.accountName != "" && l.accountKey != "" {
 		cred, err := azblob.NewSharedKeyCredential(l.accountName, l.accountKey)
@@ -113,8 +127,11 @@ func (l *AzureBlobLoader) createClient() (*azblob.Client, error) {
 	}
 
 	if l.accountName != "" && l.sasToken != "" {
-		urlWithSAS := serviceURL + "?" + l.sasToken
+		urlWithSAS := serviceURL + "?" + strings.TrimPrefix(l.sasToken, "?")
 		return azblob.NewClientWithNoCredential(urlWithSAS, nil)
+	}
+	if l.embeddedSAS != "" {
+		return azblob.NewClientWithNoCredential(serviceURL+"?"+l.embeddedSAS, nil)
 	}
 
 	// Default credential (managed identity).
@@ -123,4 +140,23 @@ func (l *AzureBlobLoader) createClient() (*azblob.Client, error) {
 		return nil, fmt.Errorf("azure default credential: %w", err)
 	}
 	return azblob.NewClient(serviceURL, cred, nil)
+}
+
+func parseAzureContainerURL(raw string) (serviceURL, containerName, sas string, err error) {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return "", "", "", fmt.Errorf("invalid Azure container URL %q", raw)
+	}
+	if u.Scheme != "https" && u.Scheme != "http" {
+		return "", "", "", fmt.Errorf("Azure container URL must use http or https")
+	}
+	path := strings.Trim(u.EscapedPath(), "/")
+	if path == "" || strings.Contains(path, "/") {
+		return "", "", "", fmt.Errorf("Azure container URL must identify exactly one container")
+	}
+	containerName, err = url.PathUnescape(path)
+	if err != nil || containerName == "" {
+		return "", "", "", fmt.Errorf("invalid Azure container name in URL")
+	}
+	return u.Scheme + "://" + u.Host, containerName, u.RawQuery, nil
 }

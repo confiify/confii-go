@@ -21,9 +21,11 @@ go mod edit \
 	-require=github.com/confiify/confii-go@v0.0.0 \
 	-require=github.com/confiify/confii-go/loader/cloud@v0.0.0 \
 	-require=github.com/confiify/confii-go/secret/cloud@v0.0.0 \
+	-require=github.com/confiify/confii-go/examples/cloud@v0.0.0 \
 	-replace="github.com/confiify/confii-go=$repo_root" \
 	-replace="github.com/confiify/confii-go/loader/cloud=$repo_root/loader/cloud" \
-	-replace="github.com/confiify/confii-go/secret/cloud=$repo_root/secret/cloud"
+	-replace="github.com/confiify/confii-go/secret/cloud=$repo_root/secret/cloud" \
+	-replace="github.com/confiify/confii-go/examples/cloud=$repo_root/examples/cloud"
 
 has_tag() {
 	case ",$tags," in
@@ -39,6 +41,7 @@ packages="github.com/confiify/confii-go/loader/cloud"
 if has_tag aws || has_tag azure || has_tag gcp || has_tag vault; then
 	packages="$packages github.com/confiify/confii-go/secret/cloud"
 fi
+packages="$packages github.com/confiify/confii-go/examples/cloud/..."
 
 case "$mode" in
 	build)

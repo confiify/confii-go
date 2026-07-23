@@ -49,13 +49,20 @@ type Config[T any] struct {
 	env          string
 
 	// Collaborators.
-	loaders       []Loader
-	merger        Merger
-	hookProcessor *hook.Processor
-	envHandler    *envhandler.Handler
-	sourceTracker *sourcetrack.Tracker
-	fileTracker   *sourcetrack.FileTracker
-	composer      *compose.Composer
+	loaders []Loader
+	// loaderLayers stores each loader's composed contribution in precedence
+	// order. Reload uses it to rebuild the merged configuration while loading
+	// only sources selected by the incremental change detector.
+	loaderLayers []map[string]any
+	// loaderDependencies contains the transitive _include files read while
+	// composing each layer, aligned by loader index.
+	loaderDependencies [][]string
+	merger             Merger
+	hookProcessor      *hook.Processor
+	envHandler         *envhandler.Handler
+	sourceTracker      *sourcetrack.Tracker
+	fileTracker        *sourcetrack.FileTracker
+	composer           *compose.Composer
 
 	// Observability (nil until enabled).
 	observer     *observe.Metrics
@@ -280,9 +287,32 @@ func New[T any](ctx context.Context, cfgOpts ...Option) (*Config[T], error) {
 //   - [ErrorPolicyIgnore]: the error is silently swallowed with no log
 //     record at all — distinct from Warn, which always logs.
 func (c *Config[T]) load(ctx context.Context) error {
-	var configs []map[string]any
+	return c.loadSelected(ctx, nil)
+}
 
-	for _, l := range c.loaders {
+// loadSelected refreshes selected loader layers and then deterministically
+// rebuilds merged/env config from the complete layer cache. A nil selector
+// performs a full load. The caller holds c.mu for Reload; New invokes this
+// before the Config is published.
+func (c *Config[T]) loadSelected(ctx context.Context, selected map[string]bool) error {
+	var configs []map[string]any
+	if len(c.loaderLayers) != len(c.loaders) {
+		c.loaderLayers = make([]map[string]any, len(c.loaders))
+		c.loaderDependencies = make([][]string, len(c.loaders))
+		selected = nil
+	}
+
+	for i, l := range c.loaders {
+		shouldLoad := selected == nil || selected[l.Source()]
+		if !shouldLoad {
+			if c.loaderLayers[i] != nil {
+				layer := copyMap(c.loaderLayers[i])
+				resolvedLayer := c.envHandler.Resolve(layer, c.env)
+				c.sourceTracker.TrackConfig(resolvedLayer, l.Source(), loaderTypeName(l), c.env, "")
+				configs = append(configs, layer)
+			}
+			continue
+		}
 		data, err := l.Load(ctx)
 		if err != nil {
 			switch c.opts.OnError {
@@ -302,9 +332,13 @@ func (c *Config[T]) load(ctx context.Context) error {
 				// silently to Warn-or-Ignore behavior.
 				return err
 			}
+			c.loaderLayers[i] = nil
+			c.loaderDependencies[i] = nil
 			continue
 		}
 		if data == nil {
+			c.loaderLayers[i] = nil
+			c.loaderDependencies[i] = nil
 			continue
 		}
 
@@ -312,7 +346,7 @@ func (c *Config[T]) load(ctx context.Context) error {
 		// here used to be swallowed and the raw (un-composed) data was
 		// loaded regardless of policy. Post-G07, composition errors flow
 		// through the same OnError dispatch as loader errors.
-		composed, err := c.composer.Compose(data, l.Source())
+		composed, dependencies, err := c.composer.ComposeWithDependencies(data, l.Source())
 		if err != nil {
 			switch c.opts.OnError {
 			case ErrorPolicyRaise:
@@ -324,8 +358,10 @@ func (c *Config[T]) load(ctx context.Context) error {
 					slog.String("error", err.Error()),
 				)
 				composed = data
+				dependencies = nil
 			case ErrorPolicyIgnore:
 				composed = data
+				dependencies = nil
 			default:
 				return err
 			}
@@ -348,7 +384,12 @@ func (c *Config[T]) load(ctx context.Context) error {
 
 		// Track file for incremental reload.
 		_ = c.fileTracker.Track(l.Source())
+		for _, dependency := range dependencies {
+			_ = c.fileTracker.Track(dependency)
+		}
 
+		c.loaderLayers[i] = copyMap(composed)
+		c.loaderDependencies[i] = append([]string(nil), dependencies...)
 		configs = append(configs, composed)
 	}
 
@@ -412,8 +453,15 @@ func (c *Config[T]) Get(keyPath string) (any, error) {
 // result) and have those mutations leak back into envConfig — which
 // would otherwise let users bypass Freeze and break the documented
 // thread-safety claim.
-func (c *Config[T]) GetCtx(ctx context.Context, keyPath string) (any, error) {
+func (c *Config[T]) GetCtx(ctx context.Context, keyPath string) (result any, err error) {
+	started := time.Now()
 	c.mu.RLock()
+	observer := c.observer
+	defer func() {
+		if err == nil && observer != nil {
+			observer.RecordAccess(keyPath, time.Since(started))
+		}
+	}()
 	val, ok := dictutil.GetNested(c.envConfig, keyPath)
 	if !ok {
 		if c.opts.SysenvFallback {
@@ -1263,17 +1311,12 @@ func WithDryRun(v bool) ReloadOption {
 	return func(o *reloadOpts) { o.dryRun = v }
 }
 
-// WithIncremental enables the change-detection gate. When true (the
-// default for [Config.Reload]), [Config.Reload] returns immediately if
-// no tracked source has changed since the last load. When at least one
-// source has changed, the full reload pipeline (load → validate →
-// dry-run apply → commit-or-rollback) is executed.
-//
-// G14: the gate is purely a "should we reload at all?" filter — it does
-// not implement true per-source incremental merge. Once the gate fires,
-// all loaders run and validation/dry-run still apply; this differs from
-// the pre-G14 behavior where the early-return path skipped validation
-// entirely.
+// WithIncremental enables per-source change detection. When true (the
+// default), unchanged local file layers are reused and only changed files
+// are loaded again. Sources without a local fingerprint (HTTP, cloud,
+// environment, and custom remote loaders) are refreshed on every call.
+// The complete ordered layer set is always re-merged and validated before
+// commit, so skipping I/O never skips correctness checks.
 func WithIncremental(v bool) ReloadOption {
 	return func(o *reloadOpts) { o.incremental = v }
 }
@@ -1285,13 +1328,14 @@ func WithIncremental(v bool) ReloadOption {
 //
 //  1. Frozen-state check: refuses with [ErrConfigFrozen] if the Config
 //     was frozen.
-//  2. Incremental gate: when [WithIncremental] is true (the default),
-//     returns immediately without invoking loaders if no tracked source
-//     has changed. The fast-path emits no metrics or events.
+//  2. Incremental selection: when [WithIncremental] is true (the default),
+//     unchanged file layers are reused; untrackable sources are refreshed.
+//     If every source is a tracked, unchanged file, Reload returns without
+//     metrics or events.
 //  3. Snapshot: the full live state (envConfig, mergedConfig, source
 //     tracker) is snapshotted so a subsequent rollback restores
 //     introspection alongside data (D05 / G14).
-//  4. Load: c.load runs every loader and composer. On a Raise-policy
+//  4. Load: selected loaders run and all cached layers are re-merged. On a Raise-policy
 //     error the snapshots are restored, [Metrics.RecordReloadFailed] is
 //     called, the "reload_failed" event is emitted, and the original
 //     error is returned.
@@ -1321,9 +1365,15 @@ func (c *Config[T]) Reload(ctx context.Context, opts ...ReloadOption) error {
 	// before invoking notifyChangesUnlocked, while every error/early
 	// return continues to release through the deferred fallback.
 	unlocked := false
+	var failureEventErr error
+	var failureEventDuration time.Duration
+	var failureEmitter *observe.EventEmitter
 	defer func() {
 		if !unlocked {
 			c.mu.Unlock()
+		}
+		if failureEventErr != nil && failureEmitter != nil {
+			failureEmitter.Emit("reload_failed", failureEventErr, failureEventDuration)
 		}
 	}()
 
@@ -1336,18 +1386,28 @@ func (c *Config[T]) Reload(ctx context.Context, opts ...ReloadOption) error {
 		o(&ro)
 	}
 
-	// Phase 2: Incremental gate. The gate is a pure "did anything
-	// change?" filter — when nothing changed, we skip the entire
-	// pipeline including loaders, validation, observability, and
-	// callbacks. Returning nil here preserves the contract that an
-	// unchanged reload is a true no-op (TestReload_Incremental_NoChange).
+	// Phase 2: select only changed trackable sources. Sources that cannot
+	// expose a local content fingerprint (HTTP, cloud, environment, custom
+	// loaders) are refreshed because skipping them would make remote changes
+	// permanently invisible. Unchanged file layers are reused from the cache.
+	var selectedSources map[string]bool
 	if ro.incremental {
-		paths := make([]string, 0, len(c.loaders))
+		selectedSources = make(map[string]bool)
 		for _, l := range c.loaders {
-			paths = append(paths, l.Source())
+			source := l.Source()
+			if !c.fileTracker.IsTrackable(source) || c.fileTracker.HasChanged(source) {
+				selectedSources[source] = true
+			}
 		}
-		changed := c.fileTracker.GetChangedFiles(paths)
-		if len(changed) == 0 {
+		for i, dependencies := range c.loaderDependencies {
+			for _, dependency := range dependencies {
+				if c.fileTracker.HasChanged(dependency) {
+					selectedSources[c.loaders[i].Source()] = true
+					break
+				}
+			}
+		}
+		if len(selectedSources) == 0 {
 			return nil
 		}
 	}
@@ -1361,6 +1421,8 @@ func (c *Config[T]) Reload(ctx context.Context, opts ...ReloadOption) error {
 	oldMerged := copyMap(c.mergedConfig)
 	trackerSnap := c.sourceTracker.Snapshot()
 	fileTrackerSnap := c.fileTracker.Snapshot()
+	oldLayers := copyLoaderLayers(c.loaderLayers)
+	oldDependencies := copyLoaderDependencies(c.loaderDependencies)
 	start := time.Now()
 
 	// rollback restores every snapshot taken in phase 3 and then drives
@@ -1371,6 +1433,8 @@ func (c *Config[T]) Reload(ctx context.Context, opts ...ReloadOption) error {
 		c.mergedConfig = oldMerged
 		c.sourceTracker.Restore(trackerSnap)
 		c.fileTracker.Restore(fileTrackerSnap)
+		c.loaderLayers = oldLayers
+		c.loaderDependencies = oldDependencies
 		// G14 ordering: failure-path metrics/events fire only after
 		// rollback has restored the state, so any observer that probes
 		// the Config from inside a "reload_failed" listener sees the
@@ -1379,9 +1443,9 @@ func (c *Config[T]) Reload(ctx context.Context, opts ...ReloadOption) error {
 		if c.observer != nil {
 			c.observer.RecordReloadFailed(dur)
 		}
-		if c.eventEmitter != nil {
-			c.eventEmitter.Emit("reload_failed", failureErr, dur)
-		}
+		failureEventErr = failureErr
+		failureEventDuration = dur
+		failureEmitter = c.eventEmitter
 	}
 
 	// Phase 4: Load.
@@ -1398,15 +1462,15 @@ func (c *Config[T]) Reload(ctx context.Context, opts ...ReloadOption) error {
 	// which Restores the pre-reload snapshot — preserving the Wave 7
 	// G14 / D05 rollback contract.
 	c.sourceTracker.Restore(sourcetrack.Snapshot{})
-	if err := c.load(ctx); err != nil {
+	if err := c.loadSelected(ctx, selectedSources); err != nil {
 		rollback(err)
 		return err
 	}
 
 	// Phase 5: Validate.
 	//
-	// G14: validation runs unconditionally on the incremental path too,
-	// not only on full reloads. Pre-G14 the early-return gate at the top
+	// G14: validation runs unconditionally after selected layers are rebuilt.
+	// Pre-G14 the early-return gate at the top
 	// of Reload could leave a Config in an unvalidated state when files
 	// did change, because the gate path skipped validation. The gate
 	// only short-circuits when nothing changed, in which case the
@@ -1444,10 +1508,12 @@ func (c *Config[T]) Reload(ctx context.Context, opts ...ReloadOption) error {
 				return validationErr
 			}
 		}
-		if _, err := validate.DecodeAndValidate[T](c.envConfig); err != nil {
-			validationErr := NewValidationError([]string{err.Error()}, err)
-			rollback(validationErr)
-			return validationErr
+		if configTypeSupportsStructValidation[T]() {
+			if _, err := validate.DecodeAndValidate[T](c.envConfig); err != nil {
+				validationErr := NewValidationError([]string{err.Error()}, err)
+				rollback(validationErr)
+				return validationErr
+			}
 		}
 	}
 
@@ -1459,6 +1525,9 @@ func (c *Config[T]) Reload(ctx context.Context, opts ...ReloadOption) error {
 		c.envConfig = oldEnv
 		c.mergedConfig = oldMerged
 		c.sourceTracker.Restore(trackerSnap)
+		c.fileTracker.Restore(fileTrackerSnap)
+		c.loaderLayers = oldLayers
+		c.loaderDependencies = oldDependencies
 		c.logger.Info("dry-run reload completed, changes not applied")
 		return nil
 	}
@@ -1471,9 +1540,6 @@ func (c *Config[T]) Reload(ctx context.Context, opts ...ReloadOption) error {
 	duration := time.Since(start)
 	if c.observer != nil {
 		c.observer.RecordReload(duration)
-	}
-	if c.eventEmitter != nil {
-		c.eventEmitter.Emit("reload", c.envConfig, duration)
 	}
 
 	// G13: snapshot everything callbacks need WHILE the write lock is
@@ -1493,6 +1559,9 @@ func (c *Config[T]) Reload(ctx context.Context, opts ...ReloadOption) error {
 	c.mu.Unlock()
 	unlocked = true
 
+	if emitter != nil {
+		emitter.Emit("reload", newEnv, duration)
+	}
 	c.notifyChangesUnlocked(callbacks, oldFlat, newFlat)
 
 	if observer != nil {
@@ -1571,9 +1640,15 @@ func (c *Config[T]) Extend(ctx context.Context, l Loader) error {
 	// path manually unlocks before invoking change callbacks so
 	// callbacks may call back into the Config without deadlocking.
 	unlocked := false
+	var failureEventErr error
+	var failureEventDuration time.Duration
+	var failureEmitter *observe.EventEmitter
 	defer func() {
 		if !unlocked {
 			c.mu.Unlock()
+		}
+		if failureEventErr != nil && failureEmitter != nil {
+			failureEmitter.Emit("extend_failed", failureEventErr, failureEventDuration)
 		}
 	}()
 
@@ -1585,6 +1660,8 @@ func (c *Config[T]) Extend(ctx context.Context, l Loader) error {
 	oldEnv := copyMap(c.envConfig)
 	oldMerged := copyMap(c.mergedConfig)
 	trackerSnap := c.sourceTracker.Snapshot()
+	oldLayers := copyLoaderLayers(c.loaderLayers)
+	oldDependencies := copyLoaderDependencies(c.loaderDependencies)
 	start := time.Now()
 
 	// rollback restores every snapshot taken in phase 1 and drives the
@@ -1595,13 +1672,15 @@ func (c *Config[T]) Extend(ctx context.Context, l Loader) error {
 		c.envConfig = oldEnv
 		c.mergedConfig = oldMerged
 		c.sourceTracker.Restore(trackerSnap)
+		c.loaderLayers = oldLayers
+		c.loaderDependencies = oldDependencies
 		dur := time.Since(start)
 		if c.observer != nil {
 			c.observer.RecordExtendFailed(dur)
 		}
-		if c.eventEmitter != nil {
-			c.eventEmitter.Emit("extend_failed", failureErr, dur)
-		}
+		failureEventErr = failureErr
+		failureEventDuration = dur
+		failureEmitter = c.eventEmitter
 	}
 
 	// Phase 2: Load.
@@ -1640,7 +1719,7 @@ func (c *Config[T]) Extend(ctx context.Context, l Loader) error {
 
 	// Phase 3: Compose. Process _include / _defaults / _merge_strategy
 	// directives. Errors flow through OnError, mirroring c.load.
-	composed, err := c.composer.Compose(data, l.Source())
+	composed, dependencies, err := c.composer.ComposeWithDependencies(data, l.Source())
 	if err != nil {
 		switch c.opts.OnError {
 		case ErrorPolicyRaise:
@@ -1653,8 +1732,10 @@ func (c *Config[T]) Extend(ctx context.Context, l Loader) error {
 				slog.String("error", err.Error()),
 			)
 			composed = data
+			dependencies = nil
 		case ErrorPolicyIgnore:
 			composed = data
+			dependencies = nil
 		default:
 			rollback(err)
 			return err
@@ -1703,13 +1784,11 @@ func (c *Config[T]) Extend(ctx context.Context, l Loader) error {
 				return validationErr
 			}
 		}
-		if c.opts.Schema != nil {
-			if _, isMap := c.opts.Schema.(map[string]any); !isMap {
-				if _, verr := validate.DecodeAndValidate[T](c.envConfig); verr != nil {
-					validationErr := NewValidationError([]string{verr.Error()}, verr)
-					rollback(validationErr)
-					return validationErr
-				}
+		if configTypeSupportsStructValidation[T]() {
+			if _, verr := validate.DecodeAndValidate[T](c.envConfig); verr != nil {
+				validationErr := NewValidationError([]string{verr.Error()}, verr)
+				rollback(validationErr)
+				return validationErr
 			}
 		}
 	}
@@ -1719,6 +1798,8 @@ func (c *Config[T]) Extend(ctx context.Context, l Loader) error {
 	// loader, validated-model cache invalidation) and emit commit-time
 	// observability.
 	c.loaders = append(c.loaders, l)
+	c.loaderLayers = append(c.loaderLayers, copyMap(composed))
+	c.loaderDependencies = append(c.loaderDependencies, append([]string(nil), dependencies...))
 
 	// Track the source with the file tracker so subsequent Reload calls
 	// can detect changes to it. Non-file sources (HTTP, env, etc.)
@@ -1731,6 +1812,11 @@ func (c *Config[T]) Extend(ctx context.Context, l Loader) error {
 			slog.String("reason", ferr.Error()),
 		)
 	}
+	for _, dependency := range dependencies {
+		if ferr := c.fileTracker.Track(dependency); ferr != nil {
+			c.logger.Debug("extend: composition dependency not tracked", slog.String("source", dependency), slog.String("reason", ferr.Error()))
+		}
+	}
 
 	// Track the resolved overlay against this loader so Explain /
 	// Layers / GetSourceInfo report this source for every key it
@@ -1742,9 +1828,6 @@ func (c *Config[T]) Extend(ctx context.Context, l Loader) error {
 	duration := time.Since(start)
 	if c.observer != nil {
 		c.observer.RecordExtend(duration)
-	}
-	if c.eventEmitter != nil {
-		c.eventEmitter.Emit("extend", c.envConfig, duration)
 	}
 
 	// G13: snapshot callbacks + flat state under the write lock, then
@@ -1761,6 +1844,9 @@ func (c *Config[T]) Extend(ctx context.Context, l Loader) error {
 	c.mu.Unlock()
 	unlocked = true
 
+	if emitter != nil {
+		emitter.Emit("extend", newEnv, duration)
+	}
 	c.notifyChangesUnlocked(callbacks, oldFlat, newFlat)
 
 	if observer != nil {
@@ -2680,6 +2766,30 @@ func copyMap(m map[string]any) map[string]any {
 	return result
 }
 
+func copyLoaderLayers(layers []map[string]any) []map[string]any {
+	if layers == nil {
+		return nil
+	}
+	result := make([]map[string]any, len(layers))
+	for i, layer := range layers {
+		if layer != nil {
+			result[i] = copyMap(layer)
+		}
+	}
+	return result
+}
+
+func copyLoaderDependencies(dependencies [][]string) [][]string {
+	if dependencies == nil {
+		return nil
+	}
+	result := make([][]string, len(dependencies))
+	for i, paths := range dependencies {
+		result[i] = append([]string(nil), paths...)
+	}
+	return result
+}
+
 // applySelfConfig reads the self-configuration file and applies its values.
 //
 // G06 (Wave 22): the directory passed to [selfconfig.Read] is now the
@@ -3039,25 +3149,34 @@ func (c *Config[T]) runValidateOnLoad() error {
 		}
 	}
 
-	// Struct path: only when Schema is a struct-shaped value (i.e. not
-	// a JSON Schema map and not nil). For nil Schema with no SchemaPath
-	// we are a no-op — backward compatible with the documented
-	// "WithValidateOnLoad without schema is no-op" contract.
-	if c.opts.Schema != nil {
-		if _, isMap := c.opts.Schema.(map[string]any); !isMap {
-			if _, err := c.Typed(); err != nil {
-				if c.opts.StrictValidation {
-					return err
-				}
-				c.logger.Warn(
-					"validation failed on load",
-					slog.String("error", err.Error()),
-				)
+	// A typed Config carries its schema in T. Requiring WithSchema in
+	// addition made the README's New[AppConfig](..., WithValidateOnLoad)
+	// pattern silently skip validation. Untyped Config[any] values remain
+	// a no-op unless a JSON Schema is configured.
+	if configTypeSupportsStructValidation[T]() {
+		if _, err := c.Typed(); err != nil {
+			if c.opts.StrictValidation {
+				return err
 			}
+			c.logger.Warn(
+				"validation failed on load",
+				slog.String("error", err.Error()),
+			)
 		}
 	}
 
 	return nil
+}
+
+// configTypeSupportsStructValidation reports whether T has struct-tag
+// validation semantics. It deliberately excludes maps/interfaces such as
+// Config[any], for which validator.Struct would return InvalidValidationError.
+func configTypeSupportsStructValidation[T any]() bool {
+	t := reflect.TypeOf((*T)(nil)).Elem()
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	return t.Kind() == reflect.Struct
 }
 
 // fileAutoLoader is the loader used by the self-config `default_files`

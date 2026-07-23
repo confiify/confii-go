@@ -484,7 +484,7 @@ Once your config is loaded and values are flowing, these features help you manag
 ```go
 // Reload from sources
 cfg.Reload(ctx)
-cfg.Reload(ctx, confii.WithIncremental(true))  // only changed files (mtime + SHA256)
+cfg.Reload(ctx, confii.WithIncremental(true))  // changed files only; remote sources refresh
 cfg.Reload(ctx, confii.WithDryRun(true))        // validate without applying
 cfg.Reload(ctx, confii.WithReloadValidate(true)) // override validate-on-load
 
@@ -751,7 +751,7 @@ github.com/confiify/confii-go/
 
 ## Requirements
 
-- Go 1.25+ (due to cloud provider dependencies; core library uses Go 1.21 features)
+- Go 1.25+ (cloud integrations are separate opt-in modules)
 
 ---
 

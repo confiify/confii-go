@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	confii "github.com/confiify/confii-go"
+	"github.com/confiify/confii-go/internal/formatparse"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -74,6 +75,21 @@ func TestHTTPLoader_Load_Error(t *testing.T) {
 	_, err := l.Load(context.Background())
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, confii.ErrConfigLoad))
+}
+
+func TestParseContent_UnknownFallsBackFromJSONToYAML(t *testing.T) {
+	result, err := ParseContent([]byte("database:\n  host: yaml-without-metadata\n"), formatparse.FormatUnknown, "https://example.test/config")
+	require.NoError(t, err)
+	database, ok := result["database"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "yaml-without-metadata", database["host"])
+}
+
+func TestParseContent_UnknownReportsBothParserFailures(t *testing.T) {
+	_, err := ParseContent([]byte("[unterminated"), formatparse.FormatUnknown, "https://example.test/config")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "JSON parse")
+	assert.Contains(t, err.Error(), "YAML parse")
 }
 
 // TestHTTPLoader_ParseTOMLContent covers G19: the HTTP loader detects

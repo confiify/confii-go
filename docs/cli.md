@@ -327,7 +327,7 @@ confii migrate <source-type> <config-file> [-o output] [--target-format format]
 | `-o, --output` | Output file path | stdout |
 | `--target-format` | Target format (`yaml`, `json`, `toml`) | `yaml` |
 
-**Supported source types:** `dotenv`, `env`, `dynaconf`, `hydra`, `omegaconf`
+**Supported source types:** `auto`, `dotenv`, `env`, `yaml`, `yml`, `dynaconf`, `hydra`, `omegaconf`. Dynaconf accepts YAML, TOML, or JSON by extension. Hydra and OmegaConf accept standalone/materialized YAML; resolve config groups and executable custom resolvers in the source tool before migration.
 
 **Examples:**
 

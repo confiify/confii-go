@@ -156,6 +156,10 @@ vet-all: ## Vet core and cloud providers (cloud SDKs isolated from go.mod)
 lint: fmt-check vet ## Run all linters (fmt-check + vet + golangci-lint)
 	golangci-lint run ./...
 
+.PHONY: docs-check
+docs-check: ## Build documentation with warnings treated as errors
+	mkdocs build --strict
+
 .PHONY: vulncheck
 vulncheck: ## Run Go vulnerability checks for core and cloud modules
 	govulncheck ./...

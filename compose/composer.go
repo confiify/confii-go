@@ -102,11 +102,22 @@ func (c *Composer) SetMerger(m Merger) {
 // the same Composer (for example, during a reload) starts with an empty
 // seen-set so legitimate re-includes are honored.
 func (c *Composer) Compose(config map[string]any, source string) (map[string]any, error) {
-	visited := make(map[string]bool)
-	return c.compose(config, source, 0, visited)
+	result, _, err := c.ComposeWithDependencies(config, source)
+	return result, err
 }
 
-func (c *Composer) compose(config map[string]any, source string, depth int, visited map[string]bool) (map[string]any, error) {
+// ComposeWithDependencies behaves like [Composer.Compose] and additionally
+// returns every file read through _include, including transitive includes.
+// Paths are absolute and ordered by first traversal. Callers use this data to
+// watch and fingerprint the complete composition input set.
+func (c *Composer) ComposeWithDependencies(config map[string]any, source string) (map[string]any, []string, error) {
+	visited := make(map[string]bool)
+	var dependencies []string
+	result, err := c.compose(config, source, 0, visited, &dependencies)
+	return result, dependencies, err
+}
+
+func (c *Composer) compose(config map[string]any, source string, depth int, visited map[string]bool, dependencies *[]string) (map[string]any, error) {
 	if depth >= maxDepth {
 		return nil, fmt.Errorf("composition max depth (%d) exceeded at %s", maxDepth, source)
 	}
@@ -129,7 +140,7 @@ func (c *Composer) compose(config map[string]any, source string, depth int, visi
 
 	// Step 2: Process _include (merge additional configs on top).
 	if includes, ok := result["_include"]; ok {
-		included, err := c.processIncludes(includes, source, depth, visited)
+		included, err := c.processIncludes(includes, source, depth, visited, dependencies)
 		if err != nil {
 			return nil, err
 		}
@@ -176,7 +187,7 @@ func (c *Composer) processDefaults(defaults any, source string, depth int) (map[
 	return result, nil
 }
 
-func (c *Composer) processIncludes(includes any, source string, depth int, visited map[string]bool) (map[string]any, error) {
+func (c *Composer) processIncludes(includes any, source string, depth int, visited map[string]bool, dependencies *[]string) (map[string]any, error) {
 	result := make(map[string]any)
 
 	var paths []string
@@ -215,8 +226,9 @@ func (c *Composer) processIncludes(includes any, source string, depth int, visit
 			continue // skip circular include
 		}
 		visited[abs] = true
+		*dependencies = append(*dependencies, abs)
 
-		included, err := c.loadFile(resolved, depth, visited)
+		included, err := c.loadFile(resolved, depth, visited, dependencies)
 		if err != nil {
 			return nil, fmt.Errorf("include %s: %w", p, err)
 		}
@@ -228,7 +240,7 @@ func (c *Composer) processIncludes(includes any, source string, depth int, visit
 	return result, nil
 }
 
-func (c *Composer) loadFile(path string, depth int, visited map[string]bool) (map[string]any, error) {
+func (c *Composer) loadFile(path string, depth int, visited map[string]bool, dependencies *[]string) (map[string]any, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -252,5 +264,5 @@ func (c *Composer) loadFile(path string, depth int, visited map[string]bool) (ma
 
 	// Recursively compose the included file, threading visited through so
 	// cycle detection remains intact within this single top-level call.
-	return c.compose(result, path, depth+1, visited)
+	return c.compose(result, path, depth+1, visited, dependencies)
 }

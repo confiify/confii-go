@@ -26,7 +26,9 @@ type GCSLoader struct {
 // GCSOption configures a GCSLoader.
 type GCSOption func(*GCSLoader)
 
-// WithGCSProject sets the GCP project ID.
+// WithGCSProject sets the quota/billing project used by Application Default
+// Credentials. GCS bucket names are global, so it does not alter the object
+// resource path.
 func WithGCSProject(id string) GCSOption {
 	return func(l *GCSLoader) { l.projectID = id }
 }
@@ -60,6 +62,12 @@ func (l *GCSLoader) Load(ctx context.Context) (map[string]any, error) {
 	var clientOpts []option.ClientOption
 	if l.credentialsPath != "" {
 		clientOpts = append(clientOpts, option.WithCredentialsFile(l.credentialsPath))
+	}
+	if l.projectID != "" {
+		// GCS bucket names are globally unique, so the project is not part of
+		// the object address. It is still meaningful as the quota/billing
+		// project used by Application Default Credentials.
+		clientOpts = append(clientOpts, option.WithQuotaProject(l.projectID))
 	}
 
 	client, err := storage.NewClient(ctx, clientOpts...)

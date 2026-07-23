@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"errors"
 	"strings"
 	"testing"
 )
@@ -10,6 +9,7 @@ func TestMigrateCommand_DispatchesOnSourceType(t *testing.T) {
 	dir := t.TempDir()
 	yamlPath := writeTestFile(t, dir, "config.yaml", "host: localhost\nport: 5432\n")
 	envPath := writeTestFile(t, dir, "config.env", "HOST=localhost\nPORT=5432\n")
+	tomlPath := writeTestFile(t, dir, "settings.toml", "host = \"localhost\"\nport = 5432\n")
 
 	tests := []struct {
 		name       string
@@ -23,24 +23,10 @@ func TestMigrateCommand_DispatchesOnSourceType(t *testing.T) {
 		{name: "dotenv dispatches to env-file loader", sourceType: "dotenv", configFile: envPath},
 		{name: "auto preserves legacy YAML-then-env-file detection", sourceType: "auto", configFile: yamlPath},
 		{name: "empty source type also auto-detects", sourceType: "", configFile: yamlPath},
-		{
-			name:       "dynaconf returns not-yet-supported error",
-			sourceType: "dynaconf", configFile: yamlPath,
-			wantErr:   true,
-			errSubstr: "not yet supported",
-		},
-		{
-			name:       "hydra returns not-yet-supported error",
-			sourceType: "hydra", configFile: yamlPath,
-			wantErr:   true,
-			errSubstr: "not yet supported",
-		},
-		{
-			name:       "omegaconf returns not-yet-supported error",
-			sourceType: "omegaconf", configFile: yamlPath,
-			wantErr:   true,
-			errSubstr: "not yet supported",
-		},
+		{name: "dynaconf imports YAML settings", sourceType: "dynaconf", configFile: yamlPath},
+		{name: "dynaconf imports TOML settings", sourceType: "dynaconf", configFile: tomlPath},
+		{name: "hydra imports materialized YAML", sourceType: "hydra", configFile: yamlPath},
+		{name: "omegaconf imports materialized YAML", sourceType: "omegaconf", configFile: yamlPath},
 		{
 			name:       "unknown source type returns clear error",
 			sourceType: "no-such-source", configFile: yamlPath,
@@ -68,30 +54,6 @@ func TestMigrateCommand_DispatchesOnSourceType(t *testing.T) {
 				t.Fatalf("expected non-nil config")
 			}
 		})
-	}
-}
-
-func TestMigrateCommand_UnsupportedSourceType_ReturnsTypedError(t *testing.T) {
-	dir := t.TempDir()
-	yamlPath := writeTestFile(t, dir, "config.yaml", "host: localhost\n")
-
-	_, err := loadMigrateSource("dynaconf", yamlPath)
-	if err == nil {
-		t.Fatalf("expected error, got nil")
-	}
-
-	var typed *errUnsupportedMigrateSource
-	if !errors.As(err, &typed) {
-		t.Fatalf("expected *errUnsupportedMigrateSource, got %T: %v", err, err)
-	}
-	if typed.source != "dynaconf" {
-		t.Errorf("expected source 'dynaconf', got %q", typed.source)
-	}
-	// The error message should help users understand what IS supported.
-	for _, want := range []string{"dotenv", "yaml"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("expected error to advertise %q as supported, got: %v", want, err)
-		}
 	}
 }
 
@@ -137,19 +99,17 @@ func TestMigrateCommand_PositionalArgsExecute(t *testing.T) {
 	}
 }
 
-func TestMigrateCommand_RecognisedButUnsupported_ViaCobra(t *testing.T) {
+func TestMigrateCommand_HydraViaCobra(t *testing.T) {
 	dir := t.TempDir()
 	yamlPath := writeTestFile(t, dir, "config.yaml", "host: localhost\n")
 
 	cmd := NewMigrateCmd()
-	// Reaching this assertion (rather than process termination) is
-	// part of verifying that no os.Exit slipped back into RunE.
-	_, err := execCobra(cmd, []string{"hydra", yamlPath})
-	if err == nil {
-		t.Fatalf("expected error for hydra source, got nil")
+	out, err := execCobra(cmd, []string{"hydra", yamlPath, "--target-format", "json"})
+	if err != nil {
+		t.Fatalf("migrate hydra failed: %v", err)
 	}
-	if !strings.Contains(err.Error(), "not yet supported") {
-		t.Errorf("expected 'not yet supported' error, got: %v", err)
+	if !strings.Contains(out, "localhost") {
+		t.Errorf("expected migrated value, got: %s", out)
 	}
 }
 

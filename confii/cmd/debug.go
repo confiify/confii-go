@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 
 	confii "github.com/confiify/confii-go"
 	"github.com/spf13/cobra"
@@ -223,33 +225,14 @@ func NewDocsCmd() *cobra.Command {
 }
 
 // migrateSupportedSources lists the source-type values the migrate
-// command knows how to dispatch on. The values map either to a loader
-// spec (handled directly) or to "not yet supported" sentinels that
-// produce a typed error so users get a clear message instead of a
-// silent fallback to YAML.
+// command knows how to dispatch on.
 var migrateSupportedSources = []string{
 	"auto", "dotenv", "env", "yaml", "yml", "dynaconf", "hydra", "omegaconf",
 }
 
-// errUnsupportedMigrateSource is returned for source types that the
-// migrate command recognises by name but has not yet implemented.
-type errUnsupportedMigrateSource struct {
-	source    string
-	supported []string
-}
-
-func (e *errUnsupportedMigrateSource) Error() string {
-	return fmt.Sprintf(
-		"migrate: source type %q is not yet supported; implemented source types: %v",
-		e.source, e.supported,
-	)
-}
-
 // loadMigrateSource builds a *confii.Config[any] for the migrate
 // command, dispatching on sourceType. An empty sourceType (or "auto")
-// preserves the legacy YAML-then-env-file auto-detect behaviour. Any
-// other recognised-but-unimplemented source returns a typed error
-// rather than silently falling through to YAML.
+// preserves the legacy YAML-then-env-file auto-detect behaviour.
 func loadMigrateSource(sourceType, configFile string) (*confii.Config[any], error) {
 	switch sourceType {
 	case "", "auto":
@@ -270,11 +253,25 @@ func loadMigrateSource(sourceType, configFile string) (*confii.Config[any], erro
 		return buildConfig("", []string{"env:" + configFile})
 	case "yaml", "yml":
 		return buildConfig("", []string{"yaml:" + configFile})
-	case "dynaconf", "hydra", "omegaconf":
-		return nil, &errUnsupportedMigrateSource{
-			source:    sourceType,
-			supported: []string{"auto", "dotenv", "env", "yaml", "yml"},
+	case "dynaconf":
+		// Dynaconf commonly uses settings.toml, settings.yaml, or JSON.
+		// Preserve its environment sections and values; Confii's normal
+		// environment resolver can then select the active section.
+		ext := strings.ToLower(filepath.Ext(configFile))
+		switch ext {
+		case ".toml":
+			return buildConfig("", []string{"toml:" + configFile})
+		case ".json":
+			return buildConfig("", []string{"json:" + configFile})
+		default:
+			return buildConfig("", []string{"yaml:" + configFile})
 		}
+	case "hydra", "omegaconf":
+		// Both tools serialize standalone/materialized configuration as
+		// YAML. This imports that data faithfully; resolving Hydra config
+		// groups or executing OmegaConf resolvers remains the source tool's
+		// responsibility before migration.
+		return buildConfig("", []string{"yaml:" + configFile})
 	default:
 		return nil, fmt.Errorf(
 			"migrate: unknown source type %q; supported: %v",
@@ -286,8 +283,7 @@ func loadMigrateSource(sourceType, configFile string) (*confii.Config[any], erro
 // NewMigrateCmd creates the 'migrate' command.
 //
 // Error contract: this command returns a non-nil error from RunE when
-// the source type is unknown or recognised-but-unimplemented (dynaconf,
-// hydra, omegaconf), and when the underlying load/export fails. It
+// the source type is unknown, and when the underlying load/export fails. It
 // does NOT silently fall back from one source type to another; the
 // only auto-detect path is the explicit "auto" / empty source type,
 // preserved for backwards compatibility.
@@ -307,9 +303,9 @@ func NewMigrateCmd() *cobra.Command {
 			"  dotenv    - .env file\n" +
 			"  env       - process environment variables (config-file is the prefix)\n" +
 			"  yaml,yml  - YAML config file\n" +
-			"\n" +
-			"Recognised but not yet implemented (return a typed error):\n" +
-			"  dynaconf, hydra, omegaconf\n",
+			"  dynaconf  - Dynaconf YAML, TOML, or JSON settings\n" +
+			"  hydra     - materialized Hydra YAML\n" +
+			"  omegaconf - materialized OmegaConf YAML\n",
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(c *cobra.Command, args []string) error {
 			var sourceType, configFile string
