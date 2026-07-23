@@ -177,6 +177,32 @@ func TestV08_DictProvider_Registered(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotNil(t, store)
+	got, err := store.GetSecret(context.Background(), "db_password")
+	require.NoError(t, err)
+	assert.Equal(t, "s3cr3t", got)
+	_, err = store.GetSecret(context.Background(), "missing")
+	require.ErrorIs(t, err, confii.ErrSecretNotFound)
+}
+
+func TestV08_DictProvider_InputShapes(t *testing.T) {
+	factory, ok := confii.LookupSelfConfigSecretProvider("dict")
+	require.True(t, ok)
+
+	empty, err := factory(map[string]any{})
+	require.NoError(t, err)
+	_, err = empty.GetSecret(context.Background(), "missing")
+	require.ErrorIs(t, err, confii.ErrSecretNotFound)
+
+	converted, err := factory(map[string]any{"entries": map[any]any{"token": "value"}})
+	require.NoError(t, err)
+	got, err := converted.GetSecret(context.Background(), "token")
+	require.NoError(t, err)
+	assert.Equal(t, "value", got)
+
+	_, err = factory(map[string]any{"entries": map[any]any{42: "bad"}})
+	require.Error(t, err)
+	_, err = factory(map[string]any{"entries": "not-a-map"})
+	require.Error(t, err)
 }
 
 // V-08_b — provider="file" must build a working hook.
@@ -191,6 +217,42 @@ func TestV08_FileProvider_Registered(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotNil(t, store)
+}
+
+func TestV08_FileProvider_ReadOptionsAndErrors(t *testing.T) {
+	factory, ok := confii.LookupSelfConfigSecretProvider("file")
+	require.True(t, ok)
+
+	_, err := factory(map[string]any{})
+	require.Error(t, err)
+
+	base := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(base, "api.key"), []byte("  secret-value\n"), 0600))
+	trimmed, err := factory(map[string]any{"base_dir": base, "extension": ".key"})
+	require.NoError(t, err)
+	got, err := trimmed.GetSecret(context.Background(), "api")
+	require.NoError(t, err)
+	assert.Equal(t, "secret-value", got)
+
+	untrimmed, err := factory(map[string]any{
+		"base_dir":        base,
+		"extension":       ".key",
+		"trim_whitespace": false,
+	})
+	require.NoError(t, err)
+	got, err = untrimmed.GetSecret(context.Background(), "api")
+	require.NoError(t, err)
+	assert.Equal(t, "  secret-value\n", got)
+
+	_, err = trimmed.GetSecret(context.Background(), "missing")
+	require.ErrorIs(t, err, confii.ErrSecretNotFound)
+	_, err = trimmed.GetSecret(context.Background(), "bad\x00key")
+	require.ErrorIs(t, err, confii.ErrSecretNotFound)
+
+	missingRoot, err := factory(map[string]any{"base_dir": filepath.Join(base, "absent")})
+	require.NoError(t, err)
+	_, err = missingRoot.GetSecret(context.Background(), "api")
+	require.Error(t, err)
 }
 
 // V-08_c — provider="env" remains supported (regression).
