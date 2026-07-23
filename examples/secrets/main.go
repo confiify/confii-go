@@ -48,8 +48,13 @@ func main() {
 	//   ${secret:key:json_path}
 	//   ${secret:key:json_path:version}
 
-	password, _ := cfg.Get("database.password")
-	fmt.Println("Password:", password)
+	// Resolve the secret without ever writing its value to logs or stdout.
+	// Applications should pass the returned value directly to the component
+	// that needs it (for example, a database client).
+	if _, err := cfg.Get("database.password"); err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("Database password resolved successfully")
 
 	// Check cache stats
 	fmt.Println("Cache stats:", resolver.CacheStats())
