@@ -9,13 +9,13 @@ toolchain go1.25.12
 // docs/installation.md for opt-in instructions.
 require (
 	github.com/BurntSushi/toml v1.6.0
-	github.com/fsnotify/fsnotify v1.9.0
-	github.com/go-playground/validator/v10 v10.30.2
+	github.com/fsnotify/fsnotify v1.10.1
+	github.com/go-playground/validator/v10 v10.30.3
 	github.com/mitchellh/mapstructure v1.5.0
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
-	gopkg.in/ini.v1 v1.67.1
+	gopkg.in/ini.v1 v1.67.3
 	gopkg.in/yaml.v3 v3.0.1
 )
 
