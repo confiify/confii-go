@@ -6,11 +6,13 @@ on:
     paths:
       - "docs/**"
       - "mkdocs.yml"
+  pull_request:
+    paths:
+      - "docs/**"
+      - "mkdocs.yml"
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
   group: pages
@@ -31,7 +33,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install MkDocs Material
-        run: pip install mkdocs-material
+        run: pip install --requirement docs/requirements.txt
 
       - name: Build site
         run: mkdocs build --strict
@@ -44,7 +46,12 @@ jobs:
   deploy:
     name: Deploy docs
     needs: build
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
+
+    permissions:
+      pages: write
+      id-token: write
 
     environment:
       name: github-pages

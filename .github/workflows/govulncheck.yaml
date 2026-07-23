@@ -1,6 +1,8 @@
 name: Govulncheck
 
 on:
+  push:
+    branches: [main]
   pull_request:
   schedule:
     - cron: "0 6 * * 3" # Wednesday 6am UTC
@@ -23,7 +25,10 @@ jobs:
           go-version-file: go.mod
 
       - name: Install govulncheck
-        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
 
-      - name: Run govulncheck
+      - name: Scan core module
         run: govulncheck ./...
+
+      - name: Scan cloud modules as a consumer
+        run: sh scripts/test-cloud-consumer.sh 'aws,azure,gcp,vault,ibm' vuln

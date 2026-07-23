@@ -23,17 +23,38 @@ func (b *Builder[T]) WithEnv(env string) *Builder[T] {
 }
 
 // AddLoader adds a single loader.
+//
+// Calling AddLoader marks the "loaders" option as explicitly set per the
+// documented priority model (explicit code > self-config > built-in
+// default). As a result, [applySelfConfig] will not append `default_files`
+// loaders from a self-config file when the caller has staged at least one
+// loader through the Builder. This preserves the invariant that explicit
+// code wins over self-config (G05).
 func (b *Builder[T]) AddLoader(l Loader) *Builder[T] {
 	b.opts = append(b.opts, func(o *options) {
 		o.Loaders = append(o.Loaders, l)
+		o.explicitlySet["loaders"] = true
 	})
 	return b
 }
 
 // AddLoaders adds multiple loaders.
+//
+// Calling AddLoaders marks the "loaders" option as explicitly set per the
+// documented priority model (explicit code > self-config > built-in
+// default). As a result, [applySelfConfig] will not append `default_files`
+// loaders from a self-config file when the caller has staged loaders
+// through the Builder. This preserves the invariant that explicit code
+// wins over self-config (G05).
+//
+// Calling AddLoaders with zero arguments is a no-op for the loader slice
+// itself but still marks "loaders" as explicit, which is the desired
+// behavior for callers that intentionally signal "I am supplying my own
+// loader list, even if empty."
 func (b *Builder[T]) AddLoaders(loaders ...Loader) *Builder[T] {
 	b.opts = append(b.opts, func(o *options) {
 		o.Loaders = append(o.Loaders, loaders...)
+		o.explicitlySet["loaders"] = true
 	})
 	return b
 }

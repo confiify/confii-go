@@ -1,0 +1,6 @@
+* @confiify
+
+/.github/ @confiify
+/SECURITY.md @confiify
+/loader/cloud/ @confiify
+/secret/cloud/ @confiify

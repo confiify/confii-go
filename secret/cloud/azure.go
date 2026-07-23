@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azsecrets"
 	confii "github.com/confiify/confii-go"
@@ -20,31 +21,41 @@ type AzureKeyVault struct {
 	client *azsecrets.Client
 }
 
-// NewAzureKeyVault creates a new Azure Key Vault store.
-// If credential is nil, DefaultAzureCredential is used.
-func NewAzureKeyVault(vaultURL string, credential any) (*AzureKeyVault, error) {
-	var client *azsecrets.Client
-	var err error
-
-	if credential != nil {
-		if cred, ok := credential.(*azidentity.DefaultAzureCredential); ok {
-			client, err = azsecrets.NewClient(vaultURL, cred, nil)
-		} else {
-			return nil, fmt.Errorf("unsupported credential type: %T", credential)
-		}
-	} else {
-		cred, err := azidentity.NewDefaultAzureCredential(nil)
+// NewAzureKeyVault creates a new Azure Key Vault store backed by [azsecrets.NewClient].
+//
+// The credential parameter accepts ANY implementation of [azcore.TokenCredential]
+// — the Azure SDK's documented credential interface. This includes, but is not
+// limited to:
+//
+//   - [*azidentity.DefaultAzureCredential]
+//   - [*azidentity.ClientSecretCredential]
+//   - [*azidentity.ManagedIdentityCredential]
+//   - [*azidentity.ClientCertificateCredential]
+//   - [*azidentity.WorkloadIdentityCredential]
+//   - any custom [azcore.TokenCredential] implementation (test fakes, broker
+//     integrations, etc.)
+//
+// If credential is nil, a [*azidentity.DefaultAzureCredential] is constructed
+// implicitly.
+//
+// Migration note (G26): the previous signature accepted `credential any` but
+// silently rejected every concrete type other than [*azidentity.DefaultAzureCredential]
+// at runtime. Any callsite that previously passed a non-credential value (e.g.,
+// a config struct) was already broken; callsites that passed
+// [*azidentity.DefaultAzureCredential] continue to compile because that type
+// satisfies [azcore.TokenCredential].
+func NewAzureKeyVault(vaultURL string, credential azcore.TokenCredential) (*AzureKeyVault, error) {
+	if credential == nil {
+		def, err := azidentity.NewDefaultAzureCredential(nil)
 		if err != nil {
 			return nil, fmt.Errorf("azure default credential: %w", err)
 		}
-		client, err = azsecrets.NewClient(vaultURL, cred, nil)
-		if err != nil {
-			return nil, fmt.Errorf("azure keyvault client: %w", err)
-		}
+		credential = def
 	}
 
+	client, err := azsecrets.NewClient(vaultURL, credential, nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("azure keyvault client: %w", err)
 	}
 	return &AzureKeyVault{client: client}, nil
 }

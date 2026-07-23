@@ -1,10 +1,18 @@
-//go:build aws && azure && gcp && vault
+//go:build aws
 
-// Package main shows cloud loader and secret store usage patterns.
-// These require build tags: go build -tags "aws,azure,gcp,vault,ibm"
+// Package main shows AWS-flavoured cloud loader and secret store usage
+// patterns. The example is gated behind the `aws` build tag. Cloud SDK
+// versions are owned by the loader/cloud and secret/cloud modules; see
+// docs/installation.md.
 //
-// This example is illustrative — it won't compile without cloud dependencies
-// and valid credentials. See each section for the required build tag.
+// To compile this example, from a project that imports confii-go:
+//
+//	cd examples/cloud
+//	go build -tags aws .
+//
+// Sibling per-provider examples for Azure, GCP, Vault, and IBM live next to
+// this file (e.g. examples/cloud/azure/main.go). Activate multiple providers by combining tags, e.g.
+// `-tags "aws,vault"`.
 package main
 
 import (
@@ -26,30 +34,23 @@ func main() {
 	// Cloud Loaders (configuration sources)
 	// ========================================
 
-	// AWS S3 (requires: go build -tags aws)
+	// AWS S3 (this file: -tags aws)
 	s3Loader, _ := cloud.NewS3("s3://my-bucket/config.yaml",
 		cloud.WithS3Region("us-west-2"),
 	)
 
-	// AWS SSM Parameter Store (requires: go build -tags aws)
+	// AWS SSM Parameter Store (this file: -tags aws)
 	ssmLoader := cloud.NewSSM("/myapp/production/")
 
-	// Azure Blob Storage (requires: go build -tags azure)
-	azLoader := cloud.NewAzureBlob("my-container", "config.yaml")
-
-	// Google Cloud Storage (requires: go build -tags gcp)
-	gcsLoader := cloud.NewGCS("my-bucket", "config.yaml")
-
-	// Git (no build tag needed)
+	// Git (no build tag needed — uses HTTP, not a cloud SDK)
 	gitLoader := cloud.NewGit(
 		"https://github.com/org/config-repo", "app/config.yaml",
 		cloud.WithGitBranch("main"),
 		cloud.WithGitToken(os.Getenv("GIT_TOKEN")),
 	)
 
-	// Use any combination of loaders
 	cfg, err := confii.New[any](ctx,
-		confii.WithLoaders(s3Loader, ssmLoader, azLoader, gcsLoader, gitLoader),
+		confii.WithLoaders(s3Loader, ssmLoader, gitLoader),
 		confii.WithDeepMerge(true),
 	)
 	if err != nil {
@@ -60,35 +61,15 @@ func main() {
 	// Cloud Secret Stores
 	// ========================================
 
-	// AWS Secrets Manager (requires: go build -tags aws)
+	// AWS Secrets Manager (this file: -tags aws)
 	awsStore, _ := secretcloud.NewAWSSecretsManager(ctx,
 		secretcloud.WithAWSRegion("us-east-1"),
 	)
 
-	// HashiCorp Vault (requires: go build -tags vault)
-	vaultStore, _ := secretcloud.NewHashiCorpVault(
-		secretcloud.WithVaultURL("https://vault.example.com"),
-		secretcloud.WithVaultAuth(&secretcloud.AppRoleAuth{
-			RoleID:   "role-id",
-			SecretID: "secret-id",
-		}),
-		secretcloud.WithVaultMountPoint("secret"),
-	)
+	// Multi-store fallback chain — extend with stores from other providers
+	// by adding their build tags (e.g. `-tags "aws,vault"`).
+	multi := secret.NewMultiStore([]confii.SecretStore{awsStore})
 
-	// Azure Key Vault (requires: go build -tags azure)
-	azStore, _ := secretcloud.NewAzureKeyVault(
-		"https://my-vault.vault.azure.net", nil,
-	)
-
-	// GCP Secret Manager (requires: go build -tags gcp)
-	gcpStore, _ := secretcloud.NewGCPSecretManager(ctx, "my-project-id")
-
-	// Multi-store fallback chain
-	multi := secret.NewMultiStore([]confii.SecretStore{
-		awsStore, vaultStore, azStore, gcpStore,
-	})
-
-	// Wire up with config
 	resolver := secret.NewResolver(multi)
 	cfg.HookProcessor().RegisterGlobalHook(resolver.Hook())
 

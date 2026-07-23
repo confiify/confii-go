@@ -7,7 +7,7 @@ Confii includes a command-line tool with 10 commands for loading, inspecting, va
 ## Installation
 
 ```bash
-go install github.com/confiify/confii-go/confii@latest
+go install github.com/confiify/confii-go/confii@v1.1.0
 ```
 
 Verify:

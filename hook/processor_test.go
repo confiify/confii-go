@@ -1,12 +1,38 @@
 package hook
 
 import (
+	"context"
 	"strings"
 	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
+
+func TestProcessor_ContextHookRegistrationAndOrder(t *testing.T) {
+	type contextKey struct{}
+	ctx := context.WithValue(context.Background(), contextKey{}, "request-42")
+	p := NewProcessor()
+
+	appendStage := func(stage string) FuncCtx {
+		return func(gotCtx context.Context, _ string, value any) (any, error) {
+			assert.Equal(t, "request-42", gotCtx.Value(contextKey{}))
+			return value.(string) + stage, nil
+		}
+	}
+
+	p.RegisterKeyHookCtx("key", appendStage("-key"))
+	p.RegisterValueHookCtx("start", appendStage("-value"))
+	p.RegisterConditionHookCtx(
+		func(key string, _ any) bool { return key == "key" },
+		appendStage("-condition"),
+	)
+	p.RegisterGlobalHookCtx(appendStage("-global"))
+
+	got, err := p.ProcessCtx(ctx, "key", "start")
+	assert.NoError(t, err)
+	assert.Equal(t, "start-key-value-condition-global", got)
+}
 
 func TestProcessor_GlobalHook(t *testing.T) {
 	p := NewProcessor()

@@ -13,7 +13,10 @@ import (
 
 func TestVersionManager_Defaults(t *testing.T) {
 	vm := NewVersionManager("", 0)
-	assert.Equal(t, ".confii/versions", vm.storagePath)
+	// Empty storage path means in-memory only: no source-tree artifacts
+	// are created. Callers must opt in to disk persistence with an explicit
+	// directory.
+	assert.Equal(t, "", vm.storagePath)
 	assert.Equal(t, 100, vm.maxVersions)
 }
 
@@ -180,10 +183,10 @@ func TestVersionManager_EvictRemovesOldest(t *testing.T) {
 	dir := t.TempDir()
 	vm := NewVersionManager(dir, 2)
 
+	// Timestamps are now nanosecond-monotonic, so back-to-back saves still
+	// produce strictly increasing values. No sleeps needed.
 	v1, _ := vm.SaveVersion(map[string]any{"v": 1}, nil)
-	time.Sleep(1100 * time.Millisecond) // ensure distinct Unix() timestamps
 	_, _ = vm.SaveVersion(map[string]any{"v": 2}, nil)
-	time.Sleep(1100 * time.Millisecond)
 	_, _ = vm.SaveVersion(map[string]any{"v": 3}, nil)
 
 	// v1 should have been evicted (oldest by timestamp).

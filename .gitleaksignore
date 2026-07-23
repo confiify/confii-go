@@ -1,0 +1,2 @@
+# Deterministic, non-production integration fixture.
+integration/testdata/secrets.env:generic-api-key:1

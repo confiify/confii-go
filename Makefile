@@ -82,12 +82,52 @@ test-cover-html: test-cover ## Generate and open HTML coverage report
 	@echo "Coverage report: coverage.html"
 
 .PHONY: test-cloud
-test-cloud: ## Run tests with all cloud build tags (requires credentials)
-	$(GOTEST) -tags "$(TAGS_ALL)" ./... -count=1 -timeout 120s
+test-cloud: ## Test all cloud providers in an isolated consumer module
+	sh scripts/test-cloud-consumer.sh "$(TAGS_ALL)" test
 
 .PHONY: bench
 bench: ## Run benchmarks
 	$(GOTEST) ./... -bench=. -benchmem -run='^$$' -timeout 120s
+
+# ---- Fuzz ----
+#
+# `make fuzz` runs every known fuzz target sequentially for a configurable
+# duration (default 30 seconds per target). Set FUZZTIME to override:
+#
+#   make fuzz FUZZTIME=2m
+#
+# The targets listed below mirror the matrix in .github/workflows/ci.yaml.
+# When adding a new Fuzz<Name> function, append it to FUZZ_TARGETS so CI
+# and `make fuzz` agree on coverage.
+
+FUZZTIME ?= 30s
+
+FUZZ_TARGETS := \
+	./loader:FuzzYAMLLoader \
+	./loader:FuzzJSONLoader \
+	./loader:FuzzTOMLLoader \
+	./loader:FuzzEnvFileLoader \
+	./loader:FuzzUnquoteEnvValue \
+	./secret:FuzzResolverResolve \
+	./internal/dictutil:FuzzGetNested \
+	./internal/dictutil:FuzzSetNested \
+	./internal/dictutil:FuzzDeepMerge
+
+.PHONY: fuzz
+fuzz: ## Run all fuzz targets for FUZZTIME each (default 30s; e.g. make fuzz FUZZTIME=2m)
+	@for target in $(FUZZ_TARGETS); do \
+		pkg=$${target%%:*}; \
+		fn=$${target##*:}; \
+		echo "==> Fuzzing $$fn in $$pkg for $(FUZZTIME)"; \
+		$(GOTEST) -run='^$$' -fuzz="^$${fn}$$" -fuzztime=$(FUZZTIME) -timeout=120s $$pkg || exit 1; \
+	done
+	@echo ""
+	@echo "All fuzz targets passed."
+
+.PHONY: fuzz-seeds
+fuzz-seeds: ## Run fuzz targets in seed-only mode (no -fuzz flag) — fast unit-test path
+	$(GOTEST) -run='^Fuzz' -count=1 -timeout 60s \
+		./loader/... ./secret/... ./internal/dictutil/...
 
 # ---- Code Quality ----
 
@@ -108,31 +148,32 @@ vet: ## Run go vet
 	$(GOVET) ./...
 
 .PHONY: vet-all
-vet-all: ## Run go vet with all cloud build tags
-	$(GOVET) -tags "$(TAGS_ALL)" ./...
+vet-all: ## Vet core and cloud providers (cloud SDKs isolated from go.mod)
+	$(GOVET) ./...
+	sh scripts/test-cloud-consumer.sh "$(TAGS_ALL)" vet
 
 .PHONY: lint
 lint: fmt-check vet ## Run all linters (fmt-check + vet + golangci-lint)
 	golangci-lint run ./...
 
 .PHONY: vulncheck
-vulncheck: ## Run Go vulnerability check
+vulncheck: ## Run Go vulnerability checks for core and cloud modules
 	govulncheck ./...
+	sh scripts/test-cloud-consumer.sh "$(TAGS_ALL)" vuln
 
-.PHONY: tidy
-tidy: ## Run go mod tidy and verify
-	$(GO) mod tidy
-	$(GO) mod verify
+.PHONY: mod-verify
+mod-verify: ## Verify every module is tidy and internally consistent
+	sh scripts/verify-modules.sh
 
 # ---- CI ----
 
 .PHONY: ci
-ci: tidy fmt-check vet test ## Run full CI pipeline (tidy + lint + test)
+ci: mod-verify fmt-check vet test ## Run core module, format, vet, and test gates
 	@echo ""
 	@echo "CI passed."
 
 .PHONY: ci-full
-ci-full: tidy fmt-check vet-all test test-race test-integration ## Full CI with race detection and integration tests
+ci-full: mod-verify fmt-check vet-all test test-race test-integration test-cloud ## Full CI including race, integration, and cloud consumer tests
 	@echo ""
 	@echo "Full CI passed."
 
@@ -146,7 +187,7 @@ deps: ## Download and verify dependencies
 .PHONY: update-deps
 update-deps: ## Update all dependencies to latest minor/patch
 	$(GO) get -u ./...
-	$(GO) mod tidy
+	$(GO) mod verify
 
 .PHONY: check
 check: fmt vet test ## Quick check: format, vet, and test

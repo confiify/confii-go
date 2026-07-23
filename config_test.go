@@ -124,10 +124,16 @@ func TestConfig_Keys(t *testing.T) {
 	assert.Contains(t, allKeys, "database.host")
 	assert.Contains(t, allKeys, "debug")
 
+	// G30 (Wave 21): Keys(prefix) now returns FULL prefixed keys so the
+	// documented `for _, k := range cfg.Keys(p) { cfg.Get(k) }` loop
+	// works without manually re-prepending the prefix. Pre-Wave 21 this
+	// returned ["host","port",...]; the suffix-only form is recoverable
+	// at the call site via strings.TrimPrefix when needed.
 	dbKeys := cfg.Keys("database")
-	assert.Contains(t, dbKeys, "host")
-	assert.Contains(t, dbKeys, "port")
+	assert.Contains(t, dbKeys, "database.host")
+	assert.Contains(t, dbKeys, "database.port")
 	assert.NotContains(t, dbKeys, "debug")
+	assert.NotContains(t, dbKeys, "host", "Keys must not return prefix-stripped form post-Wave 21")
 }
 
 func TestConfig_ToDict(t *testing.T) {
@@ -257,4 +263,114 @@ func TestConfig_NoLoaders(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, cfg)
 	assert.Empty(t, cfg.Keys())
+}
+
+// valueLoader is a value-typed (non-pointer) Loader implementation used to
+// verify that Config does not panic when reflecting on a non-pointer loader.
+// See gap G09: reflect.TypeOf(l).Elem() previously panicked for value-typed
+// loaders because Elem is only valid on pointer/array/chan/map/slice kinds.
+type valueLoader struct {
+	source string
+	data   map[string]any
+}
+
+func (v valueLoader) Source() string { return v.source }
+func (v valueLoader) Load(_ context.Context) (map[string]any, error) {
+	return v.data, nil
+}
+
+func TestConfig_AcceptsValueTypedLoader(t *testing.T) {
+	vl := valueLoader{
+		source: "value-loader://test",
+		data: map[string]any{
+			"vl_key":  "vl_value",
+			"shared":  "from-value-loader",
+			"numeric": 42,
+		},
+	}
+
+	require.NotPanics(t, func() {
+		cfg, err := confii.New[any](context.Background(),
+			confii.WithLoaders(vl),
+		)
+		require.NoError(t, err)
+		require.NotNil(t, cfg)
+
+		got, err := cfg.Get("vl_key")
+		require.NoError(t, err)
+		assert.Equal(t, "vl_value", got)
+
+		assert.True(t, cfg.Has("shared"))
+		assert.True(t, cfg.Has("numeric"))
+	})
+}
+
+func TestConfig_LayersDoesNotPanicOnValueLoader(t *testing.T) {
+	vl := valueLoader{
+		source: "value-loader://layers",
+		data:   map[string]any{"vl_layered": true},
+	}
+
+	cfg, err := confii.New[any](context.Background(),
+		confii.WithLoaders(vl),
+	)
+	require.NoError(t, err)
+
+	var layers []map[string]any
+	require.NotPanics(t, func() {
+		layers = cfg.Layers()
+	})
+	require.NotEmpty(t, layers)
+
+	var found bool
+	for _, layer := range layers {
+		if layer["source"] == "value-loader://layers" {
+			assert.Equal(t, "valueLoader", layer["loader_type"])
+			found = true
+		}
+	}
+	assert.True(t, found, "expected a layer entry for the value-typed loader")
+
+	// Explain on a key tracked through the value-typed loader must not panic.
+	// The loader_type surfaced may reflect a later tracking pass (e.g. the
+	// EnvironmentHandler resolution step), but the override history should
+	// still record the original value-typed loader by name.
+	require.NotPanics(t, func() {
+		info := cfg.Explain("vl_layered")
+		assert.Equal(t, true, info["exists"])
+		if history, ok := info["override_history"].([]map[string]any); ok {
+			var sawValueLoader bool
+			for _, h := range history {
+				if h["loader_type"] == "valueLoader" {
+					sawValueLoader = true
+					break
+				}
+			}
+			assert.True(t, sawValueLoader, "override history should record valueLoader")
+		}
+	})
+}
+
+func TestConfig_ExtendDoesNotPanicOnValueLoader(t *testing.T) {
+	cfg, err := confii.New[any](context.Background())
+	require.NoError(t, err)
+
+	vl := valueLoader{
+		source: "value-loader://extend",
+		data:   map[string]any{"extended_key": "extended_value"},
+	}
+
+	require.NotPanics(t, func() {
+		require.NoError(t, cfg.Extend(context.Background(), vl))
+	})
+
+	got, err := cfg.Get("extended_key")
+	require.NoError(t, err)
+	assert.Equal(t, "extended_value", got)
+
+	// The Extend path also feeds source tracking; ensure the value-typed
+	// loader's name was captured rather than tripping the old reflect panic.
+	info := cfg.Explain("extended_key")
+	assert.Equal(t, true, info["exists"])
+	assert.Equal(t, "valueLoader", info["loader_type"])
 }

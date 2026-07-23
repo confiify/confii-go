@@ -128,18 +128,33 @@ func (s *HashiCorpVault) GetSecret(ctx context.Context, key string, opts ...conf
 		secretPath = fmt.Sprintf("%s/%s", s.mountPoint, path)
 	}
 
-	// Read with version for KV v2.
-	var secret *api.Secret
-	var err error
+	// Read the raw response so HTTP 404 is mapped before the Vault SDK tries
+	// to decode the body. Logical.ReadWithContext attempts to parse 404 bodies
+	// first; a proxy or development server returning a non-Vault body (for
+	// example, plain-text "404 page not found") turns a genuine miss into a
+	// JSON decode error and loses the status distinction.
+	var query map[string][]string
 	if s.kvVersion == 2 && o.Version != "" {
-		secret, err = s.client.Logical().ReadWithDataWithContext(ctx, secretPath, map[string][]string{
+		query = map[string][]string{
 			"version": {o.Version},
-		})
-	} else {
-		secret, err = s.client.Logical().ReadWithContext(ctx, secretPath)
+		}
+	}
+	resp, err := s.client.Logical().ReadRawWithDataWithContext(ctx, secretPath, query)
+	if resp != nil {
+		defer resp.Body.Close()
+		if resp.StatusCode == http.StatusNotFound {
+			return nil, fmt.Errorf("%w: %s", confii.ErrSecretNotFound, key)
+		}
 	}
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", confii.ErrSecretAccess, err)
+	}
+	if resp == nil {
+		return nil, fmt.Errorf("%w: vault returned no response", confii.ErrSecretAccess)
+	}
+	secret, err := api.ParseSecret(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("%w: decode vault response: %v", confii.ErrSecretAccess, err)
 	}
 	if secret == nil || secret.Data == nil {
 		return nil, fmt.Errorf("%w: %s", confii.ErrSecretNotFound, key)

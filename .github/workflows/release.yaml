@@ -14,6 +14,8 @@ jobs:
 
     permissions:
       contents: write
+      id-token: write
+      attestations: write
 
     steps:
       - name: Checkout repository
@@ -29,12 +31,59 @@ jobs:
       - name: Run tests
         run: go test -race -timeout 120s ./...
 
-      - name: Verify module
+      - name: Verify release tag and nested module tags
+        shell: bash
         run: |
-          go mod tidy
-          go mod verify
+          set -euo pipefail
+          [[ "$GITHUB_REF_NAME" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]
+          version="${GITHUB_REF_NAME#v}"
+          for manifest in loader/cloud/go.mod secret/cloud/go.mod examples/cloud/go.mod; do
+            awk -v version="v${version}" \
+              '$1 == "github.com/confiify/confii-go" && $2 == version { found = 1 } END { exit !found }' \
+              "$manifest"
+          done
+          for tag in "loader/cloud/$GITHUB_REF_NAME" "secret/cloud/$GITHUB_REF_NAME"; do
+            test "$(git rev-list -n 1 "$tag")" = "$GITHUB_SHA"
+          done
+
+      - name: Verify all module manifests
+        run: sh scripts/verify-modules.sh
+
+      - name: Verify cloud provider packages as a consumer
+        run: sh scripts/test-cloud-consumer.sh 'aws,azure,gcp,vault,ibm' test
+
+      - name: Build release archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist staging
+          for target in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64 windows-amd64; do
+            goos="${target%-*}"
+            goarch="${target#*-}"
+            name="confii-${GITHUB_REF_NAME}-${target}"
+            mkdir -p "staging/$name"
+            binary="confii"
+            if [[ "$goos" == windows ]]; then binary="confii.exe"; fi
+            CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" go build \
+              -trimpath -ldflags="-s -w -X main.version=$GITHUB_REF_NAME" \
+              -o "staging/$name/$binary" ./confii
+            cp LICENSE README.md "staging/$name/"
+            if [[ "$goos" == windows ]]; then
+              (cd staging && zip -qr "../dist/$name.zip" "$name")
+            else
+              tar -C staging -czf "dist/$name.tar.gz" "$name"
+            fi
+          done
+          (cd dist && sha256sum ./*.tar.gz ./*.zip > checksums.txt)
+
+      - name: Attest release artifacts
+        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
+        with:
+          subject-path: dist/*
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe # v2.6.1
         with:
           generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: dist/*

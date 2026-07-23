@@ -16,6 +16,27 @@ func TestAdvancedMerger_Replace(t *testing.T) {
 	assert.Equal(t, map[string]any{"y": 2}, got["b"]) // replaced entirely
 }
 
+// TestStrategyReplace_DiscardsBaseKeys pins the corrected Replace
+// semantic: when Replace governs a map level, base-only keys are
+// dropped entirely. The previous implementation iterated overlay keys
+// over a base copy and silently kept base-only entries.
+func TestStrategyReplace_DiscardsBaseKeys(t *testing.T) {
+	m := NewAdvanced(Replace, nil)
+	base := map[string]any{
+		"a": 1,
+		"b": 2,
+	}
+	overlay := map[string]any{
+		"c": 3,
+	}
+
+	got := m.Merge(base, overlay)
+	assert.Equal(t, 3, got["c"])
+	assert.NotContains(t, got, "a")
+	assert.NotContains(t, got, "b")
+	assert.Len(t, got, 1)
+}
+
 func TestAdvancedMerger_DeepMerge(t *testing.T) {
 	m := NewAdvanced(DeepMergeStrategy, nil)
 	base := map[string]any{"db": map[string]any{"host": "localhost", "port": 5432}}
@@ -45,13 +66,45 @@ func TestAdvancedMerger_Prepend(t *testing.T) {
 	assert.Equal(t, []any{"c", "a", "b"}, got["items"])
 }
 
-func TestAdvancedMerger_Append_NonList(t *testing.T) {
+// TestStrategyAppend_TypeMismatch_DocumentedBehavior pins the corrected
+// Append semantic: when either side is not a list, Append falls back to
+// Replace and returns the overlay verbatim. The previous implementation
+// silently coerced scalars to single-element lists, e.g. emitting
+// []any{"a", "b"} for two scalar values.
+func TestStrategyAppend_TypeMismatch_DocumentedBehavior(t *testing.T) {
 	m := NewAdvanced(Append, nil)
-	base := map[string]any{"val": "a"}
-	overlay := map[string]any{"val": "b"}
 
-	got := m.Merge(base, overlay)
-	assert.Equal(t, []any{"a", "b"}, got["val"])
+	// Both scalars — type mismatch with the list contract → overlay wins.
+	got := m.Merge(map[string]any{"val": "a"}, map[string]any{"val": "b"})
+	assert.Equal(t, "b", got["val"])
+
+	// Base scalar, overlay list — overlay wins (no implicit wrapping).
+	got = m.Merge(map[string]any{"val": "a"}, map[string]any{"val": []any{"x", "y"}})
+	assert.Equal(t, []any{"x", "y"}, got["val"])
+
+	// Base list, overlay scalar — overlay wins.
+	got = m.Merge(map[string]any{"val": []any{"x", "y"}}, map[string]any{"val": "a"})
+	assert.Equal(t, "a", got["val"])
+}
+
+// TestStrategyPrepend_TypeMismatch_DocumentedBehavior pins the corrected
+// Prepend semantic: when either side is not a list, Prepend falls back
+// to Replace and returns the overlay verbatim. The previous behavior
+// silently coerced scalars to single-element lists.
+func TestStrategyPrepend_TypeMismatch_DocumentedBehavior(t *testing.T) {
+	m := NewAdvanced(Prepend, nil)
+
+	// Both scalars — type mismatch with the list contract → overlay wins.
+	got := m.Merge(map[string]any{"val": "a"}, map[string]any{"val": "b"})
+	assert.Equal(t, "b", got["val"])
+
+	// Base scalar, overlay list — overlay wins.
+	got = m.Merge(map[string]any{"val": "a"}, map[string]any{"val": []any{"x", "y"}})
+	assert.Equal(t, []any{"x", "y"}, got["val"])
+
+	// Base list, overlay scalar — overlay wins.
+	got = m.Merge(map[string]any{"val": []any{"x", "y"}}, map[string]any{"val": "a"})
+	assert.Equal(t, "a", got["val"])
 }
 
 func TestAdvancedMerger_Intersection(t *testing.T) {
@@ -61,9 +114,36 @@ func TestAdvancedMerger_Intersection(t *testing.T) {
 
 	got := m.Merge(base, overlay)
 	assert.Equal(t, 2, got["b"])    // equal in both → kept
-	assert.Nil(t, got["c"])         // different values → nil
+	assert.NotContains(t, got, "c") // different values → omitted entirely
 	assert.NotContains(t, got, "a") // only in base → excluded
 	assert.NotContains(t, got, "d") // only in overlay → excluded
+}
+
+// TestStrategyIntersection_OmitsUnequalScalars pins the corrected
+// Intersection semantic: when a key is shared but the scalar values
+// differ, the key is omitted entirely. Previously the merger emitted
+// {a: nil}, polluting the result with sentinel values that callers
+// could not distinguish from a legitimate nil configuration value.
+func TestStrategyIntersection_OmitsUnequalScalars(t *testing.T) {
+	m := NewAdvanced(Intersection, nil)
+	base := map[string]any{"a": 1}
+	overlay := map[string]any{"a": 2}
+
+	got := m.Merge(base, overlay)
+	assert.NotContains(t, got, "a")
+	assert.Empty(t, got)
+}
+
+// TestStrategyIntersection_KeepsEqualScalars confirms the inverse of
+// the omission rule: shared keys with equal scalar values are kept.
+func TestStrategyIntersection_KeepsEqualScalars(t *testing.T) {
+	m := NewAdvanced(Intersection, nil)
+	base := map[string]any{"a": 1}
+	overlay := map[string]any{"a": 1}
+
+	got := m.Merge(base, overlay)
+	assert.Equal(t, 1, got["a"])
+	assert.Len(t, got, 1)
 }
 
 func TestAdvancedMerger_Union(t *testing.T) {
@@ -77,6 +157,48 @@ func TestAdvancedMerger_Union(t *testing.T) {
 	shared := got["shared"].(map[string]any)
 	assert.Equal(t, 1, shared["x"])
 	assert.Equal(t, 2, shared["y"])
+}
+
+// TestStrategyUnion_RespectsNestedPathStrategies verifies that the
+// Union strategy now routes recursive merging through mergeAt so
+// per-path strategy overrides on nested keys take effect. Previously
+// Union called dictutil.DeepMerge directly, silently bypassing the
+// StrategyMap for everything beneath the Union node.
+func TestStrategyUnion_RespectsNestedPathStrategies(t *testing.T) {
+	m := NewAdvanced(Union, map[string]Strategy{
+		"nested": Replace,
+	})
+
+	base := map[string]any{
+		"top": "base_value",
+		"nested": map[string]any{
+			"keep_in_base": "base",
+			"shared":       "base",
+		},
+	}
+	overlay := map[string]any{
+		"top": "overlay_value", // Union: overlay wins on direct conflict
+		"nested": map[string]any{
+			"shared":         "overlay",
+			"new_in_overlay": "overlay",
+		},
+	}
+
+	got := m.Merge(base, overlay)
+
+	// Top-level Union semantics: base-only "a" preserved, overlay
+	// overrides on shared scalar.
+	assert.Equal(t, "overlay_value", got["top"])
+
+	// "nested" was governed by Replace per-path: base-only key must
+	// be discarded, overlay map fully wins. With the old Union
+	// implementation this assertion would fail because dictutil.DeepMerge
+	// never consulted the strategy map.
+	nested, ok := got["nested"].(map[string]any)
+	assert.True(t, ok, "nested should be a map")
+	assert.Equal(t, "overlay", nested["shared"])
+	assert.Equal(t, "overlay", nested["new_in_overlay"])
+	assert.NotContains(t, nested, "keep_in_base", "Replace should drop base-only keys")
 }
 
 func TestAdvancedMerger_PerPathOverride(t *testing.T) {

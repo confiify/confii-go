@@ -502,8 +502,8 @@ func main() {
     store := secret.NewDictStore(map[string]any{
         "db/password": "super-s3cret",
         "api/credentials": map[string]any{
-            "key":    "ak-prod-12345",
-            "secret": "sk-prod-67890",
+            "key":    "ak-prod-12345", // gitleaks:allow -- illustrative value
+            "secret": "sk-prod-67890", // gitleaks:allow -- illustrative value
         },
         "tls/cert": "-----BEGIN CERTIFICATE-----\n...",
     })

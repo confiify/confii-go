@@ -68,7 +68,9 @@ nav:
   - CLI: cli.md
   - Examples: examples.md
   - FAQ: faq.md
+  - Architecture: ARCHITECTURE.md
   - Changelog: changelog.md
+  - Releasing: RELEASING.md
 
 plugins:
   - search

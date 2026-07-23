@@ -17,9 +17,11 @@ Brief description of what this PR does.
 
 ## Checklist
 
-- [ ] Tests pass locally (`make check`)
+- [ ] Full tests pass locally (`make ci-full`)
+- [ ] Every module is tidy (`make mod-verify`)
 - [ ] Lint passes (`make lint`)
 - [ ] No vulnerabilities (`make vulncheck`)
+- [ ] Documentation builds strictly (`mkdocs build --strict`)
 - [ ] New code has tests (90%+ coverage target)
 - [ ] Doc comments added for new exported symbols
 - [ ] CHANGELOG.md updated (if user-facing change)

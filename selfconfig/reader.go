@@ -38,7 +38,13 @@ type Settings struct {
 	DebugMode          *bool    `yaml:"debug_mode" json:"debug_mode" toml:"debug_mode"`
 	LogLevel           string   `yaml:"log_level" json:"log_level" toml:"log_level"`
 	SchemaPath         string   `yaml:"schema_path" json:"schema_path" toml:"schema_path"`
-	OnError            string   `yaml:"on_error" json:"on_error" toml:"on_error"`
+	// OnError is the error-handling policy applied to loader and
+	// composition failures. Valid values are "raise", "warn", and
+	// "ignore" (case-insensitive); any other string is rejected by the
+	// caller (confii.New) at startup with a typed *confii.ConfigError —
+	// invalid values are no longer silently coerced into warn-or-ignore
+	// behavior (G07).
+	OnError string `yaml:"on_error" json:"on_error" toml:"on_error"`
 
 	// Declarative source definitions (list of {type, path/url, ...} maps).
 	Sources []map[string]any `yaml:"sources" json:"sources" toml:"sources"`
@@ -53,59 +59,79 @@ var searchFiles = []string{
 	".confii.yaml", ".confii.yml", ".confii.json", ".confii.toml",
 }
 
-// Module-level cache for CWD lookups.
+// cacheEntry holds the resolved Settings for a specific working directory.
+type cacheEntry struct {
+	settings *Settings
+}
+
+// Module-level cache keyed by absolute working directory path (G06).
+//
+// Pre-G06 the cache only memoized the literal "." key, which had two
+// failure modes: (a) callers using two distinct working directories from
+// the same process shared a single cache slot, so the second caller
+// observed the first caller's settings; and (b) tests had to clear the
+// cache by hand because chdir within a test process would not invalidate
+// the "." entry. Keying on filepath.Abs(dir) eliminates both.
 var (
-	cacheMu      sync.Mutex
-	cachedDir    string
-	cachedResult *Settings
-	cacheLoaded  bool
+	cacheMu sync.Mutex
+	cache   = map[string]cacheEntry{}
 )
+
+// cacheKey resolves dir to its absolute path for use as the cache key.
+// On filepath.Abs failure (e.g. the underlying syscall to get the working
+// directory failed), the raw dir string is returned as a best-effort key
+// so the cache still functions; the contract is "consistent key for the
+// same dir argument", not "guaranteed absolute".
+func cacheKey(dir string) string {
+	if abs, err := filepath.Abs(dir); err == nil {
+		return abs
+	}
+	return dir
+}
 
 // Read searches for and reads the self-configuration file.
 // It checks the given directory for confii.* files, then falls back
 // to ~/.config/confii/.
 // Returns nil settings (no error) if no self-config file is found.
-// Results are cached at module level when dir is "." or "".
+//
+// Results are cached at module level keyed by the absolute path of dir
+// (G06). Two concurrent New calls with different working directories no
+// longer share a cache entry, so each gets the self-config that lives
+// next to its own dir argument.
 func Read(dir string) (*Settings, error) {
 	if dir == "" {
 		dir = "."
 	}
 
-	// Check cache for CWD lookups.
-	if dir == "." {
-		cacheMu.Lock()
-		if cacheLoaded && cachedDir == dir {
-			result := cachedResult
-			cacheMu.Unlock()
-			return result, nil
-		}
+	key := cacheKey(dir)
+
+	cacheMu.Lock()
+	if entry, ok := cache[key]; ok {
+		result := entry.settings
 		cacheMu.Unlock()
+		return result, nil
 	}
+	cacheMu.Unlock()
 
 	settings, err := readFromDir(dir)
 	if err != nil {
 		return nil, err
 	}
 
-	// Cache CWD lookups.
-	if dir == "." {
-		cacheMu.Lock()
-		cachedDir = dir
-		cachedResult = settings
-		cacheLoaded = true
-		cacheMu.Unlock()
-	}
+	cacheMu.Lock()
+	cache[key] = cacheEntry{settings: settings}
+	cacheMu.Unlock()
 
 	return settings, nil
 }
 
-// ClearCache invalidates the module-level self-config cache.
+// ClearCache invalidates the module-level self-config cache for ALL
+// keys (G06). Pre-G06 the function only cleared the literal "." entry,
+// so a test populating two distinct dirs would only see one purged.
 func ClearCache() {
 	cacheMu.Lock()
 	defer cacheMu.Unlock()
-	cacheLoaded = false
-	cachedResult = nil
-	cachedDir = ""
+	cache = map[string]cacheEntry{}
 }
 
 func readFromDir(dir string) (*Settings, error) {
