@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -118,4 +119,14 @@ func TestManager_TimestampOrdering_StrictlyMonotonic(t *testing.T) {
 			"timestamp at index %d (%v) is not strictly greater than previous (%v)",
 			i, timestamps[i], timestamps[i-1])
 	}
+}
+
+func TestManager_TimestampOrdering_AdvancesPastFloatPrecisionTie(t *testing.T) {
+	vm := NewVersionManager("", 100)
+	vm.lastTS = time.Now().UnixNano() + int64(time.Second)
+	vm.lastTimestamp = float64(vm.lastTS) / 1e9
+
+	v, err := vm.SaveVersion(map[string]any{"platform": "coarse-clock"}, nil)
+	require.NoError(t, err)
+	assert.Greater(t, v.Timestamp, float64(vm.lastTS-1)/1e9)
 }

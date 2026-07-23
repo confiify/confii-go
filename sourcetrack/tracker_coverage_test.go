@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -202,7 +203,9 @@ func TestExportDebugReport(t *testing.T) {
 	require.NoError(t, err)
 	info, err := os.Stat(outPath)
 	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0600), info.Mode().Perm())
+	if runtime.GOOS != "windows" {
+		assert.Equal(t, os.FileMode(0600), info.Mode().Perm())
+	}
 
 	var report map[string]any
 	err = json.Unmarshal(data, &report)

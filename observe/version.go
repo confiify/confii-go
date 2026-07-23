@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -31,11 +32,12 @@ type Version struct {
 // only and writes no source-tree artifacts. Callers that want persistent
 // snapshots must pass an explicit on-disk directory.
 type VersionManager struct {
-	mu          sync.RWMutex
-	storagePath string
-	maxVersions int
-	versions    map[string]*Version
-	lastTS      int64 // monotonic counter (nanoseconds) used to break ties.
+	mu            sync.RWMutex
+	storagePath   string
+	maxVersions   int
+	versions      map[string]*Version
+	lastTS        int64   // monotonic counter (nanoseconds) used for IDs.
+	lastTimestamp float64 // last externally exposed, strictly monotonic timestamp.
 }
 
 // NewVersionManager creates a new version manager.
@@ -91,6 +93,14 @@ func (m *VersionManager) SaveVersion(config map[string]any, metadata map[string]
 	}
 	m.lastTS = nowNS
 	now := time.Unix(0, nowNS)
+	timestamp := float64(nowNS) / 1e9
+	// A float64 at the current Unix epoch cannot represent every nanosecond.
+	// Advance to the next representable value when Windows' lower-resolution
+	// clock (or a rapid save) would otherwise expose an equal timestamp.
+	if timestamp <= m.lastTimestamp {
+		timestamp = math.Nextafter(m.lastTimestamp, math.Inf(1))
+	}
+	m.lastTimestamp = timestamp
 
 	configJSON, err := json.Marshal(config)
 	if err != nil {
@@ -108,7 +118,7 @@ func (m *VersionManager) SaveVersion(config map[string]any, metadata map[string]
 	v := &Version{
 		VersionID: versionID,
 		Config:    configCopy,
-		Timestamp: float64(nowNS) / 1e9,
+		Timestamp: timestamp,
 		DateTime:  now.Format(time.RFC3339Nano),
 		Metadata:  metadata,
 	}

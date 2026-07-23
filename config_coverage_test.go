@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -412,7 +413,9 @@ func TestConfig_DebugInfo(t *testing.T) {
 		assert.True(t, json.Valid(data))
 		info, err := os.Stat(reportPath)
 		require.NoError(t, err)
-		assert.Equal(t, os.FileMode(0600), info.Mode().Perm())
+		if runtime.GOOS != "windows" {
+			assert.Equal(t, os.FileMode(0600), info.Mode().Perm())
+		}
 	})
 }
 
