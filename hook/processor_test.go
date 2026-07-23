@@ -2,6 +2,7 @@ package hook
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -128,4 +129,48 @@ func TestProcessor_ConcurrentSafety(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+func TestProcessor_ContextErrorsStopEachStage(t *testing.T) {
+	boom := errors.New("hook failed")
+	tests := []struct {
+		name     string
+		register func(*Processor)
+	}{
+		{"key", func(p *Processor) {
+			p.RegisterKeyHookCtx("key", func(context.Context, string, any) (any, error) { return "key", boom })
+		}},
+		{"value", func(p *Processor) {
+			p.RegisterValueHookCtx("value", func(context.Context, string, any) (any, error) { return "value", boom })
+		}},
+		{"condition", func(p *Processor) {
+			p.RegisterConditionHookCtx(func(string, any) bool { return true }, func(context.Context, string, any) (any, error) { return "condition", boom })
+		}},
+		{"global", func(p *Processor) {
+			p.RegisterGlobalHookCtx(func(context.Context, string, any) (any, error) { return "global", boom })
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			p := NewProcessor()
+			tc.register(p)
+			got, err := p.ProcessCtx(context.Background(), "key", "value")
+			assert.ErrorIs(t, err, boom)
+			assert.Equal(t, tc.name, got)
+		})
+	}
+}
+
+func TestProcessor_NonComparableValueAndEmptyEntry(t *testing.T) {
+	p := NewProcessor()
+	p.valueHooks["unused"] = []hookEntry{{}}
+	p.globalHooks = []hookEntry{{}}
+	value := []string{"not", "comparable"}
+	got, err := p.ProcessCtx(context.Background(), "key", value)
+	assert.NoError(t, err)
+	assert.Equal(t, value, got)
+
+	got, err = (hookEntry{}).run(context.Background(), "key", "value")
+	assert.NoError(t, err)
+	assert.Equal(t, "value", got)
 }

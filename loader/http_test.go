@@ -3,6 +3,7 @@ package loader
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -151,4 +152,59 @@ func TestHTTPLoader_WithHeaders(t *testing.T) {
 	result, err := l.Load(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, true, result["ok"])
+}
+
+func TestHTTPLoader_BasicAuthSourceAndBodyReadError(t *testing.T) {
+	srv := newHTTPTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user, password, ok := r.BasicAuth()
+		if !ok || user != "user" || password != "password" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		// Deliberately advertise more bytes than are written. The Go client
+		// reports io.ErrUnexpectedEOF while reading the response body.
+		w.Header().Set("Content-Length", "100")
+		_, _ = w.Write([]byte(`{"short":true}`))
+	}))
+	defer srv.Close()
+
+	l := NewHTTP(srv.URL, WithBasicAuth("user", "password"))
+	assert.Equal(t, srv.URL, l.Source())
+	_, err := l.Load(context.Background())
+	require.Error(t, err)
+	assert.ErrorIs(t, err, confii.ErrConfigLoad)
+}
+
+func TestHTTPLoader_RequestAndTransportErrors(t *testing.T) {
+	_, err := NewHTTP("://bad-url").Load(context.Background())
+	require.Error(t, err)
+	assert.ErrorIs(t, err, confii.ErrConfigLoad)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err = NewHTTP("http://127.0.0.1:1", WithTimeout(1)).Load(ctx)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, confii.ErrConfigLoad)
+}
+
+func TestParseContent_ExplicitFormatsAndUnsupported(t *testing.T) {
+	tests := []struct {
+		format formatparse.Format
+		data   string
+	}{
+		{formatparse.FormatJSON, `{"ok":true}`},
+		{formatparse.FormatYAML, "ok: true\n"},
+		{formatparse.FormatTOML, "ok = true\n"},
+	}
+	for _, tc := range tests {
+		t.Run(string(tc.format), func(t *testing.T) {
+			got, err := ParseContent([]byte(tc.data), tc.format, "source")
+			require.NoError(t, err)
+			assert.Equal(t, true, got["ok"])
+		})
+	}
+
+	_, err := ParseContent([]byte("irrelevant"), formatparse.Format("xml"), "source")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), fmt.Sprintf("unsupported format %q", "xml"))
 }

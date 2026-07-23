@@ -352,3 +352,17 @@ func TestCompose_Include_EmptySourceDir(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, true, result["inc"])
 }
+
+func TestNew_RestoresDefaultMergerAfterOptionClearsIt(t *testing.T) {
+	c := New("", func(c *Composer) { c.merger = nil })
+	got, err := c.Compose(map[string]any{
+		"_defaults": []any{map[string]any{"from_default": true}},
+		"explicit":  true,
+	}, "config.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["from_default"] != true || got["explicit"] != true {
+		t.Fatalf("default merger result = %#v", got)
+	}
+}

@@ -45,10 +45,9 @@ func (l *envPrefixAutoLoader) Load(_ context.Context) (map[string]any, error) {
 	result := make(map[string]any)
 
 	for _, env := range os.Environ() {
-		key, value, ok := strings.Cut(env, "=")
-		if !ok {
-			continue
-		}
+		// os.Environ guarantees KEY=value entries. strings.Cut preserves any
+		// additional '=' bytes in the value.
+		key, value, _ := strings.Cut(env, "=")
 		if !strings.HasPrefix(key, envPrefix) {
 			continue
 		}

@@ -37,9 +37,6 @@ func DeepCopyValue(v any) any {
 	rv := reflect.ValueOf(v)
 	visited := make(map[visitedKey]reflect.Value)
 	cp := deepCopyRV(rv, visited)
-	if !cp.IsValid() {
-		return nil
-	}
 	return cp.Interface()
 }
 
@@ -62,14 +59,6 @@ func deepCopyRV(v reflect.Value, visited map[visitedKey]reflect.Value) reflect.V
 		return v
 	}
 	switch v.Kind() {
-	case reflect.Bool,
-		reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
-		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr,
-		reflect.Float32, reflect.Float64,
-		reflect.Complex64, reflect.Complex128,
-		reflect.String:
-		return v
-
 	case reflect.Chan, reflect.Func, reflect.UnsafePointer:
 		// No reachable Go-level state to copy; reference passthrough is
 		// correct for the isolation contract.
@@ -81,9 +70,7 @@ func deepCopyRV(v reflect.Value, visited map[visitedKey]reflect.Value) reflect.V
 		}
 		inner := deepCopyRV(v.Elem(), visited)
 		out := reflect.New(v.Type()).Elem()
-		if inner.IsValid() {
-			out.Set(inner)
-		}
+		out.Set(inner)
 		return out
 
 	case reflect.Pointer:
@@ -175,8 +162,10 @@ func deepCopyRV(v reflect.Value, visited map[visitedKey]reflect.Value) reflect.V
 			cf.Set(deepCopyRV(f, visited))
 		}
 		return out
+	default:
+		// Scalar kinds have no reachable mutable state.
+		return v
 	}
-	return v
 }
 
 // isPrimitiveKind reports whether values of kind k carry no reachable

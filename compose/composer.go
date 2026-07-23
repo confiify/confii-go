@@ -129,10 +129,7 @@ func (c *Composer) compose(config map[string]any, source string, depth int, visi
 
 	// Step 1: Process _defaults (provide base values).
 	if defaults, ok := result["_defaults"]; ok {
-		base, err := c.processDefaults(defaults, source, depth)
-		if err != nil {
-			return nil, err
-		}
+		base := c.processDefaults(defaults)
 		// Defaults go underneath current config.
 		result = c.merger.Merge(base, result)
 		delete(result, "_defaults")
@@ -154,7 +151,7 @@ func (c *Composer) compose(config map[string]any, source string, depth int, visi
 	return result, nil
 }
 
-func (c *Composer) processDefaults(defaults any, source string, depth int) (map[string]any, error) {
+func (c *Composer) processDefaults(defaults any) map[string]any {
 	result := make(map[string]any)
 
 	var items []any
@@ -164,7 +161,7 @@ func (c *Composer) processDefaults(defaults any, source string, depth int) (map[
 	case string:
 		items = []any{v}
 	default:
-		return result, nil
+		return result
 	}
 
 	for _, item := range items {
@@ -184,7 +181,7 @@ func (c *Composer) processDefaults(defaults any, source string, depth int) (map[
 			}
 		}
 	}
-	return result, nil
+	return result
 }
 
 func (c *Composer) processIncludes(includes any, source string, depth int, visited map[string]bool, dependencies *[]string) (map[string]any, error) {

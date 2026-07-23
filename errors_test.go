@@ -176,3 +176,27 @@ func TestConfigError_PreservesPrefix(t *testing.T) {
 		})
 	}
 }
+
+func TestFormatContextValue_AllBoundedShapes(t *testing.T) {
+	tests := []struct {
+		name string
+		in   any
+		want string
+	}{
+		{"nil", nil, "<nil>"},
+		{"string", "value", "value"},
+		{"strings", []string{"b", "a"}, "[a, b]"},
+		{"any slice", []any{1, "two"}, "<slice: 2 items>"},
+		{"int slice", []int{1, 2, 3}, "<slice: 3 items>"},
+		{"float slice", []float64{1, 2}, "<slice: 2 items>"},
+		{"any map", map[string]any{"a": 1}, "<map: 1 entries>"},
+		{"string map", map[string]string{"a": "b"}, "<map: 1 entries>"},
+		{"int map", map[string]int{"a": 1}, "<map: 1 entries>"},
+		{"scalar", 42, "42"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, formatContextValue("key", tc.in))
+		})
+	}
+}

@@ -305,9 +305,6 @@ func makeSelfConfigSecretHook(store SelfConfigSecretStore) hook.FuncCtx {
 				return match
 			}
 			groups := selfConfigSecretPattern.FindStringSubmatch(match)
-			if len(groups) < 2 {
-				return match
-			}
 			key := groups[1]
 			val, err := store.GetSecret(ctx, key)
 			if err != nil {
