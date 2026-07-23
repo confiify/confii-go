@@ -30,7 +30,7 @@ import (
 // the second Reload short-circuited at the incremental gate (file
 // hash matched the recorded-bad state) and silently returned nil even
 // though envConfig was still pre-failure.
-func TestV01_ReloadFailure_DoesNotSelfHealOnRetry(t *testing.T) {
+func TestReloadFailure_DoesNotSelfHealOnRetry(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "cfg.yaml")
 	if err := os.WriteFile(path, []byte("database:\n  port: 5432\n"), 0o644); err != nil {
@@ -79,7 +79,7 @@ func TestV01_ReloadFailure_DoesNotSelfHealOnRetry(t *testing.T) {
 // payload. Pre-V-02 this returned "A" because restoreB() blindly wrote
 // back its captured snapshot (which was envConfig AFTER A applied,
 // BEFORE B applied).
-func TestV02_Override_LIFO_OutOfOrderRestore_NoPhantom(t *testing.T) {
+func TestOverride_LIFO_OutOfOrderRestore_NoPhantom(t *testing.T) {
 	cfg, err := confii.New[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML("loader/testdata/simple.yaml")),
 	)
@@ -107,7 +107,7 @@ func TestV02_Override_LIFO_OutOfOrderRestore_NoPhantom(t *testing.T) {
 }
 
 // V-02_b — restore-in-order remains correct (regression check).
-func TestV02_Override_LIFO_InOrderRestore_BehavesLikePreV23(t *testing.T) {
+func TestOverride_LIFO_InOrderRestore_BehavesLikePreV23(t *testing.T) {
 	cfg, err := confii.New[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML("loader/testdata/simple.yaml")),
 	)
@@ -131,7 +131,7 @@ func TestV02_Override_LIFO_InOrderRestore_BehavesLikePreV23(t *testing.T) {
 }
 
 // V-02_c — restore is idempotent.
-func TestV02_Override_Restore_Idempotent(t *testing.T) {
+func TestOverride_Restore_Idempotent(t *testing.T) {
 	cfg, err := confii.New[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML("loader/testdata/simple.yaml")),
 	)
@@ -151,7 +151,7 @@ func TestV02_Override_Restore_Idempotent(t *testing.T) {
 // V-09_a — a panicking OnChange callback must be logged at error level
 // with the affected key, callback index, panic value, and stack trace.
 // Pre-V-09 the recover guard silently discarded the panic value.
-func TestV09_OnChangePanic_LoggedWithStack(t *testing.T) {
+func TestOnChangePanic_LoggedWithStack(t *testing.T) {
 	var buf bytes.Buffer
 	var mu sync.Mutex
 	logger := slog.New(slog.NewJSONHandler(&safeWriter{w: &buf, mu: &mu}, &slog.HandlerOptions{
@@ -193,7 +193,7 @@ func TestV09_OnChangePanic_LoggedWithStack(t *testing.T) {
 }
 
 // V-09_b — a panicking callback does not abort sibling callbacks.
-func TestV09_OnChangePanic_SiblingsContinue(t *testing.T) {
+func TestOnChangePanic_SiblingsContinue(t *testing.T) {
 	cfg, err := confii.New[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML("loader/testdata/simple.yaml")),
 		confii.WithLogger(discardLogger()),

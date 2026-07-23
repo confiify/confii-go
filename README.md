@@ -725,7 +725,8 @@ cd examples/basic && go run .
 
 ```text
 github.com/confiify/confii-go/
-  ├── config.go              # Config[T] — core type with all access/lifecycle methods
+  ├── config.go              # Config[T] core state and construction
+  ├── config_*.go            # Access, mutation, reload, override, hooks, validation, etc.
   ├── builder.go             # Fluent builder API
   ├── errors.go              # Sentinel errors + ConfigError
   ├── loader/                # File & env loaders (YAML, JSON, TOML, INI, .env, HTTP)

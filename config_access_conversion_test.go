@@ -30,13 +30,13 @@ import (
 // G30.1 — Keys(prefix) returns FULL prefixed keys.
 // -----------------------------------------------------------------------------
 
-// TestG30_Keys_ReturnsFullPrefixedKeys observable: after seeding the config
+// TestKeys_ReturnsFullPrefixedKeys observable: after seeding the config
 // with two "db.*" keys and one "redis.*" key, cfg.Keys("db.") returns
 // exactly ["db.host","db.port"] (FULL paths) and each returned key is
 // directly resolvable via cfg.Get without re-prepending the prefix. Pre-fix
 // Keys returned ["host","port"] (stripped), forcing callers to manually
 // reconstruct the full path before any Get/Has call.
-func TestG30_Keys_ReturnsFullPrefixedKeys(t *testing.T) {
+func TestKeys_ReturnsFullPrefixedKeys(t *testing.T) {
 	cfg, err := confii.New[any](context.Background())
 	require.NoError(t, err)
 
@@ -74,12 +74,12 @@ func TestG30_Keys_ReturnsFullPrefixedKeys(t *testing.T) {
 // G30.2 — Has honors sysenv fallback when Get would.
 // -----------------------------------------------------------------------------
 
-// TestG30_Has_HonorsSysenvFallback observable: with sysenv fallback enabled
+// TestHas_HonorsSysenvFallback observable: with sysenv fallback enabled
 // and no in-config "db.password" key, setting APP_DB_PASSWORD in the
 // process environment makes Has("db.password") return true (matching what
 // Get("db.password") returns). Pre-fix Has consulted only the in-memory
 // config map and returned false, so Has and Get disagreed.
-func TestG30_Has_HonorsSysenvFallback(t *testing.T) {
+func TestHas_HonorsSysenvFallback(t *testing.T) {
 	t.Setenv("APP_DB_PASSWORD", "secret")
 
 	cfg, err := confii.New[any](context.Background(),
@@ -103,11 +103,11 @@ func TestG30_Has_HonorsSysenvFallback(t *testing.T) {
 		"Has must return false when neither config nor sysenv has the key")
 }
 
-// TestG30_Has_NoSysenvFallback_StillRespectsOption observable: when sysenv
+// TestHas_NoSysenvFallback_StillRespectsOption observable: when sysenv
 // fallback is OFF, Has must NOT consult the process environment. This pins
 // the symmetric contract: Has follows Get's resolution rules — including
 // the WithSysenvFallback toggle — and never overshoots them.
-func TestG30_Has_NoSysenvFallback_StillRespectsOption(t *testing.T) {
+func TestHas_NoSysenvFallback_StillRespectsOption(t *testing.T) {
 	t.Setenv("APP_DB_PASSWORD", "secret")
 
 	cfg, err := confii.New[any](context.Background(),
@@ -124,11 +124,11 @@ func TestG30_Has_NoSysenvFallback_StillRespectsOption(t *testing.T) {
 // G30.3 — GetInt rejects floats with non-zero fractional parts.
 // -----------------------------------------------------------------------------
 
-// TestG30_GetInt_RejectsNonIntegerFloat observable: GetInt on a stored
+// TestGetInt_RejectsNonIntegerFloat observable: GetInt on a stored
 // float64 like 3.14 returns a typed *ConfigError wrapping ErrConfigInvalid
 // instead of silently truncating to 3. Pre-fix `cfg.Set("port", 3.14);
 // cfg.GetInt("port")` returned (3, nil), masking configuration bugs.
-func TestG30_GetInt_RejectsNonIntegerFloat(t *testing.T) {
+func TestGetInt_RejectsNonIntegerFloat(t *testing.T) {
 	cfg, err := confii.New[any](context.Background())
 	require.NoError(t, err)
 
@@ -146,10 +146,10 @@ func TestG30_GetInt_RejectsNonIntegerFloat(t *testing.T) {
 	assert.Equal(t, "port", ce.Key)
 }
 
-// TestG30_GetInt_AcceptsIntegerFloat observable: GetInt on a stored float64
+// TestGetInt_AcceptsIntegerFloat observable: GetInt on a stored float64
 // with a zero fractional part (e.g. 3.0, the natural decode of `3` from
 // some JSON / YAML libraries) succeeds and returns the integer value.
-func TestG30_GetInt_AcceptsIntegerFloat(t *testing.T) {
+func TestGetInt_AcceptsIntegerFloat(t *testing.T) {
 	cfg, err := confii.New[any](context.Background())
 	require.NoError(t, err)
 
@@ -165,9 +165,9 @@ func TestG30_GetInt_AcceptsIntegerFloat(t *testing.T) {
 	assert.Equal(t, -7, v)
 }
 
-// TestG30_GetInt_RejectsNonFiniteFloat observable: NaN / +Inf / -Inf inputs
+// TestGetInt_RejectsNonFiniteFloat observable: NaN / +Inf / -Inf inputs
 // must produce a typed error rather than UB-style int conversion.
-func TestG30_GetInt_RejectsNonFiniteFloat(t *testing.T) {
+func TestGetInt_RejectsNonFiniteFloat(t *testing.T) {
 	cfg, err := confii.New[any](context.Background())
 	require.NoError(t, err)
 
@@ -190,12 +190,12 @@ func zeroFloat() float64 {
 // G30.4 — GetBool accepts all documented string and numeric forms.
 // -----------------------------------------------------------------------------
 
-// TestG30_GetBool_AcceptsAllDocumentedForms observable: each documented
+// TestGetBool_AcceptsAllDocumentedForms observable: each documented
 // string spelling for boolean (per docs/access.md and the type-casting
 // hook docs) coerces correctly via GetBool. Pre-fix only "true"/"false"
 // (and a native bool) were accepted; "1"/"0", "yes"/"no", "on"/"off" all
 // failed with "cannot convert string to bool".
-func TestG30_GetBool_AcceptsAllDocumentedForms(t *testing.T) {
+func TestGetBool_AcceptsAllDocumentedForms(t *testing.T) {
 	cases := []struct {
 		raw  any
 		want bool
@@ -247,10 +247,10 @@ func TestG30_GetBool_AcceptsAllDocumentedForms(t *testing.T) {
 	}
 }
 
-// TestG30_GetBool_RejectsUnknownString observable: a string that doesn't
+// TestGetBool_RejectsUnknownString observable: a string that doesn't
 // match any documented form still returns a typed *ConfigError. This pins
 // the negative side of the contract.
-func TestG30_GetBool_RejectsUnknownString(t *testing.T) {
+func TestGetBool_RejectsUnknownString(t *testing.T) {
 	cfg, err := confii.New[any](context.Background())
 	require.NoError(t, err)
 	require.NoError(t, cfg.Set("flag", "maybe"))

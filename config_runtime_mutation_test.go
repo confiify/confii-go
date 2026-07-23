@@ -40,14 +40,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestG12_Set_NewKey_DocumentedDivergence pins the Option B contract:
+// TestSet_NewKey_DocumentedDivergence pins the Option B contract:
 // Set on a brand-new key (a) registers with the source tracker as
 // "runtime", and (b) does NOT inject any fileTracker entry that
 // would distort the incremental Reload gate. The observable signal
 // is that a subsequent no-op Reload (no file mutation) is short-
 // circuited by the gate (no callback fires), which would not be the
 // case if Set had spuriously perturbed fileTracker.
-func TestG12_Set_NewKey_DocumentedDivergence(t *testing.T) {
+func TestSet_NewKey_DocumentedDivergence(t *testing.T) {
 	cfg, err := confii.New[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML("loader/testdata/simple.yaml")),
 	)
@@ -83,14 +83,14 @@ func TestG12_Set_NewKey_DocumentedDivergence(t *testing.T) {
 	assert.Equal(t, "v1", got)
 }
 
-// TestG12_Set_NewKey_PostReload_RuntimeMutationPersists pins that
+// TestSet_NewKey_PostReload_RuntimeMutationPersists pins that
 // when Reload's incremental gate short-circuits (no underlying file
 // changed), a runtime-Set key remains queryable post-Reload. The
 // Wave 19 G12-NewKey-Loaders audit raised the concern that runtime
 // keys could be silently lost on Reload; this test pins the no-op
 // case where the runtime key MUST persist because Reload itself was
 // a no-op (gate short-circuit).
-func TestG12_Set_NewKey_PostReload_RuntimeMutationPersists(t *testing.T) {
+func TestSet_NewKey_PostReload_RuntimeMutationPersists(t *testing.T) {
 	cfg, err := confii.New[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML("loader/testdata/simple.yaml")),
 	)
@@ -120,7 +120,7 @@ func TestG12_Set_NewKey_PostReload_RuntimeMutationPersists(t *testing.T) {
 	assert.Equal(t, "runtime", infoB["source"])
 }
 
-// TestG12_Set_NewKey_PostReload_OnChange_FiresCorrectly pins the
+// TestSet_NewKey_PostReload_OnChange_FiresCorrectly pins the
 // OnChange contract across Set + Reload for a runtime-only key
 // under both gate conditions:
 //
@@ -132,7 +132,7 @@ func TestG12_Set_NewKey_PostReload_RuntimeMutationPersists(t *testing.T) {
 //     evicted by Phase 4's envConfig rebuild; OnChange fires once
 //     with (runtimeValue, nil) — the documented Reload deletion
 //     contract.
-func TestG12_Set_NewKey_PostReload_OnChange_FiresCorrectly(t *testing.T) {
+func TestSet_NewKey_PostReload_OnChange_FiresCorrectly(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "g12-newkey.yaml")
 	require.NoError(t, os.WriteFile(path, []byte("seed: v1\n"), 0600))

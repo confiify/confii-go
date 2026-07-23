@@ -15,10 +15,50 @@ production bug than as a CI failure.
 
 ## Table of Contents
 
+0. [Root Package Layout](#0-root-package-layout)
 1. [The DeepCopy Engine](#1-the-deepcopy-engine)
 2. [The Override Stack](#2-the-override-stack)
 3. [The Self-Config Secret Registry](#3-the-self-config-secret-registry)
 4. [Cross-Cutting Invariants](#4-cross-cutting-invariants)
+
+---
+
+## 0. Root Package Layout
+
+The module root is the public `github.com/confiify/confii-go` package. Go
+packages are directory-based, so the public facade and its package tests stay
+at the repository root. Files are divided by responsibility; moving a public
+type into a subdirectory would create a different import path and is therefore
+an API change.
+
+| File | Responsibility |
+|---|---|
+| `config.go` | `Config[T]`, construction, and core state invariants |
+| `config_load.go` | loader execution and layer-cache rebuilding |
+| `config_access.go` | getters, typed access, defensive read snapshots |
+| `config_mutation.go` | `Set`, runtime mutation, and change callbacks |
+| `config_inspect.go` | source inspection, documentation, and export |
+| `config_reload.go` | full/incremental reload, validation gates, rollback |
+| `config_extend.go` | transactional runtime loader extension |
+| `config_override.go` | composable override stack and restoration |
+| `config_lifecycle.go` | freezing, environment identity, and file watching |
+| `config_observe.go` | metrics, events, drift, and version management |
+| `config_hooks.go` | hook traversal and hook-facing accessors |
+| `config_self.go` | self-configuration application |
+| `config_validation.go` | JSON Schema and typed validation orchestration |
+| `config_file_loader.go` | self-config-discovered local file parsing |
+| `config_copy.go` | snapshot copies shared by transactional operations |
+
+New behavior belongs in the narrowest existing responsibility file. Do not
+create generic `util`, `misc`, or `helpers` files; a helper should live with
+the behavior that owns it unless several transaction paths genuinely share it.
+
+Root tests follow the same rule. Public contract tests use `package
+confii_test` by default. Tests use `package confii` only when they must inspect
+private state or exercise an internal failure path. Regression identifiers
+from historical audits belong in comments, while filenames and test function
+names describe the behavior being guaranteed. Cross-package end-to-end tests
+belong under `integration/`; there is no generic top-level `tests/` package.
 
 ---
 
@@ -145,7 +185,7 @@ is a class of bug, not a single bug.
 
 ## 2. The Override Stack
 
-**Source:** [`config.go`](https://github.com/confiify/confii-go/blob/main/config.go), `Config.Override` and
+**Source:** [`config_override.go`](https://github.com/confiify/confii-go/blob/main/config_override.go), `Config.Override` and
 `makeOverrideRestore`.
 
 `Config.Override` applies a layer of key/value mutations and returns

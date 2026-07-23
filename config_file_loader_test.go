@@ -24,7 +24,7 @@ import (
 // SUB-FIX 1 + 3: D01 normalization applies to self-config-discovered YAML.
 // ---------------------------------------------------------------------------
 
-// TestD07_FileAutoLoader_YAML_NormalizesNonStringKeys pins:
+// TestFileAutoLoader_YAML_NormalizesNonStringKeys pins:
 //
 //   - Observable: a YAML file loaded via fileAutoLoader whose document
 //     contains a map with non-string keys (here, integer keys) is
@@ -36,7 +36,7 @@ import (
 // This is the residual D01 contract: routing through the same
 // normalization helper as loader.NewYAML guarantees no
 // map[interface{}]interface{} ever escapes.
-func TestD07_FileAutoLoader_YAML_NormalizesNonStringKeys(t *testing.T) {
+func TestFileAutoLoader_YAML_NormalizesNonStringKeys(t *testing.T) {
 	dir := t.TempDir()
 	// Integer keys at a nested level — gopkg.in/yaml.v3 decodes the
 	// nested map as map[interface{}]interface{} when ANY key is
@@ -62,11 +62,11 @@ func TestD07_FileAutoLoader_YAML_NormalizesNonStringKeys(t *testing.T) {
 // SUB-FIX 2: extension dispatch covers TOML / INI / .env.
 // ---------------------------------------------------------------------------
 
-// TestD07_FileAutoLoader_TOML pins TOML format support — pre-fix the
+// TestFileAutoLoader_TOML pins TOML format support — pre-fix the
 // auto-loader fell through the format switch's default branch and tried
 // to YAML-parse TOML content (often producing a misleading error or, for
 // trivial single-line input, bogus success).
-func TestD07_FileAutoLoader_TOML(t *testing.T) {
+func TestFileAutoLoader_TOML(t *testing.T) {
 	dir := t.TempDir()
 	body := `key = "tomlval"
 
@@ -86,10 +86,10 @@ port = 5432
 	assert.Equal(t, "db.example.com", db["host"])
 }
 
-// TestD07_FileAutoLoader_INI pins INI format support, including the G19
+// TestFileAutoLoader_INI pins INI format support, including the G19
 // defaults-only convention (root keys promoted from the synthetic
 // DEFAULT section preceding the first [section] header).
-func TestD07_FileAutoLoader_INI(t *testing.T) {
+func TestFileAutoLoader_INI(t *testing.T) {
 	dir := t.TempDir()
 	body := "host = localhost\nport = 5432\n\n[database]\nuser = admin\n"
 	p := filepath.Join(dir, "config.ini")
@@ -106,10 +106,10 @@ func TestD07_FileAutoLoader_INI(t *testing.T) {
 	assert.Equal(t, "admin", db["user"])
 }
 
-// TestD07_FileAutoLoader_EnvFile pins .env support: KEY=VALUE pairs with
+// TestFileAutoLoader_EnvFile pins .env support: KEY=VALUE pairs with
 // comment-stripping, dot-nested keys, and the same scalar coercion as
 // loader.EnvFileLoader.
-func TestD07_FileAutoLoader_EnvFile(t *testing.T) {
+func TestFileAutoLoader_EnvFile(t *testing.T) {
 	dir := t.TempDir()
 	body := "# comment line\nFOO=bar\nDB.HOST=localhost\nDB.PORT=5432\n"
 	p := filepath.Join(dir, "settings.env")
@@ -129,14 +129,14 @@ func TestD07_FileAutoLoader_EnvFile(t *testing.T) {
 // SUB-FIX 5: unsupported extension produces a typed *ConfigError.
 // ---------------------------------------------------------------------------
 
-// TestD07_FileAutoLoader_UnsupportedExtension pins the "operator typo
+// TestFileAutoLoader_UnsupportedExtension pins the "operator typo
 // surfaces visibly" contract (sub-fix 5): a self-config default_files
 // entry pointing at an extension confii cannot parse (e.g. .xml) must
 // return a typed *ConfigError wrapping ErrConfigFormat with a clear
 // "unsupported file format" message — pre-D07 the auto-loader silently
 // fell through to YAML parsing for any unknown extension, producing
 // either a misleading parse error or, for trivial input, bogus success.
-func TestD07_FileAutoLoader_UnsupportedExtension_Typed(t *testing.T) {
+func TestFileAutoLoader_UnsupportedExtension_Typed(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "config.xml")
 	// Even valid-ish content must not be silently accepted: the
@@ -158,7 +158,7 @@ func TestD07_FileAutoLoader_UnsupportedExtension_Typed(t *testing.T) {
 // SUB-FIX 4: ErrorPolicy parity with explicit-loader path (G07).
 // ---------------------------------------------------------------------------
 
-// TestD07_FileAutoLoader_ErrorPolicy_Warn_MalformedYAML pins:
+// TestFileAutoLoader_ErrorPolicy_Warn_MalformedYAML pins:
 //
 //   - Observable: a malformed YAML file in self-config under
 //     ErrorPolicyWarn surfaces the parse error to the outer load loop's
@@ -168,7 +168,7 @@ func TestD07_FileAutoLoader_UnsupportedExtension_Typed(t *testing.T) {
 // opts.OnError onto each fileAutoLoader; the outer load() loop's
 // OnError dispatch handles the result identically to explicit-loader
 // errors, preserving G07 parity.
-func TestD07_FileAutoLoader_ErrorPolicy_Warn_MalformedYAML(t *testing.T) {
+func TestFileAutoLoader_ErrorPolicy_Warn_MalformedYAML(t *testing.T) {
 	dir := t.TempDir()
 	bad := filepath.Join(dir, "bad.yaml")
 	// Tab-indented YAML is a parse error in gopkg.in/yaml.v3.
@@ -192,14 +192,14 @@ func TestD07_FileAutoLoader_ErrorPolicy_Warn_MalformedYAML(t *testing.T) {
 	assert.True(t, errors.Is(err, ErrConfigFormat))
 }
 
-// TestD07_FileAutoLoader_ErrorPolicy_Raise_MissingFile pins:
+// TestFileAutoLoader_ErrorPolicy_Raise_MissingFile pins:
 //
 //   - Observable: a missing self-config-discovered file under the
 //     default ErrorPolicyRaise surfaces a typed *ConfigError. Under
 //     ErrorPolicyIgnore the same loader returns (nil, nil). Pre-D07
 //     the auto-loader unconditionally swallowed missing files, so the
 //     Raise branch was unreachable.
-func TestD07_FileAutoLoader_ErrorPolicy_Raise_MissingFile(t *testing.T) {
+func TestFileAutoLoader_ErrorPolicy_Raise_MissingFile(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "nope.yaml")
 
 	t.Run("raise", func(t *testing.T) {
@@ -223,13 +223,13 @@ func TestD07_FileAutoLoader_ErrorPolicy_Raise_MissingFile(t *testing.T) {
 // SUB-FIX 6: end-to-end via applySelfConfig — TOML default_files works.
 // ---------------------------------------------------------------------------
 
-// TestD07_ApplySelfConfig_TOMLDefaultFiles_EndToEnd pins the integration
+// TestApplySelfConfig_TOMLDefaultFiles_EndToEnd pins the integration
 // path: a `.confii.yaml` declaring `default_files: [config.toml]`
 // produces a Config whose merged data was actually parsed by the TOML
 // branch of fileAutoLoader. Pre-D07 this would either silently fall
 // through to YAML (parse error or wrong shape) or skip the file
 // entirely.
-func TestD07_ApplySelfConfig_TOMLDefaultFiles_EndToEnd(t *testing.T) {
+func TestApplySelfConfig_TOMLDefaultFiles_EndToEnd(t *testing.T) {
 	dir := t.TempDir()
 
 	confiiYAML := "default_files:\n  - config.toml\n"
@@ -257,7 +257,7 @@ func TestD07_ApplySelfConfig_TOMLDefaultFiles_EndToEnd(t *testing.T) {
 // fileAutoLoader-loaded source.
 // ---------------------------------------------------------------------------
 
-// TestD07_G01Rollback_OnFileAutoLoaderSchemaViolation pins the Wave 14
+// TestRollback_OnFileAutoLoaderSchemaViolation pins the Wave 14
 // G01 + D07 interaction: a self-config-discovered file (loaded via the
 // new D07 dispatch) that contains values violating a configured JSON
 // schema triggers G01's runValidateOnLoad, which propagates through
@@ -265,7 +265,7 @@ func TestD07_ApplySelfConfig_TOMLDefaultFiles_EndToEnd(t *testing.T) {
 // ErrConfigValidation. The Wave 7 G14 / D05 rollback contract holds:
 // the failure path means New returns an error and never hands a
 // half-loaded Config to the caller.
-func TestD07_G01Rollback_OnFileAutoLoaderSchemaViolation(t *testing.T) {
+func TestRollback_OnFileAutoLoaderSchemaViolation(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.yaml")
 	// port=80 violates the schema's minimum=1024 constraint.

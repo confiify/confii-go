@@ -51,7 +51,7 @@ import (
 // =========================================================================
 
 // g08Loader is a minimal in-memory loader used by
-// TestG08_EffectiveSourceIsLoaderNotResolved. Other G08/D08 tests use a
+// TestEffectiveSourceIsLoaderNotResolved. Other G08/D08 tests use a
 // real on-disk YAML file via loader.NewYAML so the file_tracker
 // incremental-reload path is exercised end-to-end.
 type g08Loader struct {
@@ -82,10 +82,10 @@ func copyMapShallow(m map[string]any) map[string]any {
 // (1) Effective-source-correct.
 // -------------------------------------------------------------------------
 
-// TestG08_EffectiveSourceIsLoaderNotResolved pins that an env-resolved
+// TestEffectiveSourceIsLoaderNotResolved pins that an env-resolved
 // key reports the loader source it actually came from, not the synthetic
 // "(resolved)" string the pre-G08 retrack used to stamp.
-func TestG08_EffectiveSourceIsLoaderNotResolved(t *testing.T) {
+func TestEffectiveSourceIsLoaderNotResolved(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "envs.yaml")
 	require.NoError(t, os.WriteFile(path, []byte(`default:
@@ -127,9 +127,9 @@ production:
 // (2) Reload-clears-stale-keys.
 // -------------------------------------------------------------------------
 
-// TestG08_ReloadClearsStaleKeys pins that a key present in v1 of a config
+// TestReloadClearsStaleKeys pins that a key present in v1 of a config
 // but removed in v2 disappears from tracker output after Reload.
-func TestG08_ReloadClearsStaleKeys(t *testing.T) {
+func TestReloadClearsStaleKeys(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "cfg.yaml")
 	require.NoError(t, os.WriteFile(path, []byte("alpha: 1\nbeta: 2\n"), 0644))
@@ -163,7 +163,7 @@ func TestG08_ReloadClearsStaleKeys(t *testing.T) {
 // (3) Reload-doesn't-inflate-override-counts.
 // -------------------------------------------------------------------------
 
-// TestG08_ReloadDoesNotInflateOverrideCounts pins that 5x Reload of the
+// TestReloadDoesNotInflateOverrideCounts pins that 5x Reload of the
 // SAME data does NOT inflate override_count or History on a key.
 //
 // To make pre-fix failure observable, we first prime "k" with a runtime
@@ -172,7 +172,7 @@ func TestG08_ReloadClearsStaleKeys(t *testing.T) {
 // 5 reloads History is length 6+. Post-G08, the per-Reload tracker reset
 // rebuilds from scratch and "k" is recorded once (with no History because
 // it's a first-track on a fresh tracker).
-func TestG08_ReloadDoesNotInflateOverrideCounts(t *testing.T) {
+func TestReloadDoesNotInflateOverrideCounts(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "cfg.yaml")
 	require.NoError(t, os.WriteFile(path, []byte("k: v\n"), 0644))
@@ -211,10 +211,10 @@ func TestG08_ReloadDoesNotInflateOverrideCounts(t *testing.T) {
 // (4) Layers-aliasing-isolated.
 // -------------------------------------------------------------------------
 
-// TestD08_LayersResultIsIsolated pins that mutating the slice / inner
+// TestLayersResultIsIsolated pins that mutating the slice / inner
 // maps returned by Layers() cannot bleed into tracker state observed by
 // a subsequent Layers() call.
-func TestD08_LayersResultIsIsolated(t *testing.T) {
+func TestLayersResultIsIsolated(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "cfg.yaml")
 	require.NoError(t, os.WriteFile(path, []byte("a: 1\nb: 2\n"), 0644))
@@ -254,10 +254,10 @@ func TestD08_LayersResultIsIsolated(t *testing.T) {
 // (5) Explain-aliasing-isolated.
 // -------------------------------------------------------------------------
 
-// TestD08_ExplainResultIsIsolated pins that mutating the map returned
+// TestExplainResultIsIsolated pins that mutating the map returned
 // by Explain (including nested current_value / value entries that may
 // be maps or slices) cannot bleed into envConfig or tracker state.
-func TestD08_ExplainResultIsIsolated(t *testing.T) {
+func TestExplainResultIsIsolated(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "cfg.yaml")
 	require.NoError(t, os.WriteFile(path, []byte(`servers:
@@ -320,10 +320,10 @@ func TestD08_ExplainResultIsIsolated(t *testing.T) {
 		"D08: Explain mutation must not bleed into envConfig (G10 parity)")
 }
 
-// TestD08_ExplainOverrideHistoryIsIsolated pins that mutating an entry
+// TestExplainOverrideHistoryIsIsolated pins that mutating an entry
 // in the override_history slice returned by Explain cannot leak into the
 // tracker's stored OverrideEntry.
-func TestD08_ExplainOverrideHistoryIsIsolated(t *testing.T) {
+func TestExplainOverrideHistoryIsIsolated(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "cfg.yaml")
 	require.NoError(t, os.WriteFile(path, []byte("key: v1\n"), 0644))
@@ -361,9 +361,9 @@ func TestD08_ExplainOverrideHistoryIsIsolated(t *testing.T) {
 // (6) Schema-aliasing-isolated.
 // -------------------------------------------------------------------------
 
-// TestD08_SchemaResultIsIsolated pins that mutating the map (or the
+// TestSchemaResultIsIsolated pins that mutating the map (or the
 // nested value) returned by Schema cannot bleed into envConfig.
-func TestD08_SchemaResultIsIsolated(t *testing.T) {
+func TestSchemaResultIsIsolated(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "cfg.yaml")
 	require.NoError(t, os.WriteFile(path, []byte(`db:
@@ -409,7 +409,7 @@ func TestD08_SchemaResultIsIsolated(t *testing.T) {
 // (7) Race: concurrent Reload + Explain.
 // -------------------------------------------------------------------------
 
-// TestG08_D08_ConcurrentReloadAndExplain_Race pins that Explain run in
+// TestConcurrentReloadAndExplain_Race pins that Explain run in
 // parallel with Reload never observes a torn snapshot and is safe under
 // -race. Pre-G08 the tracker reset + load sequence was not protected
 // against a concurrent reader that pulled GetSourceInfo for a key during
@@ -417,7 +417,7 @@ func TestD08_SchemaResultIsIsolated(t *testing.T) {
 // The Wave 13 fix relies on the existing c.mu write lock that Reload
 // holds for phases 3-7 to serialize tracker mutations against Explain
 // readers.
-func TestG08_D08_ConcurrentReloadAndExplain_Race(t *testing.T) {
+func TestConcurrentReloadAndExplain_Race(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "cfg.yaml")
 	require.NoError(t, os.WriteFile(path, []byte("k: v0\n"), 0644))

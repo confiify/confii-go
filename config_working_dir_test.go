@@ -47,11 +47,11 @@ func chdirAway(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chdir(origDir) })
 }
 
-// TestG06_WithWorkingDir_ReadsFromSpecifiedDir asserts that confii.New
+// TestWithWorkingDir_ReadsFromSpecifiedDir asserts that confii.New
 // invoked with WithWorkingDir(A) reads its self-config from A, even when
 // the process CWD is a different directory entirely. Pre-G06 the
 // self-config was always sourced from CWD, so this would fail.
-func TestG06_WithWorkingDir_ReadsFromSpecifiedDir(t *testing.T) {
+func TestWithWorkingDir_ReadsFromSpecifiedDir(t *testing.T) {
 	selfconfig.ClearCache()
 	t.Cleanup(selfconfig.ClearCache)
 
@@ -68,11 +68,11 @@ func TestG06_WithWorkingDir_ReadsFromSpecifiedDir(t *testing.T) {
 		"G06: WithWorkingDir(A) must surface A's default_environment, not CWD's")
 }
 
-// TestG06_TwoConfigsDifferentDirs_DoNotShareCache asserts that two New
+// TestTwoConfigsDifferentDirs_DoNotShareCache asserts that two New
 // calls with distinct WithWorkingDir values get distinct self-configs.
 // Pre-G06 the cache key was always "." so the SECOND call would silently
 // observe the FIRST caller's settings.
-func TestG06_TwoConfigsDifferentDirs_DoNotShareCache(t *testing.T) {
+func TestTwoConfigsDifferentDirs_DoNotShareCache(t *testing.T) {
 	selfconfig.ClearCache()
 	t.Cleanup(selfconfig.ClearCache)
 
@@ -106,10 +106,10 @@ func TestG06_TwoConfigsDifferentDirs_DoNotShareCache(t *testing.T) {
 			"pre-G06 cache collision would surface APP_A here")
 }
 
-// TestG06_Default_StillReadsCWD asserts backward compatibility: when no
+// TestDefault_StillReadsCWD asserts backward compatibility: when no
 // WithWorkingDir is supplied, behavior matches pre-G06 (self-config is
 // read from process CWD).
-func TestG06_Default_StillReadsCWD(t *testing.T) {
+func TestDefault_StillReadsCWD(t *testing.T) {
 	selfconfig.ClearCache()
 	t.Cleanup(selfconfig.ClearCache)
 
@@ -128,11 +128,11 @@ func TestG06_Default_StillReadsCWD(t *testing.T) {
 		"G06: with no WithWorkingDir, self-config must still come from CWD")
 }
 
-// TestG06_ComposerHonorsWorkingDir asserts that `_include: ./other.yaml`
+// TestComposerHonorsWorkingDir asserts that `_include: ./other.yaml`
 // resolves relative to WithWorkingDir(A), not relative to the process CWD.
 // Pre-G06 the composer was always rooted at "." so this test (loading a
 // YAML from A that includes ./other.yaml) would fail when CWD != A.
-func TestG06_ComposerHonorsWorkingDir(t *testing.T) {
+func TestComposerHonorsWorkingDir(t *testing.T) {
 	selfconfig.ClearCache()
 	t.Cleanup(selfconfig.ClearCache)
 
@@ -164,12 +164,12 @@ func TestG06_ComposerHonorsWorkingDir(t *testing.T) {
 	assert.Equal(t, "base_value", base)
 }
 
-// TestG06_ClearCache_ClearsAllEntries asserts that selfconfig.ClearCache
+// TestClearCache_ClearsAllEntries asserts that selfconfig.ClearCache
 // purges entries for ALL working directories, not just "." (the pre-G06
 // behavior). Reading dir A and then dir B populates two cache slots; a
 // single ClearCache must invalidate both, so a subsequent Read of either
 // dir produces a freshly-allocated *Settings pointer.
-func TestG06_ClearCache_ClearsAllEntries(t *testing.T) {
+func TestClearCache_ClearsAllEntries(t *testing.T) {
 	selfconfig.ClearCache()
 	t.Cleanup(selfconfig.ClearCache)
 

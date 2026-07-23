@@ -58,11 +58,11 @@ func newReadSideConfig(t *testing.T, data map[string]any) *confii.Config[any] {
 	return cfg
 }
 
-// TestG10_ToDict_CallerMutationIsIsolated pins the canonical contract
+// TestToDict_CallerMutationIsIsolated pins the canonical contract
 // surfaced in the audit: mutating the map returned by ToDict must not
 // affect a subsequent ToDict call. Pre-Wave-11 ToDict returned the
 // live envConfig pointer and `d["foo"] = "x"` would persist.
-func TestG10_ToDict_CallerMutationIsIsolated(t *testing.T) {
+func TestToDict_CallerMutationIsIsolated(t *testing.T) {
 	cfg := newReadSideConfig(t, map[string]any{
 		"database": map[string]any{
 			"host": "localhost",
@@ -85,10 +85,10 @@ func TestG10_ToDict_CallerMutationIsIsolated(t *testing.T) {
 		"nested mutation of ToDict result must not leak into next ToDict call")
 }
 
-// TestG10_Get_SubMapMutationIsIsolated pins the same contract for
+// TestGet_SubMapMutationIsIsolated pins the same contract for
 // whole-map Get on a dot-path. Pre-G11 Get of a sub-tree returned the
 // live nested map; mutation aliased into envConfig.
-func TestG10_Get_SubMapMutationIsIsolated(t *testing.T) {
+func TestGet_SubMapMutationIsIsolated(t *testing.T) {
 	cfg := newReadSideConfig(t, map[string]any{
 		"database": map[string]any{
 			"host": "localhost",
@@ -115,11 +115,11 @@ func TestG10_Get_SubMapMutationIsIsolated(t *testing.T) {
 		"caller-injected key must not be visible to Has")
 }
 
-// TestG10_Get_SliceLeafMutationIsIsolated pins the previously-uncovered
+// TestGet_SliceLeafMutationIsIsolated pins the previously-uncovered
 // []any leaf path. Pre-Wave-12 Get's scalar branch returned the slice
 // as-is from c.hookProcessor.ProcessCtx, which is a live reference into
 // envConfig. Mutating an element aliased into config state.
-func TestG10_Get_SliceLeafMutationIsIsolated(t *testing.T) {
+func TestGet_SliceLeafMutationIsIsolated(t *testing.T) {
 	cfg := newReadSideConfig(t, map[string]any{
 		"hosts": []any{"a.local", "b.local", "c.local"},
 	})
@@ -139,11 +139,11 @@ func TestG10_Get_SliceLeafMutationIsIsolated(t *testing.T) {
 		"caller mutation of Get []any leaf must not bleed into envConfig")
 }
 
-// TestG10_Get_NestedSliceInsideMapMutationIsIsolated covers the case
+// TestGet_NestedSliceInsideMapMutationIsIsolated covers the case
 // where a leaf []any sits inside a sub-map returned by Get. The whole-
 // map path runs applyHooksRecursive which should produce a deep copy of
 // nested slices too.
-func TestG10_Get_NestedSliceInsideMapMutationIsIsolated(t *testing.T) {
+func TestGet_NestedSliceInsideMapMutationIsIsolated(t *testing.T) {
 	cfg := newReadSideConfig(t, map[string]any{
 		"cluster": map[string]any{
 			"name":    "prod",
@@ -169,12 +169,12 @@ func TestG10_Get_NestedSliceInsideMapMutationIsIsolated(t *testing.T) {
 		"mutation of nested slice returned by whole-map Get must not bleed into envConfig")
 }
 
-// TestG10_Freeze_CannotBeBypassedByMutatingReturnedMap proves that
+// TestFreeze_CannotBeBypassedByMutatingReturnedMap proves that
 // after Freeze, a caller cannot subvert immutability by reaching into
 // the map returned by ToDict / Get and mutating it. Pre-Wave-11 the
 // returned map was an alias, so a caller could "set" a key without
 // going through Set (which is blocked by Freeze).
-func TestG10_Freeze_CannotBeBypassedByMutatingReturnedMap(t *testing.T) {
+func TestFreeze_CannotBeBypassedByMutatingReturnedMap(t *testing.T) {
 	cfg := newReadSideConfig(t, map[string]any{
 		"database": map[string]any{
 			"host": "localhost",
@@ -215,13 +215,13 @@ func TestG10_Freeze_CannotBeBypassedByMutatingReturnedMap(t *testing.T) {
 		"caller-side mutation of Get sub-map result must not bypass Freeze")
 }
 
-// TestG10_Export_DoesNotRaceWithConcurrentSet pins the audit's race
+// TestExport_DoesNotRaceWithConcurrentSet pins the audit's race
 // concern: pre-Wave-11 Export released the read lock and then marshaled
 // the live envConfig, which raced against a concurrent Set. Post-fix
 // Export takes a deep-copy snapshot under the lock and marshals the
 // snapshot. Run under -race; failure here would surface as
 // "DATA RACE" output, not an assertion miss.
-func TestG10_Export_DoesNotRaceWithConcurrentSet(t *testing.T) {
+func TestExport_DoesNotRaceWithConcurrentSet(t *testing.T) {
 	cfg := newReadSideConfig(t, map[string]any{
 		"database": map[string]any{
 			"host": "localhost",
@@ -276,11 +276,11 @@ func TestG10_Export_DoesNotRaceWithConcurrentSet(t *testing.T) {
 		"the test must actually exercise Export at least once to be meaningful")
 }
 
-// TestG10_Export_OutputIsValidUnderConcurrency is a content sanity
+// TestExport_OutputIsValidUnderConcurrency is a content sanity
 // check: the JSON Export emits must be parseable even when a writer is
 // hammering Set at the same time. Pre-fix tearing of the live map
 // would surface as an unmarshal error.
-func TestG10_Export_OutputIsValidUnderConcurrency(t *testing.T) {
+func TestExport_OutputIsValidUnderConcurrency(t *testing.T) {
 	cfg := newReadSideConfig(t, map[string]any{
 		"database": map[string]any{
 			"host": "localhost",
@@ -317,11 +317,11 @@ func TestG10_Export_OutputIsValidUnderConcurrency(t *testing.T) {
 	wg.Wait()
 }
 
-// TestG10_ToDict_DoesNotRaceWithConcurrentSet runs ToDict + Set under
+// TestToDict_DoesNotRaceWithConcurrentSet runs ToDict + Set under
 // -race. ToDict's deep copy is taken while holding c.mu.RLock so the
 // snapshot is atomic with respect to writers; release happens after
 // the deep copy is owned privately.
-func TestG10_ToDict_DoesNotRaceWithConcurrentSet(t *testing.T) {
+func TestToDict_DoesNotRaceWithConcurrentSet(t *testing.T) {
 	cfg := newReadSideConfig(t, map[string]any{
 		"database": map[string]any{
 			"host": "localhost",
@@ -370,10 +370,10 @@ func TestG10_ToDict_DoesNotRaceWithConcurrentSet(t *testing.T) {
 	assert.Greater(t, dicts.Load(), int64(0))
 }
 
-// TestG10_Get_DoesNotRaceWithConcurrentSet runs whole-map and slice-
+// TestGet_DoesNotRaceWithConcurrentSet runs whole-map and slice-
 // leaf Get + Set under -race. The deep copy is taken under the read
 // lock, then released; the returned snapshot is owned by the caller.
-func TestG10_Get_DoesNotRaceWithConcurrentSet(t *testing.T) {
+func TestGet_DoesNotRaceWithConcurrentSet(t *testing.T) {
 	cfg := newReadSideConfig(t, map[string]any{
 		"cluster": map[string]any{
 			"name":    "prod",

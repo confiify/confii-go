@@ -48,7 +48,7 @@ func writeSchemaFile(t *testing.T, body string) string {
 // SUB-FIX 1: WithSchemaPath actually loads the schema file.
 // ---------------------------------------------------------------------------
 
-// TestG01_SchemaPath_LoadedAndEnforced pins:
+// TestSchemaPath_LoadedAndEnforced pins:
 //
 //   - Observable: with a written-to-disk JSON Schema and valid config,
 //     New succeeds (the schema file IS read and compiled).
@@ -57,7 +57,7 @@ func writeSchemaFile(t *testing.T, body string) string {
 //
 // Pre-fix: SchemaPath was stored on opts but never read; the invalid
 // case would succeed silently.
-func TestG01_SchemaPath_LoadedAndEnforced(t *testing.T) {
+func TestSchemaPath_LoadedAndEnforced(t *testing.T) {
 	schemaPath := writeSchemaFile(t, g01ValidSchema)
 
 	t.Run("valid config passes", func(t *testing.T) {
@@ -90,7 +90,7 @@ func TestG01_SchemaPath_LoadedAndEnforced(t *testing.T) {
 	})
 }
 
-// TestG01_SchemaPath_FileMissing_TypedError pins:
+// TestSchemaPath_FileMissing_TypedError pins:
 //
 //   - Observable: an unreadable / non-existent schema path surfaces a
 //     typed *ConfigError wrapping ErrConfigValidation at New time, not
@@ -98,7 +98,7 @@ func TestG01_SchemaPath_LoadedAndEnforced(t *testing.T) {
 //
 // Pre-fix: SchemaPath was never read so a missing file produced no
 // error — schema-driven validation was a stub.
-func TestG01_SchemaPath_FileMissing_TypedError(t *testing.T) {
+func TestSchemaPath_FileMissing_TypedError(t *testing.T) {
 	l := &stubLoader{source: "s", data: map[string]any{"port": 5432}}
 	_, err := New[any](context.Background(),
 		WithLoaders(l),
@@ -114,7 +114,7 @@ func TestG01_SchemaPath_FileMissing_TypedError(t *testing.T) {
 // SUB-FIX 2: WithValidateOnLoad(true) + schema runs JSON Schema validation.
 // ---------------------------------------------------------------------------
 
-// TestG01_WithSchema_InlineMap_Enforced pins:
+// TestWithSchema_InlineMap_Enforced pins:
 //
 //   - Observable: when a JSON Schema map is passed via WithSchema and
 //     ValidateOnLoad is true, an invalid config produces a typed
@@ -122,7 +122,7 @@ func TestG01_SchemaPath_FileMissing_TypedError(t *testing.T) {
 //
 // Pre-fix: opts.Schema as map[string]any was a non-nil sentinel only.
 // The path through Typed() decoded into `any` and silently passed.
-func TestG01_WithSchema_InlineMap_Enforced(t *testing.T) {
+func TestWithSchema_InlineMap_Enforced(t *testing.T) {
 	schema := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
@@ -163,7 +163,7 @@ func TestG01_WithSchema_InlineMap_Enforced(t *testing.T) {
 	})
 }
 
-// TestG01_PublicMessage_SanitizedContextDetailed pins:
+// TestPublicMessage_SanitizedContextDetailed pins:
 //
 //   - Observable: the public error string MUST NOT contain the raw
 //     violating value. The structured violation list IS available on
@@ -171,7 +171,7 @@ func TestG01_WithSchema_InlineMap_Enforced(t *testing.T) {
 //
 // Pre-fix: validate-on-load was a stub for JSON Schema dicts. There
 // was no Context payload to inspect.
-func TestG01_PublicMessage_SanitizedContextDetailed(t *testing.T) {
+func TestPublicMessage_SanitizedContextDetailed(t *testing.T) {
 	schema := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
@@ -222,7 +222,7 @@ func TestG01_PublicMessage_SanitizedContextDetailed(t *testing.T) {
 // SUB-FIX 4: Reload validates against the schema and rolls back on failure.
 // ---------------------------------------------------------------------------
 
-// TestG01_Reload_SchemaValidation_Rollback pins:
+// TestReload_SchemaValidation_Rollback pins:
 //
 //   - Observable: a v1 file with a valid value loads; rewriting it with
 //     a value that violates the JSON Schema causes Reload to return a
@@ -231,7 +231,7 @@ func TestG01_PublicMessage_SanitizedContextDetailed(t *testing.T) {
 //
 // Pre-fix: Reload's validate phase only ran struct DecodeAndValidate; a
 // JSON Schema violation was silently committed.
-func TestG01_Reload_SchemaValidation_Rollback(t *testing.T) {
+func TestReload_SchemaValidation_Rollback(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "cfg.yaml")
 	require.NoError(t, os.WriteFile(cfgPath, []byte("port: 5432\n"), 0o644))
@@ -267,7 +267,7 @@ func TestG01_Reload_SchemaValidation_Rollback(t *testing.T) {
 // when a schema is configured.
 // ---------------------------------------------------------------------------
 
-// TestG01_ValidateOnLoad_False_NoOp pins:
+// TestValidateOnLoad_False_NoOp pins:
 //
 //   - Observable: with ValidateOnLoad=false and an invalid config that
 //     would have failed schema validation, New succeeds. The schema is
@@ -276,7 +276,7 @@ func TestG01_Reload_SchemaValidation_Rollback(t *testing.T) {
 // Pre-fix: stub behavior already produced this result, but the contract
 // is now documented and tested explicitly so any future regression to
 // "validate even when ValidateOnLoad=false" is caught.
-func TestG01_ValidateOnLoad_False_NoOp(t *testing.T) {
+func TestValidateOnLoad_False_NoOp(t *testing.T) {
 	schemaPath := writeSchemaFile(t, g01ValidSchema)
 	// port=80 violates minimum=1024 — would fail with ValidateOnLoad=true.
 	l := &stubLoader{source: "s", data: map[string]any{"port": 80}}
@@ -289,10 +289,10 @@ func TestG01_ValidateOnLoad_False_NoOp(t *testing.T) {
 	require.NotNil(t, cfg)
 }
 
-// TestG01_ValidateOnLoad_True_NoSchema_NoOp pins the untyped behavior:
+// TestValidateOnLoad_True_NoSchema_NoOp pins the untyped behavior:
 // Config[any] has no struct tags to validate, so validate-on-load remains
 // a no-op unless a JSON Schema is supplied.
-func TestG01_ValidateOnLoad_True_NoSchema_NoOp(t *testing.T) {
+func TestValidateOnLoad_True_NoSchema_NoOp(t *testing.T) {
 	l := &stubLoader{source: "s", data: map[string]any{"port": 80}}
 	cfg, err := New[any](context.Background(),
 		WithLoaders(l),
@@ -303,7 +303,7 @@ func TestG01_ValidateOnLoad_True_NoSchema_NoOp(t *testing.T) {
 	require.NotNil(t, cfg)
 }
 
-func TestG01_ValidateOnLoad_TypedConfigDoesNotRequireWithSchema(t *testing.T) {
+func TestValidateOnLoad_TypedConfigDoesNotRequireWithSchema(t *testing.T) {
 	type appConfig struct {
 		Port int `mapstructure:"port" validate:"gte=1,lte=65535"`
 	}
@@ -322,13 +322,13 @@ func TestG01_ValidateOnLoad_TypedConfigDoesNotRequireWithSchema(t *testing.T) {
 // SUB-FIX 1 (extended): self-config path for schema_path.
 // ---------------------------------------------------------------------------
 
-// TestG01_SelfConfig_SchemaPath_EndToEnd pins:
+// TestSelfConfig_SchemaPath_EndToEnd pins:
 //
 //   - Observable: a schema_path declared in .confii.yaml is loaded by
 //     applySelfConfig and threaded through New's validate-on-load.
 //     Pre-fix the field reached opts.SchemaPath but New never read the
 //     file so the self-config-driven workflow was a stub.
-func TestG01_SelfConfig_SchemaPath_EndToEnd(t *testing.T) {
+func TestSelfConfig_SchemaPath_EndToEnd(t *testing.T) {
 	dir := t.TempDir()
 	schemaPath := filepath.Join(dir, "schema.json")
 	require.NoError(t, os.WriteFile(schemaPath, []byte(g01ValidSchema), 0o644))
