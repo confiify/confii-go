@@ -8,13 +8,12 @@ Thank you for your interest in contributing to Confii! This guide will help you 
 2. Clone your fork: `git clone https://github.com/<your-username>/confii-go.git`
 3. Create a branch: `git checkout -b feature/your-feature`
 4. Make your changes
-5. Run checks: `make check`
+5. Run checks: `make ci-full`
 6. Push and open a pull request
 
 ## Development Setup
 
 ```bash
-go mod download
 make deps
 ```
 
@@ -23,11 +22,11 @@ make deps
 Before submitting a PR, run:
 
 ```bash
-make check       # fmt + vet + test
+make mod-verify   # every module is tidy and checksummed
 make lint         # fmt-check + vet + golangci-lint
-make vulncheck    # govulncheck
-make test-race    # tests with race detector
-make test-cover   # coverage report
+make ci-full      # core, race, integration, and cloud consumer tests
+make vulncheck    # govulncheck for the core module
+mkdocs build --strict
 ```
 
 All checks must pass. Target 90%+ test coverage for new code.
@@ -54,6 +53,7 @@ Run the full test suite locally before submitting:
 make test          # unit tests
 make test-race     # with race detector
 make test-cover    # with coverage report
+make test-cloud    # all cloud-provider tags in a consumer fixture
 ```
 
 ## Pull Request Guidelines

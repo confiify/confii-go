@@ -48,13 +48,25 @@ func createLoader(typ, source string) (confii.Loader, error) {
 }
 
 // buildConfig creates a Config from CLI flags.
+//
+// When the caller supplied no -l/--loader specs, buildConfig deliberately
+// omits [confii.WithLoaders] rather than passing an empty slice. Passing
+// `WithLoaders()` would mark "loaders" as explicitly set with zero entries
+// and suppress any `default_files` declared in a self-config file
+// (confii.yaml). With no explicit loaders, callers fall through to the
+// documented priority model (explicit > self-config > built-in default)
+// so a project's confii.yaml `default_files` are honored as intended
+// (G05).
 func buildConfig(env string, loaderSpecs []string) (*confii.Config[any], error) {
 	loaders, err := parseLoaders(loaderSpecs)
 	if err != nil {
 		return nil, err
 	}
 
-	opts := []confii.Option{confii.WithLoaders(loaders...)}
+	var opts []confii.Option
+	if len(loaders) > 0 {
+		opts = append(opts, confii.WithLoaders(loaders...))
+	}
 	if env != "" {
 		opts = append(opts, confii.WithEnv(env))
 	}

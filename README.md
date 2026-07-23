@@ -100,19 +100,28 @@ Go has several configuration libraries, but none provides a complete configurati
 ## Installation
 
 ```bash
-go get github.com/confiify/confii-go
+go get github.com/confiify/confii-go@v1.1.0
 ```
 
-Cloud providers are opt-in via build tags:
+Cloud providers are opt-in through separate modules and build tags, so the
+core install stays small. Add the cloud module you use; it owns compatible
+provider SDK versions:
 
 ```bash
-go build -tags aws          # S3, SSM, Secrets Manager
-go build -tags azure        # Blob Storage, Key Vault
-go build -tags gcp          # Cloud Storage, Secret Manager
-go build -tags vault        # HashiCorp Vault
-go build -tags ibm          # IBM Cloud Object Storage
-go build -tags "aws,azure,gcp,vault,ibm"  # all
+# Example: AWS
+go get github.com/confiify/confii-go/loader/cloud@v1.1.0
+go get github.com/confiify/confii-go/secret/cloud@v1.1.0
+go build -tags aws ./...
+
+# Other providers
+go build -tags azure ./...
+go build -tags gcp ./...
+go build -tags vault ./...
+go build -tags ibm ./...
 ```
+
+See [docs/installation.md](docs/installation.md) for module and provider
+details.
 
 ---
 
@@ -201,8 +210,8 @@ cfg, err := confii.NewBuilder[AppConfig]().
 | `WithValidateOnLoad(bool)` | Validate struct tags after loading | `false` |
 | `WithStrictValidation(bool)` | Treat validation warnings as errors | `false` |
 | `WithSchema(schema)` / `WithSchemaPath(path)` | JSON Schema for validation | none |
-| `WithEnvExpander(bool)` | Enable `${VAR}` expansion in values | `false` |
-| `WithTypeCasting(bool)` | Auto-convert strings to bool/int/float | `false` |
+| `WithEnvExpander(bool)` | Enable `${VAR}` expansion in values | `true` |
+| `WithTypeCasting(bool)` | Auto-convert strings to bool/int/float | `true` |
 | `WithSysenvFallback(bool)` | Fall back to OS env vars on missing keys | `false` |
 | `WithDynamicReloading(bool)` | Enable fsnotify file watching | `false` |
 | `WithFreezeOnLoad(bool)` | Make config immutable after load | `false` |
@@ -475,7 +484,7 @@ Once your config is loaded and values are flowing, these features help you manag
 ```go
 // Reload from sources
 cfg.Reload(ctx)
-cfg.Reload(ctx, confii.WithIncremental(true))  // only changed files (mtime + SHA256)
+cfg.Reload(ctx, confii.WithIncremental(true))  // changed files only; remote sources refresh
 cfg.Reload(ctx, confii.WithDryRun(true))        // validate without applying
 cfg.Reload(ctx, confii.WithReloadValidate(true)) // override validate-on-load
 
@@ -633,7 +642,7 @@ jsonDocs, _ := cfg.GenerateDocs("json")
 ## CLI Tool
 
 ```bash
-go install github.com/confiify/confii-go/cmd/confii@latest
+go install github.com/confiify/confii-go/confii@v1.1.0
 ```
 
 | Command | Description |
@@ -737,12 +746,104 @@ github.com/confiify/confii-go/
   ├── internal/              # Internal utilities (dictutil, typecoerce, formatparse)
   ├── integration/           # End-to-end integration tests
   ├── examples/              # Runnable examples
-  └── cmd/confii/            # CLI tool (10 commands)
+  └── confii/                # CLI tool (10 commands)
 ```
 
 ## Requirements
 
-- Go 1.25+ (due to cloud provider dependencies; core library uses Go 1.21 features)
+- Go 1.25+ (cloud integrations are separate opt-in modules)
+
+---
+
+## Testing Philosophy
+
+Confii ships with a high test bar because configuration libraries are
+hard to debug in production: a silently-mishandled value or a
+torn-state race surfaces as a failure in some downstream service hours
+or days later. The audit cycles documented in
+[REMEDIATION_PROGRESS.md](REMEDIATION_PROGRESS.md) and
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) raised the bar further.
+Every contributor is expected to follow it.
+
+### Three rules for new features
+
+1. **Every new feature ships with negative tests.** A "negative test"
+   asserts what the code refuses to do, not just what it accepts. If
+   you add a new override, snapshot, copy, or comparison path, write
+   a test that proves the path *cannot be misused*: a leaked pointer
+   does not bleed into Config state, an out-of-order restore does not
+   resurrect a popped frame, a type-drifted value still fires the
+   change callback. Positive tests prove the happy path; negative
+   tests prove the contract.
+
+2. **Concurrency-touching code must pass under `-race`.** Any change
+   that adds a goroutine, a `sync.*` primitive, a lock acquisition,
+   or a snapshot-then-release pattern must include a test that
+   exercises the new path under
+   `go test ./<package>/ -race`. The audit found a CVE-class race
+   (V-10) precisely because the affected `Export*` routine had no
+   `-race` test. CI runs the full suite under `-race` on every PR.
+
+3. **If you change a public contract documented in godoc, write the
+   test that pins the documented behavior.** The audit found four
+   contracts that the godoc promised but the implementation
+   violated (V-03 deep-copy, V-04 GetSourceInfo isolation, V-05
+   diff fidelity, V-09 panic logging). Each is now pinned by a
+   regression test. New contracts get the same treatment from day
+   one.
+
+### What "negative" looks like in practice
+
+```go
+// V-03_a — []byte aliasing.
+//
+// Pre-V-23: DeepCopyValue([]byte("hello")) returned the SAME slice
+// header. Mutating b[0] = 'X' bled through.
+func TestDeepCopyValue_ByteSlice_NotAliased(t *testing.T) {
+    src := []byte("hello")
+    cp := DeepCopyValue(src).([]byte)
+    src[0] = 'X'
+    if string(cp) != "hello" {
+        t.Fatalf("V-03 byte-slice aliasing: cp = %q, want %q", string(cp), "hello")
+    }
+}
+```
+
+The test deliberately mutates the source after the operation under
+test and asserts the operation's output is unchanged. Run it against
+the pre-fix code and it fails; run it against the post-fix code and
+it passes. That asymmetry is the whole value of a negative test.
+
+### Audit-pin tests live alongside the code
+
+Negative tests for audit-closed vulnerabilities are conventionally
+named `TestVNN_<scenario>` and live in `*_v23_test.go` or
+`*_v24_test.go` files next to the implementation. Do not move them.
+They are not "extra coverage" that can be deleted in a future
+refactor — they are the load-bearing pins that prevent re-regression
+of paid-for bugs.
+
+### Running the suite
+
+```bash
+# Full suite, no race detector (fastest feedback):
+go test ./...
+
+# Full suite under -race (matches CI; required before opening a PR):
+go test ./... -race
+
+# Just the audit pins (Wave 23 + Wave 24):
+go test ./... -run 'TestV0[1-9]_|TestV10_|TestDeepCopyValue_|TestNormalizeKeys_'
+
+# Fuzzers (run by CI on a schedule; you can run them locally too):
+go test ./internal/dictutil -fuzz=FuzzMerge -fuzztime=30s
+go test ./loader -fuzz=FuzzEnvFile -fuzztime=30s
+```
+
+A PR that adds new behavior without negative tests, or that fails
+under `-race`, will not be merged.
+
+---
 
 ## License
 

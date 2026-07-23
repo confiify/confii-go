@@ -1,0 +1,9 @@
+app:
+  debug: true
+
+server:
+  host: 127.0.0.1
+
+database:
+  host: dev-db.local
+  name: appdb_dev

@@ -80,6 +80,7 @@ func TestAdvancedMerger_UnionNonMapFallsToReplace(t *testing.T) {
 }
 
 func TestAdvancedMerger_PrependNonList(t *testing.T) {
+	// Non-list operands are wrapped and prepended in documented order.
 	m := NewAdvanced(Prepend, nil)
 	base := map[string]any{"val": "a"}
 	overlay := map[string]any{"val": "b"}
@@ -88,7 +89,11 @@ func TestAdvancedMerger_PrependNonList(t *testing.T) {
 }
 
 func TestAdvancedMerger_NewKeyAddedRegardlessOfStrategy(t *testing.T) {
-	strategies := []Strategy{Replace, DeepMergeStrategy, Append, Prepend, Union}
+	// Replace is intentionally excluded here: the corrected Replace
+	// semantic discards the base map entirely, so a base-only key
+	// like "existing" must NOT survive a Replace merge. That contract
+	// is pinned in TestStrategyReplace_DiscardsBaseKeys.
+	strategies := []Strategy{DeepMergeStrategy, Append, Prepend, Union}
 	for _, s := range strategies {
 		m := NewAdvanced(s, nil)
 		base := map[string]any{"existing": 1}
@@ -97,6 +102,19 @@ func TestAdvancedMerger_NewKeyAddedRegardlessOfStrategy(t *testing.T) {
 		assert.Equal(t, 2, got["new_key"], "strategy %d should add new keys", s)
 		assert.Equal(t, 1, got["existing"], "strategy %d should keep existing keys", s)
 	}
+}
+
+// TestAdvancedMerger_Replace_DiscardsAllBaseKeys complements the loop
+// above: under Replace, base-only keys are dropped and only overlay
+// content survives.
+func TestAdvancedMerger_Replace_DiscardsAllBaseKeys(t *testing.T) {
+	m := NewAdvanced(Replace, nil)
+	base := map[string]any{"existing": 1}
+	overlay := map[string]any{"new_key": 2}
+	got := m.Merge(base, overlay)
+	assert.Equal(t, 2, got["new_key"])
+	assert.NotContains(t, got, "existing")
+	assert.Len(t, got, 1)
 }
 
 func TestAdvancedMerger_IntersectionNestedMaps(t *testing.T) {

@@ -4,7 +4,6 @@ package cloud
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -67,12 +66,15 @@ func NewHashiCorpVault(opts ...VaultOption) (*HashiCorpVault, error) {
 	for _, opt := range opts {
 		opt(cfg)
 	}
+	if cfg.KVVersion != 1 && cfg.KVVersion != 2 {
+		return nil, fmt.Errorf("vault KV version must be 1 or 2, got %d", cfg.KVVersion)
+	}
 
 	vaultCfg := api.DefaultConfig()
 	vaultCfg.Address = cfg.URL
 	if !cfg.Verify {
-		vaultCfg.HttpClient.Transport = &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		if err := vaultCfg.ConfigureTLS(&api.TLSConfig{Insecure: true}); err != nil {
+			return nil, fmt.Errorf("vault TLS config: %w", err)
 		}
 	}
 
@@ -92,6 +94,9 @@ func NewHashiCorpVault(opts ...VaultOption) (*HashiCorpVault, error) {
 		if err != nil {
 			return nil, fmt.Errorf("%w: %v", confii.ErrVaultAuth, err)
 		}
+		if token == "" {
+			return nil, fmt.Errorf("%w: auth method returned an empty token", confii.ErrVaultAuth)
+		}
 		client.SetToken(token)
 	case cfg.Token != "":
 		client.SetToken(cfg.Token)
@@ -102,6 +107,9 @@ func NewHashiCorpVault(opts ...VaultOption) (*HashiCorpVault, error) {
 		})
 		if err != nil {
 			return nil, fmt.Errorf("%w: approle login: %v", confii.ErrVaultAuth, err)
+		}
+		if secret == nil || secret.Auth == nil || secret.Auth.ClientToken == "" {
+			return nil, fmt.Errorf("%w: approle login returned no auth token", confii.ErrVaultAuth)
 		}
 		client.SetToken(secret.Auth.ClientToken)
 	}
@@ -128,18 +136,33 @@ func (s *HashiCorpVault) GetSecret(ctx context.Context, key string, opts ...conf
 		secretPath = fmt.Sprintf("%s/%s", s.mountPoint, path)
 	}
 
-	// Read with version for KV v2.
-	var secret *api.Secret
-	var err error
+	// Read the raw response so HTTP 404 is mapped before the Vault SDK tries
+	// to decode the body. Logical.ReadWithContext attempts to parse 404 bodies
+	// first; a proxy or development server returning a non-Vault body (for
+	// example, plain-text "404 page not found") turns a genuine miss into a
+	// JSON decode error and loses the status distinction.
+	var query map[string][]string
 	if s.kvVersion == 2 && o.Version != "" {
-		secret, err = s.client.Logical().ReadWithDataWithContext(ctx, secretPath, map[string][]string{
+		query = map[string][]string{
 			"version": {o.Version},
-		})
-	} else {
-		secret, err = s.client.Logical().ReadWithContext(ctx, secretPath)
+		}
+	}
+	resp, err := s.client.Logical().ReadRawWithDataWithContext(ctx, secretPath, query)
+	if resp != nil {
+		defer resp.Body.Close()
+		if resp.StatusCode == http.StatusNotFound {
+			return nil, fmt.Errorf("%w: %s", confii.ErrSecretNotFound, key)
+		}
 	}
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", confii.ErrSecretAccess, err)
+	}
+	if resp == nil {
+		return nil, fmt.Errorf("%w: vault returned no response", confii.ErrSecretAccess)
+	}
+	secret, err := api.ParseSecret(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("%w: decode vault response: %v", confii.ErrSecretAccess, err)
 	}
 	if secret == nil || secret.Data == nil {
 		return nil, fmt.Errorf("%w: %s", confii.ErrSecretNotFound, key)
@@ -222,6 +245,8 @@ func (s *HashiCorpVault) ListSecrets(ctx context.Context, prefix string) ([]stri
 
 	data, _ := json.Marshal(keysRaw)
 	var keys []string
-	json.Unmarshal(data, &keys)
+	if err := json.Unmarshal(data, &keys); err != nil {
+		return nil, fmt.Errorf("%w: decode Vault list response: %v", confii.ErrSecretAccess, err)
+	}
 	return keys, nil
 }

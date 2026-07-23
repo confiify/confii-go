@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -115,7 +114,10 @@ ALSO_VALID=true
 `
 	require.NoError(t, os.WriteFile(envFile, []byte(content), 0644))
 
-	l := NewEnvFile(envFile)
+	// After G31, the default policy (Raise) surfaces malformed lines as
+	// typed errors. Callers that want the legacy silent-skip behavior must
+	// opt in with WithEnvFileErrorPolicy(ErrorPolicyIgnore).
+	l := NewEnvFile(envFile, WithEnvFileErrorPolicy(confii.ErrorPolicyIgnore))
 	result, err := l.Load(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, "yes", result["VALID"])
@@ -184,10 +186,15 @@ func TestEnvironmentLoader_LowercaseConversion(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // HTTPLoader edge cases
+//
+// G35: HTTP tests use newHTTPTestServer (defined in http_test.go) for
+// hermetic-environment safety. It wraps httptest.NewServer and converts a
+// loopback-bind panic into t.Skip rather than failing the whole suite when
+// the runtime sandbox refuses 127.0.0.1 binds.
 // ---------------------------------------------------------------------------
 
 func TestHTTPLoader_WithBasicAuth(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newHTTPTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		user, pass, ok := r.BasicAuth()
 		if !ok || user != "admin" || pass != "secret" {
 			w.WriteHeader(http.StatusUnauthorized)
@@ -205,7 +212,7 @@ func TestHTTPLoader_WithBasicAuth(t *testing.T) {
 }
 
 func TestHTTPLoader_WithBasicAuth_Failure(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newHTTPTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		user, pass, ok := r.BasicAuth()
 		if !ok || user != "admin" || pass != "secret" {
 			w.WriteHeader(http.StatusUnauthorized)
@@ -222,7 +229,7 @@ func TestHTTPLoader_WithBasicAuth_Failure(t *testing.T) {
 }
 
 func TestHTTPLoader_WithTimeout(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newHTTPTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(200 * time.Millisecond)
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"key": "value"}`))
@@ -235,7 +242,7 @@ func TestHTTPLoader_WithTimeout(t *testing.T) {
 }
 
 func TestHTTPLoader_ContentTypeDetection_YAML(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newHTTPTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/yaml")
 		_, _ = w.Write([]byte("key: yaml-value\n"))
 	}))
@@ -248,7 +255,7 @@ func TestHTTPLoader_ContentTypeDetection_YAML(t *testing.T) {
 }
 
 func TestHTTPLoader_ContentTypeDetection_FallbackToExtension(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newHTTPTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// No Content-Type header, but URL ends in .yaml -- however httptest
 		// doesn't include path in URL matching, so it defaults to JSON.
 		w.Header().Set("Content-Type", "application/octet-stream")
@@ -263,7 +270,7 @@ func TestHTTPLoader_ContentTypeDetection_FallbackToExtension(t *testing.T) {
 }
 
 func TestHTTPLoader_CustomHeaders_Multiple(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newHTTPTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer token123" {
 			w.WriteHeader(http.StatusForbidden)
 			return

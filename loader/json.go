@@ -4,30 +4,75 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"os"
 
 	confii "github.com/confiify/confii-go"
 )
 
 // JSONLoader loads configuration from a JSON file.
+//
+// Absence of the configured file is governed by the loader's
+// [confii.ErrorPolicy] (default [confii.ErrorPolicyRaise]) (G07):
+//
+//   - ErrorPolicyRaise:  Load returns a typed [*confii.ConfigError]
+//     wrapping [confii.ErrConfigLoad].
+//   - ErrorPolicyWarn:   the missing file is logged via the configured
+//     [*slog.Logger] and Load returns (nil, nil).
+//   - ErrorPolicyIgnore: the missing file is silently skipped (legacy
+//     pre-G07 behavior).
 type JSONLoader struct {
-	source string
+	source      string
+	errorPolicy confii.ErrorPolicy
+	logger      *slog.Logger
 }
 
-// NewJSON creates a new JSON loader for the given file path.
-func NewJSON(path string) *JSONLoader {
-	return &JSONLoader{source: path}
+// JSONOption configures the JSONLoader.
+type JSONOption func(*JSONLoader)
+
+// WithJSONErrorPolicy sets how the loader reacts to load-time failures
+// (missing file, I/O error, malformed JSON). Defaults to
+// [confii.ErrorPolicyRaise].
+func WithJSONErrorPolicy(p confii.ErrorPolicy) JSONOption {
+	return func(l *JSONLoader) { l.errorPolicy = p }
+}
+
+// WithJSONLogger sets the logger used when the error policy is
+// [confii.ErrorPolicyWarn]. Nil is ignored. Defaults to [slog.Default].
+func WithJSONLogger(logger *slog.Logger) JSONOption {
+	return func(l *JSONLoader) {
+		if logger != nil {
+			l.logger = logger
+		}
+	}
+}
+
+// NewJSON creates a new JSON loader for the given file path. The loader's
+// error policy defaults to [confii.ErrorPolicyRaise]; pass
+// [WithJSONErrorPolicy] to change it for genuinely optional files.
+func NewJSON(path string, opts ...JSONOption) *JSONLoader {
+	l := &JSONLoader{
+		source:      path,
+		errorPolicy: confii.ErrorPolicyRaise,
+		logger:      slog.Default(),
+	}
+	for _, opt := range opts {
+		opt(l)
+	}
+	return l
 }
 
 // Source returns the identifier for this loader's configuration source.
 func (l *JSONLoader) Source() string { return l.source }
 
-// Load reads and parses the JSON file at the configured path, returning the parsed configuration as a map.
+// Load reads and parses the JSON file at the configured path, returning
+// the parsed configuration as a map. Failures are dispatched through the
+// loader's [confii.ErrorPolicy]; see [JSONLoader] for details.
 func (l *JSONLoader) Load(_ context.Context) (map[string]any, error) {
 	data, err := os.ReadFile(l.source)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil, nil
+			return l.handleMissing(err)
 		}
 		return nil, confii.NewLoadError(l.source, err)
 	}
@@ -37,4 +82,21 @@ func (l *JSONLoader) Load(_ context.Context) (map[string]any, error) {
 		return nil, confii.NewFormatError(l.source, "json", err)
 	}
 	return result, nil
+}
+
+// handleMissing dispatches an os.ErrNotExist condition through the
+// configured error policy.
+func (l *JSONLoader) handleMissing(err error) (map[string]any, error) {
+	switch l.errorPolicy {
+	case confii.ErrorPolicyIgnore:
+		return nil, nil
+	case confii.ErrorPolicyWarn:
+		l.logger.Warn(
+			"json: source file missing",
+			slog.String("source", l.source),
+		)
+		return nil, nil
+	default:
+		return nil, confii.NewLoadError(l.source, err)
+	}
 }

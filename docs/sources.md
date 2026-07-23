@@ -434,7 +434,7 @@ l := cloud.NewGCS("my-bucket", "config/app.yaml")
 
 | Option | Description | Default |
 | --- | --- | --- |
-| `cloud.WithGCSProject(id)` | GCP project ID | auto-detected |
+| `cloud.WithGCSProject(id)` | Quota/billing project used with ADC (`option.WithQuotaProject`) | `GCP_PROJECT_ID` or unset |
 | `cloud.WithGCSCredentials(path)` | Path to service account key file | ADC |
 
 ```go

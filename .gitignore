@@ -48,6 +48,8 @@ go.work.sum
 .windsurf/
 .augment/
 .codex/
+CLAUDE.md
+graphify-out/
 
 # OS files
 .DS_Store
@@ -83,5 +85,22 @@ __debug_bin*
 *.bak
 *.log
 
+# Confii self-config snapshot artifacts (V-06 / G22).
+#
+# observe.VersionManager writes one JSON file per snapshot under the
+# configured storage path. Test runs that exercise SaveVersion /
+# EnableVersioning leave these files behind in the repo's default
+# .confii/versions/ directory; ignoring the directory prevents future
+# test runs from leaking artifacts into version control. Existing
+# tracked snapshots predate this rule (commit 56554d5) and may be
+# pruned in a follow-up; the ignore prevents new leaks regardless.
+.confii/
+
 # MkDocs build output
 site/
+
+# Override ambient developer-machine global ignores that match repo paths.
+# Some developers' ~/.gitignore_global blocks **/secrets/ which would hide
+# the examples/secrets/ directory we ship as a runnable example.
+!examples/secrets/
+!examples/secrets/**

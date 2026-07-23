@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -257,18 +259,55 @@ func TestConfig_Layers_Empty(t *testing.T) {
 // Source tracking methods
 // ---------------------------------------------------------------------------
 
+// TestConfig_SourceTracking pins the documented contract of the
+// source-tracking surface. Previously these subtests were coverage theater:
+// they used conditional patterns (`if info != nil { ... }`) and asserted only
+// `assert.NotNil` on slices that may be nil-but-non-empty, so a tracker that
+// simply returned empty data would still pass. Each subtest now asserts a
+// concrete, positive structural property that fails if tracking is broken.
 func TestConfig_SourceTracking(t *testing.T) {
+	// Stack two file loaders with a deliberate overlap on database.host
+	// (so override history/conflicts populate) AND a base-only key
+	// (database.port) plus an overlay-only key (database.user) so
+	// FindKeysFromSource has unambiguous results.
+	tmpDir := t.TempDir()
+	basePath := filepath.Join(tmpDir, "base.yaml")
+	overlayPath := filepath.Join(tmpDir, "overlay.yaml")
+	require.NoError(t, os.WriteFile(basePath, []byte(
+		"database:\n  host: base-host\n  port: 5432\n",
+	), 0644))
+	require.NoError(t, os.WriteFile(overlayPath, []byte(
+		"database:\n  host: overlay-host\n  user: admin\n",
+	), 0644))
+
 	cfg, err := confii.New[any](context.Background(),
-		confii.WithLoaders(loader.NewYAML("loader/testdata/simple.yaml")),
+		confii.WithLoaders(
+			loader.NewYAML(basePath),
+			loader.NewYAML(overlayPath),
+		),
 		confii.WithDebugMode(true),
 	)
 	require.NoError(t, err)
 
 	t.Run("GetSourceInfo returns info for tracked key", func(t *testing.T) {
+		// Must return non-nil info AND identify the key. A broken tracker
+		// that returns nil here will now fail the test.
 		info := cfg.GetSourceInfo("database.host")
-		if info != nil {
-			assert.Equal(t, "database.host", info.Key)
+		require.NotNil(t, info, "expected source info for database.host to be tracked")
+		assert.Equal(t, "database.host", info.Key)
+		assert.NotEmpty(t, info.SourceFile, "tracked key must record an originating source file")
+		assert.NotEmpty(t, info.LoaderType, "tracked key must record a loader type")
+
+		// G08: After load() finishes, the env-resolution pass re-tracks
+		// every key with SourceFile="(resolved)" and LoaderType=
+		// "EnvironmentHandler", overwriting the real loader source.
+		// When G08 is fixed, the latest source for database.host must be
+		// the overlay file.
+		if info.SourceFile == "(resolved)" {
+			t.Skip("blocked by G08: env-resolution re-track erases real source file; remove skip when G08 is fixed")
 		}
+		assert.Contains(t, info.SourceFile, "overlay.yaml",
+			"latest source for database.host must be the overlay file")
 	})
 
 	t.Run("GetSourceInfo returns nil for unknown key", func(t *testing.T) {
@@ -276,26 +315,68 @@ func TestConfig_SourceTracking(t *testing.T) {
 		assert.Nil(t, info)
 	})
 
-	t.Run("GetOverrideHistory", func(t *testing.T) {
+	t.Run("GetOverrideHistory records prior values for overridden keys", func(t *testing.T) {
+		// database.host is set by base.yaml and overridden by overlay.yaml,
+		// so a debug-mode tracker MUST record at least one history entry
+		// pointing at the base file.
 		history := cfg.GetOverrideHistory("database.host")
-		// May be empty or non-empty depending on source tracking.
-		assert.NotNil(t, history)
+		require.NotEmpty(t, history, "expected override history for database.host")
+		assert.Contains(t, history[0].Source, "base.yaml",
+			"first override entry should be the original base source")
 	})
 
-	t.Run("GetConflicts", func(t *testing.T) {
+	t.Run("GetConflicts surfaces overridden keys", func(t *testing.T) {
 		conflicts := cfg.GetConflicts()
-		assert.NotNil(t, conflicts)
+		require.NotEmpty(t, conflicts, "expected at least one overridden key")
+		_, ok := conflicts["database.host"]
+		assert.True(t, ok, "database.host must appear in conflicts when overridden")
+
+		// G08: env-resolution re-track also bumps the override count for
+		// every base-only key, so until G08 is fixed, base-only keys like
+		// database.port are spuriously flagged as conflicts. The contract
+		// (asserted once G08 is fixed): a base-only key must NOT be a conflict.
+		if _, ok := conflicts["database.port"]; ok {
+			t.Skip("blocked by G08: env-resolution re-track inflates override counts for base-only keys; remove skip when G08 is fixed")
+		}
+		_, conflicted := conflicts["database.port"]
+		assert.False(t, conflicted, "database.port was never overridden")
 	})
 
-	t.Run("GetSourceStatistics", func(t *testing.T) {
+	t.Run("GetSourceStatistics returns concrete totals", func(t *testing.T) {
 		stats := cfg.GetSourceStatistics()
-		assert.NotNil(t, stats)
+		require.NotNil(t, stats)
+		require.Contains(t, stats, "total_keys")
+		totalKeys, ok := stats["total_keys"].(int)
+		require.True(t, ok, "total_keys must be an int")
+		assert.Greater(t, totalKeys, 0, "expected total_keys > 0")
+		// total_overrides must be > 0 because overlay.yaml overrode database.host.
+		require.Contains(t, stats, "total_overrides")
+		totalOverrides, ok := stats["total_overrides"].(int)
+		require.True(t, ok, "total_overrides must be an int")
+		assert.Greater(t, totalOverrides, 0, "expected total_overrides > 0 after a layered override")
 	})
 
-	t.Run("FindKeysFromSource", func(t *testing.T) {
-		// FindKeysFromSource may return nil if no keys match the pattern;
-		// just verify it does not panic.
-		_ = cfg.FindKeysFromSource("simple.yaml")
+	t.Run("FindKeysFromSource returns keys for a real source", func(t *testing.T) {
+		// Previously this only verified the call did not panic. The
+		// contract (asserted once G08 is fixed): the per-source lookup
+		// returns keys originating from each file:
+		//   - database.port is base-only so it must be associated with base.yaml
+		//   - database.user is overlay-only so it must be associated with overlay.yaml
+		//
+		// G08: env-resolution re-tracks every key with SourceFile="(resolved)",
+		// so substring matches against the real file paths return empty
+		// today. Skip until G08 is fixed.
+		baseKeys := cfg.FindKeysFromSource("base.yaml")
+		if len(baseKeys) == 0 {
+			t.Skip("blocked by G08: env-resolution re-track replaces real source filenames; remove skip when G08 is fixed")
+		}
+		assert.Contains(t, baseKeys, "database.port",
+			"database.port originates from base.yaml and was not overridden")
+
+		overlayKeys := cfg.FindKeysFromSource("overlay.yaml")
+		require.NotEmpty(t, overlayKeys, "expected at least one key tracked to overlay.yaml")
+		assert.Contains(t, overlayKeys, "database.user",
+			"database.user originates from overlay.yaml")
 	})
 }
 
@@ -330,6 +411,11 @@ func TestConfig_DebugInfo(t *testing.T) {
 		data, err := os.ReadFile(reportPath)
 		require.NoError(t, err)
 		assert.True(t, json.Valid(data))
+		info, err := os.Stat(reportPath)
+		require.NoError(t, err)
+		if runtime.GOOS != "windows" {
+			assert.Equal(t, os.FileMode(0600), info.Mode().Perm())
+		}
 	})
 }
 
@@ -428,37 +514,88 @@ func TestConfig_Freeze_Explicit(t *testing.T) {
 // OnChange callback
 // ---------------------------------------------------------------------------
 
+// TestConfig_OnChange pins the contract of OnChange callbacks across two
+// scenarios that the previous version of this test could not enforce:
+//   - a value-change reload MUST fire the callback with the exact old and
+//     new payload (the previous test's `if len(changes) > 0 { ... }` guard
+//     allowed an entirely silent callback to pass).
+//   - a key-removal reload MUST also fire the callback with the removed
+//     key reported (currently broken — see G13).
 func TestConfig_OnChange(t *testing.T) {
-	cfg, err := confii.New[any](context.Background(),
-		confii.WithLoaders(loader.NewYAML("loader/testdata/simple.yaml")),
-	)
-	require.NoError(t, err)
+	t.Run("value-change reload fires callback with old and new values", func(t *testing.T) {
+		// Use a temp file so we can mutate it on disk and force a real
+		// reload-driven change notification (Set+Reload would revert the
+		// in-memory edit to the file value, which is harder to reason
+		// about because the "old" value is the user's edit, not the file).
+		tmpDir := t.TempDir()
+		path := filepath.Join(tmpDir, "cfg.yaml")
+		require.NoError(t, os.WriteFile(path, []byte("database:\n  host: localhost\n"), 0644))
 
-	var mu sync.Mutex
-	changes := make(map[string][2]any)
+		cfg, err := confii.New[any](context.Background(),
+			confii.WithLoaders(loader.NewYAML(path)),
+		)
+		require.NoError(t, err)
 
-	cfg.OnChange(func(key string, oldVal, newVal any) {
+		var mu sync.Mutex
+		changes := make(map[string][2]any)
+		cfg.OnChange(func(key string, oldVal, newVal any) {
+			mu.Lock()
+			defer mu.Unlock()
+			changes[key] = [2]any{oldVal, newVal}
+		})
+
+		// Mutate the file on disk to a new value and force a reload.
+		require.NoError(t, os.WriteFile(path, []byte("database:\n  host: changed-host\n"), 0644))
+		require.NoError(t, cfg.Reload(context.Background(), confii.WithIncremental(false)))
+
 		mu.Lock()
 		defer mu.Unlock()
-		changes[key] = [2]any{oldVal, newVal}
+		// Strong, unconditional assertion: callback MUST have fired for
+		// database.host with the exact old/new payload.
+		require.Contains(t, changes, "database.host",
+			"expected OnChange to fire for database.host on value change")
+		got := changes["database.host"]
+		assert.Equal(t, "localhost", fmt.Sprintf("%v", got[0]),
+			"old value must be localhost from initial load")
+		assert.Equal(t, "changed-host", fmt.Sprintf("%v", got[1]),
+			"new value must be changed-host from reloaded file")
 	})
 
-	// Modify a value so that reload will detect a change.
-	err = cfg.Set("database.host", "changed-host")
-	require.NoError(t, err)
+	t.Run("removed-key reload fires callback with old value and nil new value", func(t *testing.T) {
+		// G13 (FIXED): notifyChangesUnlocked now iterates the union of
+		// old and new flat keys, so a key that disappears from the
+		// config surfaces to the callback as (oldVal, nil). This
+		// subtest pins that contract end-to-end.
 
-	// Force a non-incremental reload to trigger change notifications.
-	err = cfg.Reload(context.Background(), confii.WithIncremental(false))
-	require.NoError(t, err)
+		tmpDir := t.TempDir()
+		path := filepath.Join(tmpDir, "cfg.yaml")
+		require.NoError(t, os.WriteFile(path, []byte("database:\n  host: localhost\n  port: 5432\n"), 0644))
 
-	mu.Lock()
-	defer mu.Unlock()
-	// After reload the config reverts to file values, so the callback should
-	// fire for database.host changing from "changed-host" back to "localhost".
-	if len(changes) > 0 {
-		_, found := changes["database.host"]
-		assert.True(t, found, "expected change notification for database.host")
-	}
+		cfg, err := confii.New[any](context.Background(),
+			confii.WithLoaders(loader.NewYAML(path)),
+		)
+		require.NoError(t, err)
+
+		var mu sync.Mutex
+		changes := make(map[string][2]any)
+		cfg.OnChange(func(key string, oldVal, newVal any) {
+			mu.Lock()
+			defer mu.Unlock()
+			changes[key] = [2]any{oldVal, newVal}
+		})
+
+		// Remove database.port by writing a file that no longer contains it.
+		require.NoError(t, os.WriteFile(path, []byte("database:\n  host: localhost\n"), 0644))
+		require.NoError(t, cfg.Reload(context.Background(), confii.WithIncremental(false)))
+
+		mu.Lock()
+		defer mu.Unlock()
+		require.Contains(t, changes, "database.port",
+			"expected OnChange to fire for removed key database.port")
+		got := changes["database.port"]
+		assert.NotNil(t, got[0], "old value of removed key must not be nil")
+		assert.Nil(t, got[1], "new value of removed key must be nil")
+	})
 }
 
 func TestConfig_OnChange_MultipleCallbacks(t *testing.T) {
@@ -1008,13 +1145,17 @@ func TestConfig_Keys_WithPrefix(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	// Keys with prefix returns sub-keys with the prefix stripped.
+	// G30 (Wave 21): Keys(prefix) now returns FULL prefixed keys so the
+	// returned slice can be fed directly into cfg.Get / cfg.Has without
+	// re-prepending the prefix. Pre-Wave 21 this assertion checked the
+	// stripped form ("host", "port", "name").
 	keys := cfg.Keys("database")
 	assert.NotEmpty(t, keys)
-	assert.Contains(t, keys, "host")
-	assert.Contains(t, keys, "port")
-	assert.Contains(t, keys, "name")
+	assert.Contains(t, keys, "database.host")
+	assert.Contains(t, keys, "database.port")
+	assert.Contains(t, keys, "database.name")
 	assert.NotContains(t, keys, "debug") // top-level key, not under database
+	assert.NotContains(t, keys, "host", "Keys must not return prefix-stripped form post-Wave 21")
 
 	allKeys := cfg.Keys()
 	assert.True(t, len(allKeys) > len(keys))
@@ -1134,19 +1275,81 @@ func TestConfig_GetBool_TypeMismatch(t *testing.T) {
 // ValidateOnLoad + StrictValidation
 // ---------------------------------------------------------------------------
 
+// TestConfig_ValidateOnLoad_Strict_Failure previously asserted only that
+// generic struct validation (validator.v10's `validate:"required"` tag)
+// raises an error in strict mode — it never proved JSON Schema
+// integration. The rewritten test pins both contracts:
+//
+//  1. Struct validation in strict mode still fails (kept; this is the
+//     legacy behavior path that must not regress).
+//  2. JSON Schema integration: when a JSON Schema dict is passed via
+//     WithSchema, strict validation must surface schema-specific errors
+//     (e.g. minimum-violation). G01: JSON Schema dicts are currently
+//     ignored, so the schema sub-assertion is skipped until G01 ships.
 func TestConfig_ValidateOnLoad_Strict_Failure(t *testing.T) {
-	type Strict struct {
-		RequiredField string `mapstructure:"required_field" validate:"required"`
-	}
+	t.Run("struct schema with required tag fails strict validation", func(t *testing.T) {
+		type Strict struct {
+			RequiredField string `mapstructure:"required_field" validate:"required"`
+		}
 
-	// The YAML file doesn't have required_field, so strict validation should fail.
-	_, err := confii.New[Strict](context.Background(),
-		confii.WithLoaders(loader.NewYAML("loader/testdata/simple.yaml")),
-		confii.WithValidateOnLoad(true),
-		confii.WithStrictValidation(true),
-		confii.WithSchema(Strict{}),
-	)
-	assert.Error(t, err)
+		// The YAML file doesn't have required_field, so strict validation
+		// must surface a typed validation error.
+		_, err := confii.New[Strict](context.Background(),
+			confii.WithLoaders(loader.NewYAML("loader/testdata/simple.yaml")),
+			confii.WithValidateOnLoad(true),
+			confii.WithStrictValidation(true),
+			confii.WithSchema(Strict{}),
+		)
+		require.Error(t, err)
+		// The error path goes through DecodeAndValidate which wraps the
+		// underlying validator.v10 error in a *ConfigError of kind
+		// ErrConfigValidation. Pin the wrapping so the error path cannot
+		// silently degrade to a generic error.
+		assert.True(t, errors.Is(err, confii.ErrConfigValidation),
+			"strict validation failure must be a *ConfigError with ErrConfigValidation")
+		assert.Contains(t, strings.ToLower(err.Error()), "required",
+			"error must reference the required-field constraint")
+	})
+
+	t.Run("inline JSON schema dict surfaces schema-specific violations", func(t *testing.T) {
+		// G01 (closed Wave 14): JSON Schema dicts passed to WithSchema
+		// are wired through validate-on-load. Pattern violations surface
+		// as a typed *ConfigError with structured detail on
+		// Context["schema_errors"]; the public message is sanitized.
+		schema := map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"database": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"host": map[string]any{
+							"type":    "string",
+							"pattern": "^prod-.*$",
+						},
+					},
+					"required": []any{"host"},
+				},
+			},
+		}
+		_, err := confii.New[any](context.Background(),
+			confii.WithLoaders(loader.NewYAML("loader/testdata/simple.yaml")),
+			confii.WithValidateOnLoad(true),
+			confii.WithStrictValidation(true),
+			confii.WithSchema(schema),
+		)
+		require.Error(t, err, "JSON schema pattern violation must be surfaced")
+		assert.True(t, errors.Is(err, confii.ErrConfigValidation),
+			"schema-violation error must wrap ErrConfigValidation")
+		var ce *confii.ConfigError
+		require.True(t, errors.As(err, &ce))
+		raw, _ := ce.Context["schema_errors"].([]string)
+		joined := ""
+		for _, m := range raw {
+			joined += strings.ToLower(m) + " "
+		}
+		assert.Contains(t, joined, "pattern",
+			"schema_errors detail must reference the violated JSON Schema keyword")
+	})
 }
 
 func TestConfig_ValidateOnLoad_NonStrict_Warning(t *testing.T) {
@@ -1432,22 +1635,34 @@ func TestConfig_Layers_DuplicateSources(t *testing.T) {
 
 // ===========================================================================
 // load with compose error (lines 165-168)
+//
+// G07 update: composition errors now flow through c.opts.OnError. Under
+// the default ErrorPolicyRaise the error must surface from confii.New;
+// under ErrorPolicyWarn / ErrorPolicyIgnore the loader continues with
+// the un-composed (raw) data. This test pins both halves of that
+// contract — the previous test asserted the pre-G07 behavior that
+// always swallowed the composition error regardless of policy, which
+// the audit (G07) flagged as exactly the bug being closed.
 // ===========================================================================
 
 func TestConfig_LoadWithComposeError(t *testing.T) {
-	// Create a YAML file with _include pointing to nonexistent file.
 	dir := t.TempDir()
 	yamlContent := "_include:\n  - nonexistent_file.yaml\nkey: value\n"
 	yamlPath := filepath.Join(dir, "cfg.yaml")
 	require.NoError(t, os.WriteFile(yamlPath, []byte(yamlContent), 0644))
 
-	// Should not error - compose error is just a warning, uses original data.
-	cfg, err := confii.New[any](context.Background(),
+	// Default policy is Raise: composition error must surface.
+	_, err := confii.New[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML(yamlPath)),
 	)
-	require.NoError(t, err)
+	require.Error(t, err, "composition error must surface under default Raise policy (G07)")
 
-	// The key from the original data should still be present.
+	// Under Warn the legacy fallback (use raw data, log a warning) is preserved.
+	cfg, err := confii.New[any](context.Background(),
+		confii.WithLoaders(loader.NewYAML(yamlPath)),
+		confii.WithOnError(confii.ErrorPolicyWarn),
+	)
+	require.NoError(t, err)
 	val, err := cfg.Get("key")
 	require.NoError(t, err)
 	assert.Equal(t, "value", val)
@@ -1484,3 +1699,119 @@ func (l *memLoader) Load(_ context.Context) (map[string]any, error) {
 }
 
 func (l *memLoader) Source() string { return l.source }
+
+// ---------------------------------------------------------------------------
+// Rollback snapshot must not alias internal version state (G22)
+// ---------------------------------------------------------------------------
+
+// TestRollback_DoesNotAliasSnapshot proves that RollbackToVersion deep-copies
+// the snapshot before assigning it into live state. Otherwise, mutations to
+// live state after the first rollback would corrupt the stored version, so
+// rolling back to that same version a second time would no longer recover
+// the original value.
+func TestRollback_DoesNotAliasSnapshot(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfg, err := confii.New[any](context.Background(),
+		confii.WithLoaders(loader.NewYAML("loader/testdata/simple.yaml")),
+	)
+	require.NoError(t, err)
+
+	cfg.EnableVersioning(filepath.Join(tmpDir, "versions"), 10)
+
+	// 1. Save a baseline snapshot.
+	v1, err := cfg.SaveVersion(map[string]any{"label": "baseline"})
+	require.NoError(t, err)
+
+	// Confirm starting value.
+	originalHost, err := cfg.Get("database.host")
+	require.NoError(t, err)
+	require.Equal(t, "localhost", originalHost)
+
+	// 2. Mutate the live config.
+	require.NoError(t, cfg.Set("database.host", "mutation-A"))
+
+	// 3. Roll back to v1.
+	require.NoError(t, cfg.RollbackToVersion(v1.VersionID))
+	rolled, err := cfg.Get("database.host")
+	require.NoError(t, err)
+	require.Equal(t, "localhost", rolled)
+
+	// 4. Mutate the supposedly-rolled-back state. If Rollback aliased the
+	// snapshot map, this Set would also corrupt the stored Version's Config.
+	require.NoError(t, cfg.Set("database.host", "mutation-B"))
+
+	// 5. Roll back to v1 *again* and confirm we still see the original value.
+	require.NoError(t, cfg.RollbackToVersion(v1.VersionID))
+	rolledAgain, err := cfg.Get("database.host")
+	require.NoError(t, err)
+	assert.Equal(t, "localhost", rolledAgain,
+		"rollback target was mutated through aliased snapshot")
+}
+
+// ---------------------------------------------------------------------------
+// F-Tracker-GetConflicts-Aliasing: end-to-end via Config.GetConflicts.
+//
+// Config.GetConflicts simply delegates to sourcetrack.Tracker.GetConflicts,
+// so the defensive-copy contract pinned at the tracker layer must hold
+// when observed through the public Config API surface.
+// ---------------------------------------------------------------------------
+
+// TestConfig_GetConflicts_ReturnsDefensiveCopy asserts that mutating
+// the *SourceInfo values in the map returned by Config.GetConflicts
+// does not corrupt tracker state observed by a subsequent call.
+func TestConfig_GetConflicts_ReturnsDefensiveCopy(t *testing.T) {
+	tmpDir := t.TempDir()
+	basePath := filepath.Join(tmpDir, "base.yaml")
+	overlayPath := filepath.Join(tmpDir, "overlay.yaml")
+	require.NoError(t, os.WriteFile(basePath, []byte(
+		"database:\n  host: base-host\n  port: 5432\n",
+	), 0644))
+	require.NoError(t, os.WriteFile(overlayPath, []byte(
+		"database:\n  host: overlay-host\n",
+	), 0644))
+
+	cfg, err := confii.New[any](context.Background(),
+		confii.WithLoaders(
+			loader.NewYAML(basePath),
+			loader.NewYAML(overlayPath),
+		),
+		confii.WithDebugMode(true),
+	)
+	require.NoError(t, err)
+
+	first := cfg.GetConflicts()
+	require.NotEmpty(t, first, "expected at least one overridden key")
+	info, ok := first["database.host"]
+	require.True(t, ok, "database.host must appear in conflicts")
+	require.NotNil(t, info)
+
+	originalSource := info.SourceFile
+	originalValue := info.Value
+	originalOverrideCount := info.OverrideCount
+
+	// Mutate the returned struct's scalar fields and the History slice
+	// (debug mode populates History on override).
+	info.SourceFile = "tampered.yaml"
+	info.Value = "tampered"
+	info.OverrideCount = 999
+	if len(info.History) > 0 {
+		info.History[0].Source = "evil"
+	}
+
+	second := cfg.GetConflicts()
+	got, ok := second["database.host"]
+	require.True(t, ok)
+	require.NotNil(t, got)
+	assert.Equal(t, originalSource, got.SourceFile,
+		"SourceFile mutation on Config.GetConflicts result must not leak into tracker")
+	assert.Equal(t, originalValue, got.Value,
+		"Value mutation on Config.GetConflicts result must not leak into tracker")
+	assert.Equal(t, originalOverrideCount, got.OverrideCount,
+		"OverrideCount mutation on Config.GetConflicts result must not leak into tracker")
+	if len(got.History) > 0 {
+		assert.NotEqual(t, "evil", got.History[0].Source,
+			"History mutation on Config.GetConflicts result must not leak into tracker")
+	}
+	assert.NotSame(t, info, got,
+		"successive Config.GetConflicts calls must return distinct *SourceInfo copies")
+}

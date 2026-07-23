@@ -32,20 +32,69 @@ func TestRead_CacheBehaviorForCWD(t *testing.T) {
 	assert.Equal(t, s1, s2)
 }
 
+// TestClearCache_ResetsState exercises the cache lifecycle end-to-end:
+//  1. After ClearCache, the cache map is empty.
+//  2. After Read("."), the cache map has exactly one entry keyed by the
+//     absolute path of the CWD (G06 changed the key from literal "." to
+//     filepath.Abs(dir)).
+//  3. A second Read(".") returns the SAME pointer (cache hit, not a re-read).
+//  4. After ClearCache, the cache map is empty again AND the next Read
+//     produces a fresh result (cache invalidation works).
 func TestClearCache_ResetsState(t *testing.T) {
-	ClearCache()
+	// Use a temp directory so we are not affected by ambient confii.* files
+	// in the actual CWD. We Chdir into it so Read(".") finds OUR file.
+	tmpDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "confii.yaml"),
+		[]byte(`default_environment: cache-test`), 0644))
 
-	// Load something into cache.
-	_, _ = Read(".")
-	assert.True(t, cacheLoaded || !cacheLoaded) // just ensure no panic
+	origDir, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(tmpDir))
+	t.Cleanup(func() { _ = os.Chdir(origDir) })
 
+	// Step 1: starting state is empty.
 	ClearCache()
+	cacheMu.Lock()
+	assert.Empty(t, cache, "cache must be empty before first Read")
+	cacheMu.Unlock()
+
+	// Step 2: Read(".") populates the cache with one entry keyed by abs.
+	first, err := Read(".")
+	require.NoError(t, err)
+	require.NotNil(t, first, "Read must surface the temp dir's confii.yaml")
+	assert.Equal(t, "cache-test", first.DefaultEnvironment)
+
+	absKey, err := filepath.Abs(".")
+	require.NoError(t, err)
 
 	cacheMu.Lock()
-	assert.False(t, cacheLoaded)
-	assert.Nil(t, cachedResult)
-	assert.Equal(t, "", cachedDir)
+	assert.Len(t, cache, 1, "cache must hold exactly one entry after Read(\".\")")
+	entry, ok := cache[absKey]
+	assert.True(t, ok, "cache key must be filepath.Abs(\".\") (G06)")
+	require.NotNil(t, entry.settings, "cache must hold the result pointer")
 	cacheMu.Unlock()
+
+	// Step 3: second Read(".") is a cache hit (same pointer, not a re-read).
+	second, err := Read(".")
+	require.NoError(t, err)
+	require.NotNil(t, second)
+	assert.Same(t, first, second,
+		"second Read must return the cached *Settings pointer, not a re-read")
+
+	// Step 4: ClearCache invalidates and the next Read produces a fresh
+	// pointer (proves cache invalidation, not just state reset).
+	ClearCache()
+	cacheMu.Lock()
+	assert.Empty(t, cache, "cache must be empty after ClearCache")
+	cacheMu.Unlock()
+
+	third, err := Read(".")
+	require.NoError(t, err)
+	require.NotNil(t, third)
+	assert.NotSame(t, first, third,
+		"after ClearCache, Read must produce a freshly-allocated *Settings")
+	assert.Equal(t, "cache-test", third.DefaultEnvironment,
+		"fresh read must still surface the on-disk value")
 }
 
 func TestRead_YMLExtension(t *testing.T) {
@@ -234,19 +283,37 @@ func TestRead_PriorityPrimaryOverHidden(t *testing.T) {
 	assert.Equal(t, "primary", settings.DefaultEnvironment)
 }
 
-func TestRead_NonCWDNotCached(t *testing.T) {
+// TestRead_NonCWDIsCachedByAbsPath pins the G06 contract: every Read,
+// not just Read("."), is cached, and the cache key is the absolute path
+// of the dir argument. Pre-G06 only the literal "." key was memoized so
+// non-CWD reads bypassed the cache entirely; post-G06 every distinct
+// working directory gets its own cache slot.
+func TestRead_NonCWDIsCachedByAbsPath(t *testing.T) {
 	ClearCache()
 
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "confii.json"),
 		[]byte(`{"default_environment": "nocache"}`), 0644))
 
-	_, _ = Read(dir)
+	first, err := Read(dir)
+	require.NoError(t, err)
+	require.NotNil(t, first)
 
-	// Cache state should not be set for non-CWD reads.
+	absKey, err := filepath.Abs(dir)
+	require.NoError(t, err)
+
 	cacheMu.Lock()
-	assert.False(t, cacheLoaded)
+	entry, ok := cache[absKey]
+	assert.True(t, ok, "non-CWD Read must populate the cache keyed by abs path (G06)")
+	assert.Same(t, first, entry.settings,
+		"cache must hold the same *Settings pointer Read returned")
 	cacheMu.Unlock()
+
+	// Second Read of the same dir returns the same pointer (cache hit).
+	second, err := Read(dir)
+	require.NoError(t, err)
+	assert.Same(t, first, second,
+		"second Read of the same dir must return the cached *Settings pointer")
 }
 
 func TestRead_XDGConfigFallback(t *testing.T) {

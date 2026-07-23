@@ -1,7 +1,11 @@
 version: 2
 updates:
   - package-ecosystem: gomod
-    directory: /
+    directories:
+      - /
+      - /loader/cloud
+      - /secret/cloud
+      - /examples/cloud
     schedule:
       interval: weekly
       day: monday
@@ -9,7 +13,19 @@ updates:
       prefix: "deps"
     labels:
       - dependencies
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 5
+    groups:
+      security-updates:
+        applies-to: security-updates
+        patterns:
+          - "*"
+      routine-updates:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
 
   - package-ecosystem: github-actions
     directory: /
@@ -20,3 +36,13 @@ updates:
       prefix: "ci"
     labels:
       - dependencies
+    open-pull-requests-limit: 5
+    groups:
+      security-updates:
+        applies-to: security-updates
+        patterns:
+          - "*"
+      routine-updates:
+        applies-to: version-updates
+        patterns:
+          - "*"

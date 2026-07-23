@@ -2,13 +2,22 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/confiify/confii-go/validate"
 	"github.com/spf13/cobra"
 )
 
 // NewValidateCmd creates the 'validate' command.
+//
+// Error contract: this command returns a non-nil error from RunE when
+// validation fails (or when configuration/schema cannot be loaded). The
+// caller (main.go / Cobra) is responsible for translating the error
+// into a process exit code.
+//
+// Why no os.Exit: Cobra's RunE exists so commands can return errors and
+// let Cobra control exit + error reporting. Calling os.Exit here would
+// kill any embedding test process and bypass Cobra's error hooks,
+// making the command effectively untestable.
 func NewValidateCmd() *cobra.Command {
 	var loaders []string
 	var schemaFile string
@@ -38,12 +47,11 @@ func NewValidateCmd() *cobra.Command {
 			}
 
 			if err := v.Validate(cfg.ToDict()); err != nil {
-				fmt.Fprintln(os.Stderr, "Validation failed:", err)
-				os.Exit(1)
+				return fmt.Errorf("validation failed: %w", err)
 			}
 
-			fmt.Println("Configuration is valid.")
-			return nil
+			_, err = fmt.Fprintln(c.OutOrStdout(), "Configuration is valid.")
+			return err
 		},
 	}
 

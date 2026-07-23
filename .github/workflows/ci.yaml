@@ -1,6 +1,8 @@
 name: CI
 
 on:
+  push:
+    branches: [main]
   pull_request:
 
 permissions:
@@ -31,9 +33,14 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Set up Go
-        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            loader/cloud/go.sum
+            secret/cloud/go.sum
+            examples/cloud/go.sum
 
       - name: Build (core)
         run: go build ./...
@@ -60,7 +67,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Set up Go
-        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version: ${{ matrix.go }}
 
@@ -92,15 +99,15 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Set up Go
-        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version-file: go.mod
 
-      - name: Build with cloud tags
-        run: go build -tags '${{ matrix.tags }}' ./...
+      - name: Build as a cloud consumer
+        run: sh scripts/test-cloud-consumer.sh '${{ matrix.tags }}' build
 
-      - name: Test with cloud tags
-        run: go test -tags '${{ matrix.tags }}' -v -shuffle=on -timeout 120s ./...
+      - name: Test as a cloud consumer
+        run: sh scripts/test-cloud-consumer.sh '${{ matrix.tags }}' test
 
   test-integration:
     name: Integration tests
@@ -111,12 +118,56 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Set up Go
-        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version-file: go.mod
 
       - name: Integration tests
         run: go test -v -count=1 -timeout 120s ./integration/...
+
+  fuzz:
+    name: Fuzz (short)
+    runs-on: ubuntu-latest
+
+    # Runs each known fuzz target with a short fuzztime so PR feedback
+    # stays fast. Longer fuzz campaigns can be scheduled in a separate
+    # workflow that runs nightly. The matrix lists each fuzz target as
+    # `<package>:<func>` so a failure points clearly at the offending
+    # target. -run=^$ disables the seed-only unit tests for that
+    # invocation; the seed corpus is still exercised because Go's fuzz
+    # engine prepends f.Add seeds to the queue.
+    # NOTE: -fuzz only accepts a single Go package, so each entry below
+    # is the precise package path (no /...) for one fuzz target.
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - "./loader:FuzzYAMLLoader"
+          - "./loader:FuzzJSONLoader"
+          - "./loader:FuzzTOMLLoader"
+          - "./loader:FuzzEnvFileLoader"
+          - "./loader:FuzzUnquoteEnvValue"
+          - "./secret:FuzzResolverResolve"
+          - "./internal/dictutil:FuzzGetNested"
+          - "./internal/dictutil:FuzzSetNested"
+          - "./internal/dictutil:FuzzDeepMerge"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+
+      - name: Fuzz target
+        run: |
+          target='${{ matrix.target }}'
+          pkg="${target%%:*}"
+          fn="${target##*:}"
+          echo "Fuzzing $fn in $pkg for 30s"
+          go test -run='^$' -fuzz="^${fn}$" -fuzztime=30s -timeout=120s "$pkg"
 
   coverage:
     name: Coverage
@@ -127,7 +178,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Set up Go
-        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version-file: go.mod
 
@@ -149,7 +200,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Set up Go
-        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version-file: go.mod
 
@@ -159,16 +210,16 @@ jobs:
       - name: Vet
         run: go vet ./...
 
-      - name: Vet (all cloud tags)
-        run: go vet -tags "aws,azure,gcp,vault,ibm" ./...
+      - name: Vet cloud packages as a consumer
+        run: sh scripts/test-cloud-consumer.sh 'aws,azure,gcp,vault,ibm' vet
 
       - name: Lint
         uses: golangci/golangci-lint-action@1e7e51e771db61008b38414a730f564565cf7c20 # v9.2.0
         with:
-          version: latest
+          version: v2.11.4
 
-  tidy:
-    name: Tidy
+  module-integrity:
+    name: Module integrity
     runs-on: ubuntu-latest
 
     steps:
@@ -176,17 +227,12 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Set up Go
-        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version-file: go.mod
 
-      - name: Check go mod tidy
-        run: |
-          go mod tidy
-          git diff --exit-code go.mod go.sum || {
-            echo "go.mod or go.sum is not tidy. Run 'go mod tidy' and commit."
-            exit 1
-          }
+      - name: Verify all module manifests
+        run: sh scripts/verify-modules.sh
 
   dependency-review:
     name: Dependency review
@@ -198,4 +244,63 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Dependency Review
-        uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # v4.9.0
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+
+  secret-scan:
+    name: Secret scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+
+      - name: Install Gitleaks
+        run: go install github.com/zricethezav/gitleaks/v8@v8.30.1
+
+      - name: Scan release tree
+        run: gitleaks dir . --redact --no-banner --exit-code 1
+
+  required:
+    name: CI required
+    if: always()
+    needs:
+      - build
+      - test
+      - test-cloud-tags
+      - test-integration
+      - fuzz
+      - coverage
+      - lint
+      - module-integrity
+      - dependency-review
+      - secret-scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Verify required jobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test '${{ needs.build.result }}' = success
+          test '${{ needs.test.result }}' = success
+          test '${{ needs.test-cloud-tags.result }}' = success
+          test '${{ needs.test-integration.result }}' = success
+          test '${{ needs.fuzz.result }}' = success
+          test '${{ needs.coverage.result }}' = success
+          test '${{ needs.lint.result }}' = success
+          test '${{ needs.module-integrity.result }}' = success
+          test '${{ needs.secret-scan.result }}' = success
+
+          # Dependency review runs on pull requests and is intentionally
+          # skipped on the post-merge push to main.
+          case '${{ needs.dependency-review.result }}' in
+            success|skipped) ;;
+            *) exit 1 ;;
+          esac

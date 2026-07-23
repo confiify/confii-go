@@ -160,8 +160,8 @@ raw := cfg.ToDict()
 // }
 ```
 
-!!! note "ToDict returns the live map"
-    `ToDict()` returns a reference to the internal map. Modifying it directly is not recommended -- use `Set()` instead.
+!!! note "ToDict returns a snapshot"
+    `ToDict()` applies the hook pipeline and returns a deep copy. Mutating the returned map does not alter live configuration; use `Set()` for intentional runtime changes.
 
 ---
 

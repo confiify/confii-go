@@ -70,6 +70,26 @@
 //
 // Cloud providers are opt-in via build tags: aws, azure, gcp, vault, ibm.
 //
+// # Hook pipeline contract (G11)
+//
+// All access modes apply hooks at read time. Whether the caller invokes
+// scalar [Config.Get], whole-sub-tree [Config.Get] (with a key that
+// resolves to a map), [Config.Typed], [Config.ToDict], or [Config.Export]
+// — every leaf value flows through the same hook pipeline (env
+// expansion, secret resolution, type casting, and any user-registered
+// hooks) before it is returned, decoded, or serialized. Context-aware
+// hooks registered via [hook.Processor.RegisterGlobalHookCtx] honor
+// per-request context when the caller uses the *Ctx siblings
+// ([Config.GetCtx], [Config.TypedCtx], [Config.ToDictCtx],
+// [Config.ExportCtx]); the legacy non-Ctx methods invoke the pipeline
+// under [context.Background].
+//
+// Pre-G11, only scalar Get applied hooks; all other access modes
+// returned raw, un-resolved values. That meant a service calling
+// cfg.Get("db.password") saw the resolved secret while
+// cfg.Typed[*Config]() saw a literal "${secret:db/password}" string.
+// This is fixed in Wave 8.
+//
 // For full documentation, examples, and the CLI tool, see
 // https://github.com/confiify/confii-go
 package confii

@@ -424,27 +424,158 @@ func TestWithMergeStrategyMap(t *testing.T) {
 	assert.True(t, opts.isSet("merge_strategy_map"))
 }
 
+// TestConfig_WithMergeStrategyMapAlone_HonoredWithoutGlobalOption pins the
+// G16 fix: supplying WithMergeStrategyMap without also calling
+// WithMergeStrategyOption must activate the advanced merger and apply
+// the per-path strategy. Previously the option was silently dropped and
+// the configuration fell back to dictutil.DeepMerge, so per-path
+// strategies like Replace on a specific section had no effect.
+func TestConfig_WithMergeStrategyMapAlone_HonoredWithoutGlobalOption(t *testing.T) {
+	l1 := &stubLoader{source: "s1", data: map[string]any{
+		"db":   map[string]any{"host": "h1", "port": 1234},
+		"misc": map[string]any{"keep": "from-base"},
+	}}
+	l2 := &stubLoader{source: "s2", data: map[string]any{
+		"db":   map[string]any{"host": "h2"},
+		"misc": map[string]any{"add": "from-overlay"},
+	}}
+
+	cfg, err := New[any](context.Background(),
+		WithLoaders(l1, l2),
+		// NOTE: no WithMergeStrategyOption. The per-path Replace on "db"
+		// must still take effect.
+		WithMergeStrategyMap(map[string]MergeStrategy{
+			"db": StrategyReplace,
+		}),
+	)
+	require.NoError(t, err)
+
+	// db.host is overridden and db.port is dropped under per-path Replace.
+	host, err := cfg.Get("db.host")
+	require.NoError(t, err)
+	assert.Equal(t, "h2", host)
+	assert.False(t, cfg.Has("db.port"), "Replace should drop base-only keys under db")
+
+	// misc has no per-path override → falls back to default deep-merge,
+	// preserving the base "keep" key alongside the overlay "add" key.
+	assert.True(t, cfg.Has("misc.keep"), "default deep-merge should preserve base-only keys outside the strategy map")
+	assert.True(t, cfg.Has("misc.add"))
+}
+
 // =========================================================================
 // 17. WithSchema / WithSchemaPath
 // =========================================================================
 
+// TestWithSchema previously only proved that the option struct field is
+// populated (`opts.Schema == s`), which is coverage theater: it does not
+// exercise schema validation. The rewritten test:
+//  1. Still asserts the option-storage invariant (the option must record
+//     that it was explicitly set, so the priority-resolution code path
+//     is not silently regressed).
+//  2. Asserts the integration contract: a JSON Schema map passed to
+//     WithSchema must be enforced at New() time, raising a typed error
+//     when the loaded data violates the schema.
+//
+// G01 (closed Wave 14): WithSchema is now wired through the
+// validate-on-load pipeline for both struct-typed schemas (existing
+// path via Typed) and inline JSON Schema maps (newly enforced).
 func TestWithSchema(t *testing.T) {
+	// 1. Option-storage invariant.
 	opts := defaultOptions()
 	s := struct{ Name string }{}
 	fn := WithSchema(s)
 	fn(&opts)
-
 	assert.Equal(t, s, opts.Schema)
 	assert.True(t, opts.isSet("schema"))
+
+	// 2. Integration contract: a JSON Schema map must be applied.
+	t.Run("inline JSON schema map is enforced at load time", func(t *testing.T) {
+		schema := map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"port": map[string]any{
+					"type":    "integer",
+					"minimum": 1024,
+				},
+			},
+			"required": []any{"port"},
+		}
+		// port=80 violates minimum=1024.
+		l := &stubLoader{source: "s", data: map[string]any{"port": 80}}
+		_, err := New[any](context.Background(),
+			WithLoaders(l),
+			WithSchema(schema),
+			WithValidateOnLoad(true),
+			WithStrictValidation(true),
+		)
+		require.Error(t, err, "JSON schema violation must be surfaced")
+		// G01: the public error message is sanitized — it must not echo
+		// the raw violating value but it must be wired to ErrConfigValidation
+		// so callers can detect via errors.Is. The structured detail with
+		// the offending JSON Schema keyword lives on Context["schema_errors"].
+		assert.True(t, errors.Is(err, ErrConfigValidation),
+			"schema-violation error must wrap ErrConfigValidation")
+		var ce *ConfigError
+		require.True(t, errors.As(err, &ce), "must be *ConfigError")
+		raw, ok := ce.Context["schema_errors"].([]string)
+		require.True(t, ok, "Context must carry schema_errors []string")
+		joined := ""
+		for _, m := range raw {
+			joined += m + " "
+		}
+		assert.Contains(t, joined, "minimum",
+			"schema_errors detail must reference the violated keyword")
+	})
 }
 
+// TestWithSchemaPath previously only proved that the option string is
+// stored; it never actually loaded a schema file or validated against it.
+// The rewritten test pins both invariants:
+//  1. Option-storage (kept).
+//  2. Integration contract: a JSON Schema file pointed at by the option
+//     must be loaded and enforced at New() time, raising a typed error
+//     for data that violates the schema.
+//
+// G01 (closed Wave 14): SchemaPath is now read at New() time and
+// reused across Reload/Extend.
 func TestWithSchemaPath(t *testing.T) {
+	// 1. Option-storage invariant.
 	opts := defaultOptions()
 	fn := WithSchemaPath("/some/path.json")
 	fn(&opts)
-
 	assert.Equal(t, "/some/path.json", opts.SchemaPath)
 	assert.True(t, opts.isSet("schema_path"))
+
+	// 2. Integration contract: a JSON Schema file must be loaded and applied.
+	t.Run("on-disk JSON schema is enforced at load time", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		schemaPath := filepath.Join(tmpDir, "schema.json")
+		require.NoError(t, os.WriteFile(schemaPath, []byte(`{
+			"type": "object",
+			"properties": {"port": {"type": "integer", "minimum": 1024}},
+			"required": ["port"]
+		}`), 0644))
+
+		l := &stubLoader{source: "s", data: map[string]any{"port": 80}}
+		_, err := New[any](context.Background(),
+			WithLoaders(l),
+			WithSchemaPath(schemaPath),
+			WithValidateOnLoad(true),
+			WithStrictValidation(true),
+		)
+		require.Error(t, err, "JSON schema violation from SchemaPath must be surfaced")
+		assert.True(t, errors.Is(err, ErrConfigValidation),
+			"SchemaPath violation must wrap ErrConfigValidation")
+		var ce *ConfigError
+		require.True(t, errors.As(err, &ce))
+		raw, _ := ce.Context["schema_errors"].([]string)
+		joined := ""
+		for _, m := range raw {
+			joined += m + " "
+		}
+		assert.Contains(t, joined, "minimum",
+			"schema_errors detail must reference the violated keyword")
+	})
 }
 
 // =========================================================================
@@ -762,10 +893,23 @@ func TestFileAutoLoader_JSON(t *testing.T) {
 }
 
 func TestFileAutoLoader_MissingFile(t *testing.T) {
-	l := &fileAutoLoader{path: "/nonexistent/file.yaml"}
+	// D07 / G19-residual: missing files are dispatched through the
+	// loader's ErrorPolicy with parity to loader.NewYAML — under
+	// ErrorPolicyIgnore the absence is silently tolerated (legacy
+	// pre-D07 behavior); under the default ErrorPolicyRaise a typed
+	// *ConfigError wrapping ErrConfigLoad is returned.
+	l := &fileAutoLoader{path: "/nonexistent/file.yaml", errorPolicy: ErrorPolicyIgnore}
 	data, err := l.Load(context.Background())
 	require.NoError(t, err)
 	assert.Nil(t, data)
+
+	// Default policy (Raise) surfaces a typed error.
+	lRaise := &fileAutoLoader{path: "/nonexistent/file.yaml", errorPolicy: ErrorPolicyRaise}
+	_, err = lRaise.Load(context.Background())
+	require.Error(t, err)
+	var ce *ConfigError
+	require.True(t, errors.As(err, &ce), "expected *ConfigError, got %T", err)
+	assert.True(t, errors.Is(err, ErrConfigLoad))
 }
 
 func TestFileAutoLoader_ParseError(t *testing.T) {
@@ -779,15 +923,21 @@ func TestFileAutoLoader_ParseError(t *testing.T) {
 }
 
 func TestFileAutoLoader_UnknownExtension(t *testing.T) {
-	// Unknown extension defaults to YAML.
+	// D07: unknown extensions are now a typed *ConfigError (format
+	// error) rather than a silent YAML fallback. This pins the
+	// "operator typo surfaces visibly" contract — pre-D07 a file
+	// named "config.cfg" containing YAML succeeded by accident.
 	dir := t.TempDir()
-	p := filepath.Join(dir, "config.cfg")
+	p := filepath.Join(dir, "config.unknownext")
 	require.NoError(t, os.WriteFile(p, []byte("key: value\n"), 0644))
 
 	l := &fileAutoLoader{path: p}
-	data, err := l.Load(context.Background())
-	require.NoError(t, err)
-	assert.Equal(t, "value", data["key"])
+	_, err := l.Load(context.Background())
+	require.Error(t, err)
+	var ce *ConfigError
+	require.True(t, errors.As(err, &ce), "expected *ConfigError, got %T", err)
+	assert.True(t, errors.Is(err, ErrConfigFormat))
+	assert.Contains(t, err.Error(), "unsupported file format")
 }
 
 // =========================================================================

@@ -9,7 +9,7 @@ values using the full range of Confii's access methods.
 ## Install Confii
 
 ```bash
-go get github.com/confiify/confii-go
+go get github.com/confiify/confii-go@v1.1.0
 ```
 
 ---

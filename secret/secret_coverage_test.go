@@ -206,11 +206,13 @@ func TestDictStore_VersionOutOfRange(t *testing.T) {
 	ctx := context.Background()
 	_ = s.SetSecret(ctx, "key", "v1")
 
-	// Version 99 is out of range.
+	// Version 99 is out of range. We must NOT silently fall through to the
+	// current value; the caller asked for a specific version and got nothing.
 	val, err := s.GetSecret(ctx, "key", confii.WithVersion("99"))
-	require.NoError(t, err)
-	// Should fall back to current value.
-	assert.Equal(t, "v1", val)
+	assert.Nil(t, val)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, confii.ErrSecretNotFound),
+		"out-of-range version should yield ErrSecretNotFound, got %v", err)
 }
 
 func TestDictStore_VersionInvalidFormat(t *testing.T) {
@@ -218,11 +220,41 @@ func TestDictStore_VersionInvalidFormat(t *testing.T) {
 	ctx := context.Background()
 	_ = s.SetSecret(ctx, "key", "v1")
 
-	// Non-numeric version string.
+	// Non-numeric version string: also a not-found, not a fallthrough.
 	val, err := s.GetSecret(ctx, "key", confii.WithVersion("abc"))
-	require.NoError(t, err)
-	// Falls back to current value.
-	assert.Equal(t, "v1", val)
+	assert.Nil(t, val)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, confii.ErrSecretNotFound),
+		"unparseable version should yield ErrSecretNotFound, got %v", err)
+}
+
+// TestDictStore_VersionNegative covers the historical panic on negative
+// indexes: previously fmt.Sscanf accepted "-1" and the slice access blew up.
+func TestDictStore_VersionNegative(t *testing.T) {
+	s := NewDictStore(nil)
+	ctx := context.Background()
+	_ = s.SetSecret(ctx, "key", "v1")
+
+	val, err := s.GetSecret(ctx, "key", confii.WithVersion("-1"))
+	assert.Nil(t, val)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, confii.ErrSecretNotFound),
+		"negative version should yield ErrSecretNotFound, got %v", err)
+}
+
+// TestDictStore_VersionNoHistory covers requesting a version on a key that
+// only exists in the current-secrets map (no recorded version history). It
+// must not fall through to the current value either.
+func TestDictStore_VersionNoHistory(t *testing.T) {
+	// Seed via the constructor so the key has no version history.
+	s := NewDictStore(map[string]any{"key": "current"})
+	ctx := context.Background()
+
+	val, err := s.GetSecret(ctx, "key", confii.WithVersion("0"))
+	assert.Nil(t, val)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, confii.ErrSecretNotFound),
+		"version request against no-history key should yield ErrSecretNotFound, got %v", err)
 }
 
 // ---------------------------------------------------------------------------
@@ -319,16 +351,27 @@ func TestResolver_Hook_ErrorLeavesUnchanged(t *testing.T) {
 func TestResolver_Version_InPlaceholder(t *testing.T) {
 	store := NewDictStore(nil)
 	ctx := context.Background()
+	_ = store.SetSecret(ctx, "db/pass", "v0")
 	_ = store.SetSecret(ctx, "db/pass", "v1")
 	_ = store.SetSecret(ctx, "db/pass", "v2")
 
-	r := NewResolver(store)
-	// Format: ${secret:key:json_path:version} - use "." as a no-op json_path
-	// that won't be exercised here. Instead, test version via Prefetch + direct resolveKey.
-	// The placeholder regex needs all three groups present for version.
+	r := NewResolver(store, WithCache(false))
+
+	// Latest (no version captured) returns the current value.
 	got, err := r.Resolve(ctx, "${secret:db/pass}")
 	require.NoError(t, err)
-	assert.Equal(t, "v2", got) // latest version
+	assert.Equal(t, "v2", got)
+
+	// ${secret:key::version} (empty json path, explicit version) — this is
+	// the form the regex previously rejected; it must now resolve to the
+	// requested historical version.
+	got, err = r.Resolve(ctx, "${secret:db/pass::0}")
+	require.NoError(t, err)
+	assert.Equal(t, "v0", got)
+
+	got, err = r.Resolve(ctx, "${secret:db/pass::1}")
+	require.NoError(t, err)
+	assert.Equal(t, "v1", got)
 }
 
 // ---------------------------------------------------------------------------
@@ -419,15 +462,20 @@ func TestMultiStore_DeleteSecret_ChainFailure(t *testing.T) {
 	assert.Contains(t, err.Error(), "delete error")
 }
 
-// Test ListSecrets when a store returns error (lines 96-97).
+// Test ListSecrets when a store returns error: per G25, the failing
+// store's error is no longer silently skipped — the partial inventory
+// is returned alongside a *MultiStoreError describing each backend
+// failure.
 func TestMultiStore_ListSecrets_StoreError(t *testing.T) {
-	fail := &failingStore{err: errors.New("list error")}
+	listErr := errors.New("list error")
+	fail := &failingStore{err: listErr}
 	working := NewDictStore(map[string]any{"key1": "v1", "key2": "v2"})
 
 	multi := NewMultiStore([]confii.SecretStore{fail, working})
 
 	keys, err := multi.ListSecrets(context.Background(), "")
-	require.NoError(t, err)
-	// The failing store's error is silently skipped; we get keys from the working store.
+	require.Error(t, err, "store error must be surfaced, not silently skipped")
+	assert.True(t, errors.Is(err, listErr))
+	// We still receive the partial inventory from the working store.
 	assert.GreaterOrEqual(t, len(keys), 2)
 }

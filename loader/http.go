@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/BurntSushi/toml"
 	confii "github.com/confiify/confii-go"
 	"github.com/confiify/confii-go/internal/formatparse"
 	"gopkg.in/yaml.v3"
@@ -92,20 +93,28 @@ func (l *HTTPLoader) Load(ctx context.Context) (map[string]any, error) {
 		return nil, confii.NewLoadError(l.url, err)
 	}
 
-	// Detect format from Content-Type, then URL extension, then default to JSON.
+	// Detect format from Content-Type, then URL extension. When neither is
+	// useful, ParseContent performs deterministic JSON-then-YAML detection.
 	format := formatparse.FromContentType(resp.Header.Get("Content-Type"))
 	if format == formatparse.FormatUnknown {
 		format = formatparse.FromExtension(l.url)
 	}
-	if format == formatparse.FormatUnknown {
-		format = formatparse.FormatJSON
-	}
-
 	return ParseContent(body, format, l.url)
 }
 
 // ParseContent parses raw bytes into a config map based on format.
 // Exported for use by cloud loaders.
+//
+// Supported formats:
+//   - [formatparse.FormatJSON]: parsed via [encoding/json.Unmarshal].
+//   - [formatparse.FormatYAML]: parsed via [gopkg.in/yaml.v3.Unmarshal].
+//   - [formatparse.FormatTOML]: parsed via [github.com/BurntSushi/toml.Unmarshal]
+//     (G19: previously the TOML format was detected by [HTTPLoader] but had no
+//     parsing branch; it now reuses the same TOML library backing
+//     [TOMLLoader.Load], so HTTP and cloud loaders share a single parsing path).
+//   - [formatparse.FormatUnknown]: tries JSON first, then YAML. This preserves
+//     JSON's stricter interpretation for ambiguous payloads while supporting
+//     YAML endpoints that omit both Content-Type and a recognizable extension.
 func ParseContent(data []byte, format formatparse.Format, source string) (map[string]any, error) {
 	var result map[string]any
 	var err error
@@ -115,8 +124,19 @@ func ParseContent(data []byte, format formatparse.Format, source string) (map[st
 		err = json.Unmarshal(data, &result)
 	case formatparse.FormatYAML:
 		err = yaml.Unmarshal(data, &result)
+	case formatparse.FormatTOML:
+		err = toml.Unmarshal(data, &result)
+	case formatparse.FormatUnknown:
+		jsonErr := json.Unmarshal(data, &result)
+		if jsonErr == nil {
+			return result, nil
+		}
+		result = nil
+		if yamlErr := yaml.Unmarshal(data, &result); yamlErr != nil {
+			err = fmt.Errorf("JSON parse: %v; YAML parse: %w", jsonErr, yamlErr)
+		}
 	default:
-		err = json.Unmarshal(data, &result) // fallback to JSON
+		err = fmt.Errorf("unsupported format %q", format)
 	}
 
 	if err != nil {

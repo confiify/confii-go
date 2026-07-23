@@ -7,17 +7,30 @@ import "github.com/confiify/confii-go/internal/dictutil"
 type Strategy int
 
 const (
-	// Replace overwrites the base value entirely with the overlay value.
+	// Replace overwrites the base entirely with the overlay. At every
+	// level a Replace strategy governs, base-only keys are discarded
+	// and only overlay keys survive. Per-path strategy overrides on
+	// individual shared keys still apply, so "default Replace, but
+	// DeepMerge under path X" remains expressible.
 	Replace Strategy = iota
-	// Merge deep-merges nested maps; type mismatches fall back to replace.
+	// DeepMergeStrategy recursively merges nested maps; non-map type
+	// mismatches at a given key fall back to Replace.
 	DeepMergeStrategy
-	// Append appends overlay list items after base list items.
+	// Append appends overlay list items after base list items. On any
+	// type mismatch (either side is not a list) Append falls back to
+	// Replace and returns the overlay verbatim instead of silently
+	// coercing scalars to single-element lists.
 	Append
 	// Prepend prepends overlay list items before base list items.
+	// Type-mismatch behavior matches Append.
 	Prepend
-	// Intersection keeps only keys present in both configs.
+	// Intersection keeps only keys present in both configs whose values
+	// are equal scalars or whose nested maps have a non-empty
+	// intersection. Unequal scalars are omitted (not retained as nil).
 	Intersection
 	// Union keeps all keys from both configs, merging common keys.
+	// Recursion routes through the per-path strategy resolver so nested
+	// strategy overrides take effect under a Union root.
 	Union
 )
 
