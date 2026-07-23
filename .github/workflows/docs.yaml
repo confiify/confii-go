@@ -33,7 +33,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install MkDocs Material
-        run: pip install --requirement docs/requirements.txt
+        run: pip install --require-hashes --requirement docs/requirements.txt
 
       - name: Build site
         run: make docs-check

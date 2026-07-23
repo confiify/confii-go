@@ -310,7 +310,7 @@ func (t *Tracker) ExportDebugReport(outputPath string) error {
 	}
 	t.exportMu.Lock()
 	defer t.exportMu.Unlock()
-	return os.WriteFile(outputPath, data, 0644)
+	return os.WriteFile(outputPath, data, 0600)
 }
 
 // PrintDebugInfo prints debug info for a key (or all keys if key is empty) to stdout.

@@ -34,7 +34,7 @@ func NewExportCmd() *cobra.Command {
 			}
 
 			if output != "" {
-				return os.WriteFile(output, data, 0644)
+				return os.WriteFile(output, data, 0600)
 			}
 			fmt.Println(string(data))
 			return nil

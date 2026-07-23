@@ -410,6 +410,9 @@ func TestConfig_DebugInfo(t *testing.T) {
 		data, err := os.ReadFile(reportPath)
 		require.NoError(t, err)
 		assert.True(t, json.Valid(data))
+		info, err := os.Stat(reportPath)
+		require.NoError(t, err)
+		assert.Equal(t, os.FileMode(0600), info.Mode().Perm())
 	})
 }
 

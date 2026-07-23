@@ -2,7 +2,7 @@ module github.com/confiify/confii-go/secret/cloud
 
 go 1.25.0
 
-toolchain go1.25.8
+toolchain go1.25.12
 
 require (
 	cloud.google.com/go/secretmanager v1.16.0

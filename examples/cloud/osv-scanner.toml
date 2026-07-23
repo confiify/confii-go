@@ -1,0 +1,3 @@
+[[IgnoredVulns]]
+id = "GO-2026-5932"
+reason = "The examples do not import golang.org/x/crypto/openpgp; govulncheck confirms no vulnerable symbol is reachable."

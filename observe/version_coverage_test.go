@@ -57,11 +57,38 @@ func TestVersionManager_SaveVersionPersistsToDisk(t *testing.T) {
 	path := filepath.Join(dir, v.VersionID+".json")
 	data, err := os.ReadFile(path)
 	require.NoError(t, err)
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0600), info.Mode().Perm())
 
 	var loaded Version
 	require.NoError(t, json.Unmarshal(data, &loaded))
 	assert.Equal(t, v.VersionID, loaded.VersionID)
 	assert.Equal(t, true, loaded.Config["persisted"])
+}
+
+func TestVersionManager_GetVersionRejectsTraversal(t *testing.T) {
+	dir := t.TempDir()
+	outside := filepath.Join(filepath.Dir(dir), "outside.json")
+	require.NoError(t, os.WriteFile(outside, []byte(`{"VersionID":"outside"}`), 0600))
+
+	vm := NewVersionManager(dir, 100)
+	assert.Nil(t, vm.GetVersion("../outside"))
+}
+
+func TestVersionManager_GetVersionRejectsSymlinkEscape(t *testing.T) {
+	dir := t.TempDir()
+	const versionID = "0123456789abcdef"
+	outside := filepath.Join(filepath.Dir(dir), "outside-version.json")
+	record := &Version{VersionID: versionID, Config: map[string]any{"escaped": true}}
+	data, err := json.Marshal(record)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(outside, data, 0600))
+	require.NoError(t, os.Symlink(outside, filepath.Join(dir, versionID+".json")))
+
+	vm := NewVersionManager(dir, 100)
+	assert.Nil(t, vm.GetVersion(versionID))
+	assert.Empty(t, vm.ListVersions())
 }
 
 func TestVersionManager_GetVersionFromDisk(t *testing.T) {
@@ -84,9 +111,10 @@ func TestVersionManager_GetVersionInvalidJSON(t *testing.T) {
 	vm := NewVersionManager(dir, 100)
 
 	// Write an invalid JSON file.
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "badjson.json"), []byte("{invalid"), 0644))
+	const versionID = "badbadbadbadbad0"
+	require.NoError(t, os.WriteFile(filepath.Join(dir, versionID+".json"), []byte("{invalid"), 0644))
 
-	got := vm.GetVersion("badjson")
+	got := vm.GetVersion(versionID)
 	assert.Nil(t, got)
 }
 
@@ -129,7 +157,7 @@ func TestVersionManager_ScanDiskLoadsVersions(t *testing.T) {
 	// Create version files on disk directly.
 	for i := 0; i < 3; i++ {
 		v := &Version{
-			VersionID: "scantest" + string(rune('0'+i)),
+			VersionID: "000000000000000" + string(rune('0'+i)),
 			Config:    map[string]any{"index": i},
 			Timestamp: float64(1000 + i),
 			DateTime:  "2026-01-01T00:00:00Z",
@@ -149,28 +177,40 @@ func TestVersionManager_ScanDiskSkipsNonJSON(t *testing.T) {
 
 	// Write a non-JSON file and a valid JSON version.
 	_ = os.WriteFile(filepath.Join(dir, "readme.txt"), []byte("not json"), 0644)
+	const versionID = "abcdef0123456789"
 	v := &Version{
-		VersionID: "valid123",
+		VersionID: versionID,
 		Config:    map[string]any{"ok": true},
 		Timestamp: 1000,
 	}
 	data, _ := json.MarshalIndent(v, "", "  ")
-	_ = os.WriteFile(filepath.Join(dir, "valid123.json"), data, 0644)
+	_ = os.WriteFile(filepath.Join(dir, versionID+".json"), data, 0644)
 
 	vm := NewVersionManager(dir, 100)
 	versions := vm.ListVersions()
 	assert.Len(t, versions, 1)
-	assert.Equal(t, "valid123", versions[0].VersionID)
+	assert.Equal(t, versionID, versions[0].VersionID)
 }
 
 func TestVersionManager_ScanDiskSkipsInvalidJSON(t *testing.T) {
 	dir := t.TempDir()
 
-	_ = os.WriteFile(filepath.Join(dir, "broken.json"), []byte("{invalid json"), 0644)
+	_ = os.WriteFile(filepath.Join(dir, "deadbeefdeadbeef.json"), []byte("{invalid json"), 0644)
 
 	vm := NewVersionManager(dir, 100)
 	versions := vm.ListVersions()
 	assert.Empty(t, versions)
+}
+
+func TestVersionManager_ScanDiskSkipsMismatchedVersionID(t *testing.T) {
+	dir := t.TempDir()
+	record := &Version{VersionID: "1111111111111111", Config: map[string]any{"ok": false}}
+	data, err := json.Marshal(record)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "2222222222222222.json"), data, 0600))
+
+	vm := NewVersionManager(dir, 100)
+	assert.Empty(t, vm.ListVersions())
 }
 
 func TestVersionManager_ScanDiskNonexistentDir(t *testing.T) {
@@ -283,16 +323,16 @@ func TestVersionManager_ScanDiskWithUnreadableFile(t *testing.T) {
 
 	// Create a valid version file and an unreadable one.
 	v := &Version{
-		VersionID: "readable",
+		VersionID: "0123456789abcdef",
 		Config:    map[string]any{"ok": true},
 		Timestamp: 1000,
 	}
 	data, _ := json.MarshalIndent(v, "", "  ")
-	_ = os.WriteFile(filepath.Join(dir, "readable.json"), data, 0644)
+	_ = os.WriteFile(filepath.Join(dir, v.VersionID+".json"), data, 0644)
 
 	// Create unreadable file.
-	unreadablePath := filepath.Join(dir, "unreadable.json")
-	_ = os.WriteFile(unreadablePath, []byte(`{"version_id":"unreadable"}`), 0000)
+	unreadablePath := filepath.Join(dir, "fedcba9876543210.json")
+	_ = os.WriteFile(unreadablePath, []byte(`{"version_id":"fedcba9876543210"}`), 0000)
 
 	vm := NewVersionManager(dir, 100)
 	versions := vm.ListVersions()

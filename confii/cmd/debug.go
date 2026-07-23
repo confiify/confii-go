@@ -211,7 +211,7 @@ func NewDocsCmd() *cobra.Command {
 			}
 
 			if output != "" {
-				return os.WriteFile(output, []byte(docs), 0644)
+				return os.WriteFile(output, []byte(docs), 0600)
 			}
 			fmt.Print(docs)
 			return nil
@@ -343,7 +343,7 @@ func NewMigrateCmd() *cobra.Command {
 			}
 
 			if output != "" {
-				return os.WriteFile(output, data, 0644)
+				return os.WriteFile(output, data, 0600)
 			}
 			_, err = fmt.Fprint(c.OutOrStdout(), string(data))
 			return err

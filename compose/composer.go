@@ -241,6 +241,7 @@ func (c *Composer) processIncludes(includes any, source string, depth int, visit
 }
 
 func (c *Composer) loadFile(path string, depth int, visited map[string]bool, dependencies *[]string) (map[string]any, error) {
+	// #nosec G304 -- explicit and included configuration paths are the composer's documented input.
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err

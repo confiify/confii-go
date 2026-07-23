@@ -240,6 +240,7 @@ func (ft *FileTracker) readState(path string) (fileState, error) {
 		return fileState{}, err
 	}
 
+	// #nosec G304 -- path is a configuration source explicitly registered by the caller's loader.
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return fileState{}, err

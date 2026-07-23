@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -114,7 +115,7 @@ func (m *VersionManager) SaveVersion(config map[string]any, metadata map[string]
 
 	// Persist to disk only when an explicit storage path was supplied.
 	if m.storagePath != "" {
-		if err := os.MkdirAll(m.storagePath, 0755); err != nil {
+		if err := os.MkdirAll(m.storagePath, 0700); err != nil {
 			return nil, fmt.Errorf("version: mkdir storage: %w", err)
 		}
 		data, err := json.MarshalIndent(v, "", "  ")
@@ -122,7 +123,7 @@ func (m *VersionManager) SaveVersion(config map[string]any, metadata map[string]
 			return nil, fmt.Errorf("version: marshal version record: %w", err)
 		}
 		path := filepath.Join(m.storagePath, versionID+".json")
-		if err := os.WriteFile(path, data, 0644); err != nil {
+		if err := os.WriteFile(path, data, 0600); err != nil {
 			return nil, fmt.Errorf("version: write snapshot: %w", err)
 		}
 	}
@@ -145,10 +146,23 @@ func (m *VersionManager) GetVersion(id string) *Version {
 	if m.storagePath == "" {
 		return nil
 	}
+	if !validVersionID(id) {
+		return nil
+	}
 
-	// Try loading from disk.
-	path := filepath.Join(m.storagePath, id+".json")
-	data, err := os.ReadFile(path)
+	// OpenRoot keeps a malicious symlink inside the snapshot directory from
+	// redirecting reads outside that directory.
+	root, err := os.OpenRoot(m.storagePath)
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = root.Close() }()
+	f, err := root.Open(id + ".json")
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = f.Close() }()
+	data, err := io.ReadAll(f)
 	if err != nil {
 		return nil
 	}
@@ -252,25 +266,52 @@ func (m *VersionManager) scanDiskLocked() {
 	if err != nil {
 		return
 	}
+	root, err := os.OpenRoot(m.storagePath)
+	if err != nil {
+		return
+	}
+	defer func() { _ = root.Close() }()
 	for _, entry := range entries {
 		if filepath.Ext(entry.Name()) != ".json" {
 			continue
 		}
 		id := entry.Name()[:len(entry.Name())-5]
+		if !validVersionID(id) {
+			continue
+		}
 		if _, ok := m.versions[id]; ok {
 			continue
 		}
-		path := filepath.Join(m.storagePath, entry.Name())
-		data, err := os.ReadFile(path)
+		f, err := root.Open(entry.Name())
 		if err != nil {
+			continue
+		}
+		data, readErr := io.ReadAll(f)
+		_ = f.Close()
+		if readErr != nil {
 			continue
 		}
 		var v Version
 		if err := json.Unmarshal(data, &v); err != nil {
 			continue
 		}
+		if v.VersionID != id {
+			continue
+		}
 		m.versions[id] = &v
 	}
+}
+
+func validVersionID(id string) bool {
+	if len(id) != 16 {
+		return false
+	}
+	for _, r := range id {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 func (m *VersionManager) evict() {

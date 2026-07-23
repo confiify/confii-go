@@ -3,6 +3,7 @@ package confii
 import (
 	"context"
 	"fmt"
+	"io"
 	"maps"
 	"os"
 	"regexp"
@@ -250,22 +251,30 @@ func newSelfConfigFileStore(cfg map[string]any) (*selfConfigFileStore, error) {
 }
 
 func (s *selfConfigFileStore) GetSecret(_ context.Context, key string) (any, error) {
-	// Reject path-traversal sequences: keys flow from user-controlled
-	// ${secret:...} placeholders, so a key like "../../etc/passwd"
-	// must not escape base_dir.
-	if strings.Contains(key, "..") || strings.ContainsAny(key, "\x00") {
+	if strings.ContainsAny(key, "\x00") {
 		return nil, fmt.Errorf("%w: invalid secret key %q (path traversal rejected)", ErrSecretNotFound, key)
 	}
-	if strings.HasPrefix(key, "/") {
-		return nil, fmt.Errorf("%w: invalid secret key %q (absolute paths rejected)", ErrSecretNotFound, key)
+
+	// os.Root confines the open to baseDir even when a nested component is a
+	// symlink. Lexical filepath checks alone are vulnerable to symlink races.
+	root, err := os.OpenRoot(s.baseDir)
+	if err != nil {
+		return nil, fmt.Errorf("file provider: open root %s: %w", s.baseDir, err)
 	}
-	path := s.baseDir + string(os.PathSeparator) + key + s.extension
-	data, err := os.ReadFile(path)
+	defer func() { _ = root.Close() }()
+
+	relativePath := key + s.extension
+	file, err := root.Open(relativePath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("%w: %s (file %s)", ErrSecretNotFound, key, path)
+			return nil, fmt.Errorf("%w: %s (file %s)", ErrSecretNotFound, key, relativePath)
 		}
-		return nil, fmt.Errorf("file provider: read %s: %w", path, err)
+		return nil, fmt.Errorf("file provider: securely open %s: %w", relativePath, err)
+	}
+	defer func() { _ = file.Close() }()
+	data, err := io.ReadAll(file)
+	if err != nil {
+		return nil, fmt.Errorf("file provider: read %s: %w", relativePath, err)
 	}
 	str := string(data)
 	if s.trimWhitespace {

@@ -251,3 +251,19 @@ func TestV08_FileProvider_RejectsPathTraversal(t *testing.T) {
 		}
 	}
 }
+
+func TestV08_FileProvider_RejectsSymlinkEscape(t *testing.T) {
+	factory, ok := confii.LookupSelfConfigSecretProvider("file")
+	require.True(t, ok)
+	base := t.TempDir()
+	outside := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(outside, "secret"), []byte("escaped"), 0600))
+	if err := os.Symlink(outside, filepath.Join(base, "escape")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	store, err := factory(map[string]any{"base_dir": base})
+	require.NoError(t, err)
+	_, err = store.GetSecret(context.Background(), "escape/secret")
+	require.Error(t, err)
+}

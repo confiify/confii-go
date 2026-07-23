@@ -25,6 +25,7 @@ func NewJSONSchemaValidator(schemaMap map[string]any) (*JSONSchemaValidator, err
 
 // NewJSONSchemaValidatorFromFile creates a validator from a JSON Schema file.
 func NewJSONSchemaValidatorFromFile(path string) (*JSONSchemaValidator, error) {
+	// #nosec G304 -- path is the caller-selected schema file; arbitrary paths are this API's contract.
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read schema file: %w", err)

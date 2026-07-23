@@ -25,10 +25,18 @@ jobs:
           go-version-file: go.mod
 
       - name: Install govulncheck
-        run: go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
+        # Immutable commit for golang/vuln v1.1.4.
+        run: go install golang.org/x/vuln/cmd/govulncheck@d1f380186385b4f64e00313f31743df8e4b89a77
+
+      - name: Install OSV-Scanner
+        # Immutable commit for google/osv-scanner v2.3.8.
+        run: go install github.com/google/osv-scanner/v2/cmd/osv-scanner@408fcd6f8707999a29e7ba45e15809764cf24f67
 
       - name: Scan core module
         run: govulncheck ./...
 
       - name: Scan cloud modules as a consumer
         run: sh scripts/test-cloud-consumer.sh 'aws,azure,gcp,vault,ibm' vuln
+
+      - name: Scan dependency manifests and lockfiles
+        run: osv-scanner scan source --recursive .

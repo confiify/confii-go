@@ -1,6 +1,7 @@
 package typecoerce
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -37,5 +38,21 @@ func TestParseScalar(t *testing.T) {
 			got := ParseScalar(tt.input, tt.extendedBooleans)
 			assert.Equal(t, tt.want, got)
 		})
+	}
+}
+
+func TestParseScalar_IntegerBounds(t *testing.T) {
+	max := int64(1<<(strconv.IntSize-1) - 1)
+	min := -max - 1
+
+	assert.Equal(t, int(max), ParseScalar(strconv.FormatInt(max, 10), false))
+	assert.Equal(t, int(min), ParseScalar(strconv.FormatInt(min, 10), false))
+
+	if strconv.IntSize == 32 {
+		assert.Equal(t, "2147483648", ParseScalar("2147483648", false))
+		assert.Equal(t, "-2147483649", ParseScalar("-2147483649", false))
+	} else {
+		assert.Equal(t, "9223372036854775808", ParseScalar("9223372036854775808", false))
+		assert.Equal(t, "-9223372036854775809", ParseScalar("-9223372036854775809", false))
 	}
 }

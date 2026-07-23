@@ -160,6 +160,7 @@ func readFromDir(dir string) (*Settings, error) {
 }
 
 func readFile(path string) (*Settings, error) {
+	// #nosec G304 -- path is assembled internally from fixed self-configuration filenames.
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err

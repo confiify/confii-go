@@ -200,6 +200,9 @@ func TestExportDebugReport(t *testing.T) {
 
 	data, err := os.ReadFile(outPath)
 	require.NoError(t, err)
+	info, err := os.Stat(outPath)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0600), info.Mode().Perm())
 
 	var report map[string]any
 	err = json.Unmarshal(data, &report)

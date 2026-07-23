@@ -2164,7 +2164,7 @@ func (c *Config[T]) ExportCtx(ctx context.Context, format string, outputPath ...
 	}
 
 	if len(outputPath) > 0 && outputPath[0] != "" {
-		if err := os.WriteFile(outputPath[0], result, 0644); err != nil {
+		if err := os.WriteFile(outputPath[0], result, 0600); err != nil {
 			return result, err
 		}
 	}

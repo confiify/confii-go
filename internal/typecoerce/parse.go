@@ -30,7 +30,9 @@ func ParseScalar(value string, extendedBooleans bool) any {
 	}
 
 	// Integer
-	if i, err := strconv.ParseInt(value, 10, 64); err == nil {
+	// Parse directly at the platform int width. Parsing at 64 bits and then
+	// converting to int can silently wrap on 32-bit targets.
+	if i, err := strconv.ParseInt(value, 10, strconv.IntSize); err == nil {
 		// Only if the string is purely numeric (no leading zeros except "0")
 		if strconv.FormatInt(i, 10) == value {
 			return int(i)
