@@ -1,14 +1,12 @@
 # Documentation hosting
 
-The documentation is built as a static MkDocs site. GitHub Pages is the
-current public host, but it does not return every response header required by
-the OpenSSF Best Practices hardened-site criterion. The repository therefore
-produces a host-neutral `site/` artifact containing a
+The documentation is built as a static MkDocs site and published at
+<https://confii-go-docs.pages.dev/>. The repository produces a host-neutral
+`site/` artifact containing a
 [Cloudflare Pages compatible `_headers` policy](https://developers.cloudflare.com/pages/configuration/headers/).
 
-The header policy is a deployable control, not evidence that the current live
-site is hardened. The project marks the criterion Met only after the public
-URL passes the live response test.
+The production URL passed the repository's live response-header test on
+2026-07-25. Maintainers can repeat the test after any hosting or policy change.
 
 ## Build
 
@@ -48,9 +46,19 @@ After deployment, run:
 make docs-live-headers URL=https://<production-documentation-host>/
 ```
 
-Then verify the site in a browser, including navigation, search, theme
-switching, code-copy buttons, fonts, badges, and external links. Only after
-both checks pass should maintainers:
+The current production deployment was accepted with:
+
+```bash
+make docs-live-headers URL=https://confii-go-docs.pages.dev/
+```
+
+The check verified nonpermissive `Content-Security-Policy`,
+`X-Content-Type-Options`, `X-Frame-Options`, `Strict-Transport-Security`,
+`Referrer-Policy`, and `Permissions-Policy` response headers.
+
+Also verify the site in a browser, including navigation, search, theme
+switching, code-copy buttons, fonts, badges, and external links. After a host
+migration, maintainers should:
 
 1. update `site_url` in `mkdocs.yml`;
 2. update the repository website URL and badge evidence;

@@ -55,7 +55,7 @@ sustained history. Repository text alone cannot make them true.
 | `contributors_unassociated` | The public record does not yet establish two qualifying contributors. | At least two significant contributors are unaffiliated under the badge definition. |
 | `two_person_review` | The 2026-07-25 ledger records 3 qualifying independently reviewed PRs among 17 non-trivial merged PRs. | Public history demonstrates that another person reviewed at least 50% of non-trivial changes before acceptance. |
 | `secure_2FA` | **Met:** the people controlling `confiify`, `qatoolist`, and `qualityCOE` confirmed on 2026-07-25 that every privileged account uses an authenticator application and none relies on SMS-only 2FA. | Reconfirm after any privileged-account or authentication-method change. This is a Gold recommendation, not a mandatory Gold criterion. |
-| `hardened_site` | The GitHub Pages site does not return CSP, `X-Content-Type-Options`, or `X-Frame-Options`. A deployable policy and live test are in [`HOSTING.md`](HOSTING.md). | The production documentation URL passes `make docs-live-headers` and a browser smoke test. |
+| `hardened_site` | **Met:** <https://confii-go-docs.pages.dev/> passed `make docs-live-headers` on 2026-07-25 with nonpermissive CSP, MIME-sniffing protection, anti-framing, HSTS, referrer, and permissions policies. Deployment and repeatable-test evidence is in [`HOSTING.md`](HOSTING.md). | Repeat the live test and browser smoke test after any hosting or header-policy change. |
 
 Confii will not mark these criteria Met until the public or maintainer-verified
 evidence supports them. This distinction keeps the badge credible.
