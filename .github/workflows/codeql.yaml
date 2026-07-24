@@ -37,7 +37,7 @@ jobs:
         run: go build ./...
 
       - name: Build cloud modules as a consumer
-        # The nested release modules reference the not-yet-published v1.1.0
+        # The nested release modules reference the not-yet-published release
         # tag. The consumer fixture supplies local replacements and ensures
         # CodeQL observes every build-tagged provider without import errors.
         run: sh scripts/test-cloud-consumer.sh 'aws,azure,gcp,vault,ibm' build

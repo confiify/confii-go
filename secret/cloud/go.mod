@@ -13,7 +13,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.32.16
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.15
 	github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.41.6
-	github.com/confiify/confii-go v1.1.0
+	github.com/confiify/confii-go v1.2.0
 	github.com/hashicorp/vault/api v1.23.0
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
 	google.golang.org/api v0.276.0

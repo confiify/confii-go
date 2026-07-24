@@ -25,13 +25,13 @@ cloud-loader, and cloud-secret tags all identify the same reviewed commit.
 
 ## Tag and publish
 
-Create signed, annotated tags on the same verified commit. For `v1.1.0`:
+Create signed, annotated tags on the same verified commit. For `v1.2.0`:
 
 ```bash
-git tag -s loader/cloud/v1.1.0 -m "loader/cloud v1.1.0"
-git tag -s secret/cloud/v1.1.0 -m "secret/cloud v1.1.0"
-git tag -s v1.1.0 -m "confii-go v1.1.0"
-git push --atomic origin loader/cloud/v1.1.0 secret/cloud/v1.1.0 v1.1.0
+git tag -s loader/cloud/v1.2.0 -m "loader/cloud v1.2.0"
+git tag -s secret/cloud/v1.2.0 -m "secret/cloud v1.2.0"
+git tag -s v1.2.0 -m "confii-go v1.2.0"
+git push --atomic origin loader/cloud/v1.2.0 secret/cloud/v1.2.0 v1.2.0
 ```
 
 The root tag starts the release workflow. It re-runs module, race, and cloud
@@ -42,10 +42,10 @@ After the workflow succeeds, verify one archive and verify all modules through
 a clean consumer:
 
 ```bash
-gh attestation verify confii-v1.1.0-linux-amd64.tar.gz --repo confiify/confii-go
-go list -m github.com/confiify/confii-go@v1.1.0
-go list -m github.com/confiify/confii-go/loader/cloud@v1.1.0
-go list -m github.com/confiify/confii-go/secret/cloud@v1.1.0
+gh attestation verify confii-v1.2.0-linux-amd64.tar.gz --repo confiify/confii-go
+go list -m github.com/confiify/confii-go@v1.2.0
+go list -m github.com/confiify/confii-go/loader/cloud@v1.2.0
+go list -m github.com/confiify/confii-go/secret/cloud@v1.2.0
 ```
 
 Tags and published releases are immutable. If a release is defective, publish
