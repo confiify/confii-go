@@ -1,4 +1,8 @@
 {
+  "access_continuity_status": "Met",
+  "access_continuity_justification": "Two independently controlled maintainers can handle issues, changes, protected tags, and releases. The procedure and successful release dry run are recorded at https://github.com/confiify/confii-go/blob/main/docs/CONTINUITY.md and https://github.com/confiify/confii-go/actions/runs/30125736952.",
+  "bus_factor_status": "Met",
+  "bus_factor_justification": "The lead and continuity maintainers are different people with independent credentials and demonstrated release capability; see https://github.com/confiify/confii-go/blob/main/docs/CONTINUITY.md.",
   "homepage_url_status": "Met",
   "homepage_url_justification": "https://confiify.github.io/confii-go/",
   "repo_interim_status": "Met",
