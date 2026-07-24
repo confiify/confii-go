@@ -124,11 +124,10 @@ func TestBuildEnvironmentFileLoadersDiscoveryErrorBranches(t *testing.T) {
 
 	t.Run("default candidate inspection error", func(t *testing.T) {
 		root := t.TempDir()
-		require.NoError(t, os.WriteFile(filepath.Join(root, "blocked"), []byte("file"), 0o600))
 		opts := defaultOptions()
 		opts.WorkingDir = root
 		_, err := buildEnvironmentFileLoaders(&opts, map[string]any{
-			"search_paths": []any{"blocked"},
+			"default_file": "invalid\x00.yaml",
 		})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "inspect candidate")
