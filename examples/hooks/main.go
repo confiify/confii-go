@@ -1,3 +1,6 @@
+// Copyright 2026 The Confii Contributors
+// SPDX-License-Identifier: MIT
+
 // Package main demonstrates the hook system. Confii supports 4 hook types:
 // key hooks, value hooks, condition hooks, and global hooks.
 // Hooks transform values when they are accessed.

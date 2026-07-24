@@ -1,3 +1,6 @@
+// Copyright 2026 The Confii Contributors
+// SPDX-License-Identifier: MIT
+
 // Package main demonstrates file watching and dynamic reloading.
 // Config automatically reloads when the underlying files change on disk.
 package main

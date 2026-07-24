@@ -1,3 +1,6 @@
+// Copyright 2026 The Confii Contributors
+// SPDX-License-Identifier: MIT
+
 //go:build aws
 
 // Package main shows AWS-flavoured cloud loader and secret store usage

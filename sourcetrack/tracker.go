@@ -1,3 +1,6 @@
+// Copyright 2026 The Confii Contributors
+// SPDX-License-Identifier: MIT
+
 // Package sourcetrack provides per-key source tracking for configuration values,
 // recording where each value originated, how many times it was overridden, and
 // the full override history.

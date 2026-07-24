@@ -1,3 +1,6 @@
+// Copyright 2026 The Confii Contributors
+// SPDX-License-Identifier: MIT
+
 package confii_test
 
 // G11: Hook pipeline must apply uniformly across every read-time access

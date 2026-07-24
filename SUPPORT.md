@@ -10,6 +10,11 @@ Use [GitHub Issues](https://github.com/confiify/confii-go/issues) for confirmed
 bugs and focused feature requests. The issue templates describe the diagnostic
 information maintainers need.
 
+Maintainers aim to acknowledge actionable bug reports and enhancement requests
+within five business days and to post a disposition or next step within 30
+days. Public issues and pull requests remain available as the permanent report
+archive. These are response targets, not a commercial support guarantee.
+
 Do not disclose vulnerabilities in discussions or issues. Follow the private
 process in [SECURITY.md](SECURITY.md).
 

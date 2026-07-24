@@ -1,3 +1,6 @@
+// Copyright 2026 The Confii Contributors
+// SPDX-License-Identifier: MIT
+
 // Package main demonstrates config versioning: taking snapshots,
 // comparing versions, and rolling back to a previous state.
 package main

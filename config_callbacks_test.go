@@ -1,3 +1,6 @@
+// Copyright 2026 The Confii Contributors
+// SPDX-License-Identifier: MIT
+
 package confii_test
 
 // G13 / F-G13-Override coverage.

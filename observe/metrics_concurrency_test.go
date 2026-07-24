@@ -1,3 +1,6 @@
+// Copyright 2026 The Confii Contributors
+// SPDX-License-Identifier: MIT
+
 package observe
 
 // Concurrency tests for observe.Metrics (Gap G36).

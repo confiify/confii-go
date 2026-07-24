@@ -1,3 +1,6 @@
+// Copyright 2026 The Confii Contributors
+// SPDX-License-Identifier: MIT
+
 // Package main demonstrates secret management with Confii.
 // Secrets are resolved via ${secret:key} placeholders in config values.
 // The resolver is configured with a "prod/" prefix, so each ${secret:db/password}

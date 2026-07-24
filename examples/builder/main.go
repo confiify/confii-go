@@ -1,3 +1,6 @@
+// Copyright 2026 The Confii Contributors
+// SPDX-License-Identifier: MIT
+
 // Package main demonstrates the fluent builder pattern for constructing
 // a Config instance with chained method calls.
 package main

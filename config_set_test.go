@@ -1,3 +1,6 @@
+// Copyright 2026 The Confii Contributors
+// SPDX-License-Identifier: MIT
+
 package confii_test
 
 // G12 / Wave 11 coverage for runtime mutation APIs (Set, Override).

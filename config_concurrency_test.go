@@ -1,3 +1,6 @@
+// Copyright 2026 The Confii Contributors
+// SPDX-License-Identifier: MIT
+
 package confii_test
 
 // Concurrency-and-race coverage for Config public API (Gap G36).

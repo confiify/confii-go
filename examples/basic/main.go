@@ -1,3 +1,6 @@
+// Copyright 2026 The Confii Contributors
+// SPDX-License-Identifier: MIT
+
 // Package main demonstrates basic Confii usage: loading a YAML config
 // and accessing values using dot-notation key paths.
 package main

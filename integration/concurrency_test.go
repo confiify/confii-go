@@ -1,3 +1,6 @@
+// Copyright 2026 The Confii Contributors
+// SPDX-License-Identifier: MIT
+
 package integration
 
 // End-to-end concurrency tests (Gap G36).

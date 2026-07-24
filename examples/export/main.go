@@ -1,3 +1,6 @@
+// Copyright 2026 The Confii Contributors
+// SPDX-License-Identifier: MIT
+
 // Package main demonstrates exporting configuration to different formats
 // (JSON, YAML, TOML) and generating documentation.
 package main

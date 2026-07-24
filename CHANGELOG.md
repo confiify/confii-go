@@ -12,6 +12,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   opt-in cloud packages to v1.44.0, fixing GO-2026-5158 / CVE-2026-41178
   (unbounded baggage-header parsing).
 
+### Added
+
+- Add machine-readable OpenSSF Best Practices evidence, a public roadmap,
+  consolidated quality policy, dated security review and assurance case,
+  reproducible-build verification, a mandatory 90% non-example statement
+  coverage gate, and per-source-file copyright/SPDX declarations.
+
 ## [1.2.0] - 2026-07-24
 
 ### Added

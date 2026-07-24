@@ -1,3 +1,6 @@
+// Copyright 2026 The Confii Contributors
+// SPDX-License-Identifier: MIT
+
 // Package compose processes _include and _defaults directives in configuration
 // files, supporting Hydra-style configuration composition with cycle detection.
 package compose

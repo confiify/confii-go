@@ -1,3 +1,6 @@
+// Copyright 2026 The Confii Contributors
+// SPDX-License-Identifier: MIT
+
 // Package loader provides implementations of the confii.Loader interface
 // for various configuration sources.
 package loader

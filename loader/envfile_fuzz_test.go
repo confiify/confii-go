@@ -1,3 +1,6 @@
+// Copyright 2026 The Confii Contributors
+// SPDX-License-Identifier: MIT
+
 package loader
 
 // This file fuzzes EnvFileLoader and unquoteEnvValue.

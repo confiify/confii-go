@@ -1,3 +1,6 @@
+// Copyright 2026 The Confii Contributors
+// SPDX-License-Identifier: MIT
+
 //go:build azure
 
 // Package main demonstrates Azure Blob and Key Vault wiring. It is intended

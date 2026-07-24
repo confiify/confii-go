@@ -1,3 +1,6 @@
+// Copyright 2026 The Confii Contributors
+// SPDX-License-Identifier: MIT
+
 package dictutil
 
 // V-07 (Wave 24) — Adversarial tests for type-aware key normalization.

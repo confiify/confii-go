@@ -1,3 +1,6 @@
+// Copyright 2026 The Confii Contributors
+// SPDX-License-Identifier: MIT
+
 // Package secret provides secret store implementations and a placeholder resolver.
 package secret
 

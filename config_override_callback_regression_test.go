@@ -1,3 +1,6 @@
+// Copyright 2026 The Confii Contributors
+// SPDX-License-Identifier: MIT
+
 package confii_test
 
 // V-01 / V-02 / V-09 (Wave 23) — Negative tests for the structural

@@ -1,3 +1,6 @@
+// Copyright 2026 The Confii Contributors
+// SPDX-License-Identifier: MIT
+
 package diff
 
 // DriftDetector compares actual configuration against an intended baseline.

@@ -1,3 +1,6 @@
+// Copyright 2026 The Confii Contributors
+// SPDX-License-Identifier: MIT
+
 package dictutil
 
 // This file fuzzes the dictutil nested-key helpers and DeepMerge.

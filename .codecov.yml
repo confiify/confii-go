@@ -1,12 +1,15 @@
+# Copyright 2026 The Confii Contributors
+# SPDX-License-Identifier: MIT
 coverage:
   status:
     project:
       default:
         target: 90%
-        threshold: 2%
+        threshold: 0%
     patch:
       default:
-        target: 80%
+        target: 90%
+        threshold: 0%
 
 ignore:
   - "examples/**"

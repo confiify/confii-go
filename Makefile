@@ -1,4 +1,6 @@
 # Confii-Go Makefile
+# Copyright 2026 The Confii Contributors
+# SPDX-License-Identifier: MIT
 # ==================
 
 MODULE   := github.com/confiify/confii-go
@@ -33,6 +35,10 @@ build: ## Build the CLI binary
 .PHONY: build-all
 build-all: ## Build CLI with all cloud provider tags
 	$(GOBUILD) -tags "$(TAGS_ALL)" -o $(BUILD_DIR)/$(CLI_BIN) $(CLI_PKG)
+
+.PHONY: reproducible-build-check
+reproducible-build-check: ## Verify two clean CLI builds are byte-for-byte identical
+	sh scripts/check-reproducible-build.sh
 
 .PHONY: install
 install: ## Install the CLI binary to $GOPATH/bin
@@ -73,6 +79,7 @@ test-cover: ## Run tests with coverage report
 		-coverprofile=coverage.out \
 		-covermode=atomic
 	$(GO) tool cover -func=coverage.out
+	sh scripts/check-statement-coverage.sh coverage.out
 	@echo ""
 	@echo "To view HTML report: make test-cover-html"
 
@@ -177,7 +184,7 @@ ci: mod-verify fmt-check vet test ## Run core module, format, vet, and test gate
 	@echo "CI passed."
 
 .PHONY: ci-full
-ci-full: mod-verify fmt-check vet-all test test-race test-integration test-cloud ## Full CI including race, integration, and cloud consumer tests
+ci-full: mod-verify fmt-check vet-all reproducible-build-check test test-race test-integration test-cloud ## Full CI including reproducibility, race, integration, and cloud consumer tests
 	@echo ""
 	@echo "Full CI passed."
 

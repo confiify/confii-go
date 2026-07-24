@@ -1,3 +1,6 @@
+// Copyright 2026 The Confii Contributors
+// SPDX-License-Identifier: MIT
+
 // Package observe provides observability features: metrics, events, and versioning.
 package observe
 

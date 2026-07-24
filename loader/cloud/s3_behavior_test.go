@@ -1,3 +1,6 @@
+// Copyright 2026 The Confii Contributors
+// SPDX-License-Identifier: MIT
+
 //go:build aws
 
 // Behavior tests for the AWS S3 configuration loader.

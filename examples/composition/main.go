@@ -1,3 +1,6 @@
+// Copyright 2026 The Confii Contributors
+// SPDX-License-Identifier: MIT
+
 // Package main demonstrates Hydra-style config composition using
 // _include and _defaults directives. Included files are resolved
 // relative to the source file, with cycle detection and max depth of 10.

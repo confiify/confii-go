@@ -1,3 +1,6 @@
+// Copyright 2026 The Confii Contributors
+// SPDX-License-Identifier: MIT
+
 // Package main demonstrates environment-aware configuration.
 // Confii merges the "default" section with the active environment section.
 package main

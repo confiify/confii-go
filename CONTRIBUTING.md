@@ -61,6 +61,7 @@ All new functionality **must** include tests. This is enforced through:
 
 - **Coverage target:** New code must maintain 90%+ test coverage. The CI pipeline reports coverage via Codecov on every PR.
 - **Test with PR:** Every pull request must include tests that cover the new or changed functionality. PRs without tests for new features will not be merged.
+- **Regression tests:** Every bug fix must include a test that fails without the fix unless the pull request documents why automation is technically impossible.
 - **Race detection:** Tests are run with `-race` in CI to catch concurrency issues.
 - **Linting:** `golangci-lint` enforces error checking (`errcheck`), unused code detection, and other quality rules.
 
@@ -80,6 +81,7 @@ make test-cloud    # all cloud-provider tags in a consumer fixture
 - Update documentation if behavior changes
 - Reference related issues in the PR description
 - Ensure every commit includes a DCO `Signed-off-by` trailer
+- Follow the security and quality review checklist in [docs/QUALITY.md](docs/QUALITY.md)
 
 ## Reporting Issues
 

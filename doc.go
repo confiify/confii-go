@@ -1,3 +1,6 @@
+// Copyright 2026 The Confii Contributors
+// SPDX-License-Identifier: MIT
+
 // Package confii is a complete configuration management library for Go.
 // It loads, merges, validates, and manages configuration from YAML, JSON,
 // TOML, INI, .env files, environment variables, HTTP endpoints, and cloud

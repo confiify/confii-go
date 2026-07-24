@@ -1,3 +1,6 @@
+// Copyright 2026 The Confii Contributors
+// SPDX-License-Identifier: MIT
+
 // Package formatparse detects configuration file formats from file extensions
 // and content types.
 package formatparse
