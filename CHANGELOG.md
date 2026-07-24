@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Security
+
+- Upgrade the OpenTelemetry API, metric, trace, and SDK modules used by the
+  opt-in cloud packages to v1.44.0, fixing GO-2026-5158 / CVE-2026-41178
+  (unbounded baggage-header parsing).
+
 ## [1.2.0] - 2026-07-24
 
 ### Added
