@@ -11,6 +11,9 @@ TOOLS_DIR := $(BUILD_DIR)/tools
 
 GOBCO_VERSION := v1.3.4
 GOBCO_BIN := $(abspath $(TOOLS_DIR)/gobco)
+PYTHON ?= python3
+REUSE_VENV := $(abspath $(TOOLS_DIR)/reuse-venv)
+REUSE_BIN := $(REUSE_VENV)/bin/reuse
 
 # Build tags for cloud providers
 TAGS_AWS   := aws
@@ -175,6 +178,15 @@ vet-all: ## Vet core and cloud providers (cloud SDKs isolated from go.mod)
 lint: fmt-check vet ## Run all linters (fmt-check + vet + golangci-lint)
 	golangci-lint run ./...
 
+.PHONY: reuse-lint
+reuse-lint: $(REUSE_BIN) ## Verify REUSE 3.3 license and copyright compliance
+	$(REUSE_BIN) --no-multiprocessing lint
+
+$(REUSE_BIN): tools/reuse/requirements.txt
+	$(PYTHON) -m venv "$(REUSE_VENV)"
+	"$(REUSE_VENV)/bin/python" -m pip install --disable-pip-version-check \
+		--require-hashes --requirement tools/reuse/requirements.txt
+
 .PHONY: docs-check
 docs-check: ## Build documentation with warnings treated as errors
 	mkdocs build --strict
@@ -197,12 +209,12 @@ mod-verify: ## Verify every module is tidy and internally consistent
 # ---- CI ----
 
 .PHONY: ci
-ci: mod-verify fmt-check vet test ## Run core module, format, vet, and test gates
+ci: mod-verify fmt-check vet reuse-lint test ## Run core module, format, license, vet, and test gates
 	@echo ""
 	@echo "CI passed."
 
 .PHONY: ci-full
-ci-full: mod-verify fmt-check vet-all reproducible-build-check test test-race test-integration test-cloud test-branch-cover ## Full CI including reproducibility, coverage, race, integration, and cloud consumer tests
+ci-full: mod-verify fmt-check vet-all reuse-lint reproducible-build-check test test-race test-integration test-cloud test-branch-cover ## Full CI including licensing, reproducibility, coverage, race, integration, and cloud consumer tests
 	@echo ""
 	@echo "Full CI passed."
 

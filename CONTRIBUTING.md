@@ -41,6 +41,7 @@ Before submitting a PR, run:
 ```bash
 make mod-verify   # every module is tidy and checksummed
 make lint         # fmt-check + vet + golangci-lint
+make reuse-lint   # machine-readable copyright and license coverage
 make ci-full      # core, race, integration, and cloud consumer tests
 make vulncheck    # govulncheck for the core module
 make docs-check
@@ -54,6 +55,18 @@ All checks must pass. Target 90%+ test coverage for new code.
 - All exported types, functions, and methods must have doc comments starting with the name
 - Run `gofmt -s` before committing (or `make fmt`)
 - No `golangci-lint` warnings allowed
+
+## Licensing metadata
+
+Confii follows the REUSE Specification 3.3. Repository-authored material is
+licensed under MIT and must retain its embedded SPDX header or be covered by
+`REUSE.toml`. Run `make reuse-lint` before submitting changes.
+
+Do not place third-party material under the repository-wide MIT fallback. A
+contribution that imports or adapts third-party material must preserve its
+copyright and license information, add the corresponding canonical license
+text under `LICENSES/`, and add a narrower `REUSE.toml` annotation where
+needed. Reviewers must be able to trace the origin and redistribution terms.
 
 ## Testing Policy
 
