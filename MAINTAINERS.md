@@ -3,7 +3,7 @@
 | GitHub account | Role |
 | --- | --- |
 | [@confiify](https://github.com/confiify) | Lead maintainer; releases, security response, repository administration, roadmap decisions |
-| [@qatoolist](https://github.com/qatoolist) | Reviewing maintainer; independent approval, quality gates, release-readiness review |
+| [@qatoolist](https://github.com/qatoolist) | Reviewing maintainer; approval, quality gates, release-readiness review |
 
 For general help, use the channels in [SUPPORT.md](SUPPORT.md). Report
 vulnerabilities through the private process in [SECURITY.md](SECURITY.md), not

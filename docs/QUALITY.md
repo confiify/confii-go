@@ -36,6 +36,7 @@ The required suite includes:
 - isolated consumer tests for every cloud-provider build tag;
 - short fuzz campaigns for parsers, merging, normalization, and secret
   resolution;
+- aggregate statement and condition/branch coverage gates;
 - static analysis, vulnerability analysis, dependency review, and secret
   scanning; and
 - documentation builds with warnings treated as errors.
@@ -53,11 +54,11 @@ and integration jobs. `scripts/check-statement-coverage.sh` computes and
 enforces the aggregate threshold in CI. Coverage must not drop below the
 threshold to merge.
 
-Go's standard coverage tooling measures statement coverage, not branch
-coverage. The Gold branch-coverage criterion is therefore not applicable until
-a maintained FLOSS tool can reliably measure Go branch coverage. Negative,
-table-driven, integration, fuzz, and race tests provide complementary path
-coverage in the meantime.
+The BSD-licensed Gobco tool measures Go condition/branch coverage. CI pins
+Gobco v1.3.4 and requires at least 80% aggregate coverage across the same
+non-example shipping scope. The 2026-07-25 audit measured more than 87% across
+2,218 conditions. Negative, table-driven, integration, fuzz, and race tests
+provide complementary path coverage.
 
 ## Builds and reproducibility
 
@@ -67,10 +68,18 @@ Dependencies and checksums are declared in each module's `go.mod` and `go.sum`.
 `make mod-verify` independently verifies every module.
 
 `make reproducible-build-check` builds the CLI twice from the same source and
-declared inputs in separate clean output directories using `-trimpath`, a fixed
-version string, and disabled VCS stamping, then requires byte-for-byte equality.
-CI runs this check on every proposed change. Release archives also use a fixed
+declared inputs using the exact `go.mod` toolchain, fixed Linux/amd64 target,
+disabled CGO, independent build caches, `-trimpath`, a fixed version string,
+and disabled VCS stamping, then requires byte-for-byte equality. These inputs
+let another party reproduce the same binary with the documented command. CI
+runs this check on every proposed change. Release archives also use a fixed
 source commit timestamp and a pinned GoReleaser version.
+
+`make test-branch-cover` uses the BSD-licensed Gobco v1.3.4 condition-coverage
+tool across every non-example shipping package, including the CLI. CI installs
+that pinned version into `bin/tools` and rejects aggregate condition/branch
+coverage below 80%. The Make target installs the same pinned tool automatically
+for local runs.
 
 ## Dependency lifecycle
 

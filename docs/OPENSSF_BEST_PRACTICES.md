@@ -27,6 +27,8 @@ Achieving Passing unlocks Silver; achieving Silver unlocks Gold.
 - byte-for-byte reproducible CLI build verification;
 - an enforced 90% statement-coverage threshold across non-example shipping
   code, including the CLI;
+- an enforced 80% condition/branch-coverage threshold using pinned FLOSS
+  tooling across the same shipping-code scope;
 - signed tags, verified commits, checksums, and release provenance;
 - copyright and SPDX license statements in source and build automation; and
 - public, bounded `good first issue` tasks for new contributors.
@@ -38,7 +40,7 @@ sustained history. Repository text alone cannot make them true.
 
 | Criterion | Requirement before it can be marked Met |
 | --- | --- |
-| `access_continuity` | A second real maintainer has the knowledge and effective access needed to continue the project. |
+| `access_continuity` | The project can continue issues, changes, and releases within one week after losing any one person, through another real maintainer or a tested access/legal-rights escrow plan. |
 | `bus_factor` | At least two people—not merely two accounts controlled by one person—can maintain and release the project. |
 | `contributors_unassociated` | At least two significant contributors are unaffiliated under the badge definition. |
 | `two_person_review` | Public history demonstrates that another person reviewed at least 50% of non-trivial changes before acceptance. |

@@ -7,6 +7,10 @@ MODULE   := github.com/confiify/confii-go
 CLI_PKG  := ./confii
 CLI_BIN  := confii
 BUILD_DIR := bin
+TOOLS_DIR := $(BUILD_DIR)/tools
+
+GOBCO_VERSION := v1.3.4
+GOBCO_BIN := $(abspath $(TOOLS_DIR)/gobco)
 
 # Build tags for cloud providers
 TAGS_AWS   := aws
@@ -87,6 +91,14 @@ test-cover: ## Run tests with coverage report
 test-cover-html: test-cover ## Generate and open HTML coverage report
 	$(GO) tool cover -html=coverage.out -o coverage.html
 	@echo "Coverage report: coverage.html"
+
+.PHONY: test-branch-cover
+test-branch-cover: $(GOBCO_BIN) ## Enforce 80% condition/branch coverage with pinned Gobco
+	GOBCO="$(GOBCO_BIN)" sh scripts/check-branch-coverage.sh
+
+$(GOBCO_BIN):
+	@mkdir -p "$(@D)"
+	GOBIN="$(abspath $(@D))" $(GO) install github.com/rillig/gobco@$(GOBCO_VERSION)
 
 .PHONY: test-cloud
 test-cloud: ## Test all cloud providers in an isolated consumer module
@@ -184,7 +196,7 @@ ci: mod-verify fmt-check vet test ## Run core module, format, vet, and test gate
 	@echo "CI passed."
 
 .PHONY: ci-full
-ci-full: mod-verify fmt-check vet-all reproducible-build-check test test-race test-integration test-cloud ## Full CI including reproducibility, race, integration, and cloud consumer tests
+ci-full: mod-verify fmt-check vet-all reproducible-build-check test test-race test-integration test-cloud test-branch-cover ## Full CI including reproducibility, coverage, race, integration, and cloud consumer tests
 	@echo ""
 	@echo "Full CI passed."
 
