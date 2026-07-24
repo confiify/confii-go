@@ -45,19 +45,46 @@ This evidence supports the OpenSSF `access_continuity` and `bus_factor`
 criteria. It does not by itself establish the separate contribution-history or
 review-ratio criteria below.
 
-## Criteria not yet claimed
+## Gold readiness snapshot
 
 The following criteria depend on people, access, authentication methods, or
 sustained history. Repository text alone cannot make them true.
 
-| Criterion | Requirement before it can be marked Met |
-| --- | --- |
-| `contributors_unassociated` | At least two significant contributors are unaffiliated under the badge definition. |
-| `two_person_review` | Public history demonstrates that another person reviewed at least 50% of non-trivial changes before acceptance. |
-| `secure_2FA` | Privileged maintainers confirm they use phishing-resistant or app/hardware-based 2FA rather than SMS-only authentication. This is a Gold recommendation, not a mandatory Gold criterion. |
+| Criterion | Current evidence | Requirement before it can be marked Met |
+| --- | --- | --- |
+| `contributors_unassociated` | The public record does not yet establish two qualifying contributors. | At least two significant contributors are unaffiliated under the badge definition. |
+| `two_person_review` | The 2026-07-25 baseline found 1 qualifying independently reviewed PR among 15 non-trivial merged PRs. | Public history demonstrates that another person reviewed at least 50% of non-trivial changes before acceptance. |
+| `secure_2FA` | The continuity maintainer confirmed non-SMS 2FA; every privileged account has not yet been re-attested for this Gold review. | Privileged maintainers confirm they use authenticator-app, passkey, or hardware-backed 2FA rather than SMS-only authentication. This is a Gold recommendation, not a mandatory Gold criterion. |
+| `hardened_site` | The GitHub Pages site does not return CSP, `X-Content-Type-Options`, or `X-Frame-Options`. A deployable policy and live test are in [`HOSTING.md`](HOSTING.md). | The production documentation URL passes `make docs-live-headers` and a browser smoke test. |
 
 Confii will not mark these criteria Met until the public or maintainer-verified
 evidence supports them. This distinction keeps the badge credible.
+
+## Independent-review baseline
+
+The baseline counts merged, non-trivial pull requests rather than commits or
+accounts. A review qualifies only when it is submitted before merge by a
+different person who evaluated the final material revision. Automated reviews,
+self-review through another account, and post-merge comments do not qualify.
+
+As of 2026-07-25, PR #63 is the sole qualifying review in the 15-PR baseline.
+PRs #15 and #17 were excluded as test-only administrative changes. If every
+subsequent PR qualifies, 13 additional substantive reviewed PRs are needed to
+reach 50%: `(1 + 13) / (15 + 13) = 50%`. This is a planning baseline, not a
+request to create artificial pull requests. The ratio is recalculated from the
+public history at each release.
+
+The default CODEOWNERS set includes the independently controlled lead and
+continuity maintainers. Repository rules must require code-owner approval and
+dismiss stale approvals so the author cannot satisfy routine review alone.
+
+## Work allocation
+
+Repository-controlled work includes the review policy, PR evidence fields,
+static-site security policy, build validation, public roadmap, and honest badge
+proposals. Maintainer-controlled work includes confirming account 2FA methods,
+enabling the matching repository rule, provisioning hardened hosting with
+continuity access, and inviting genuine unaffiliated participation.
 
 ## Review cadence
 

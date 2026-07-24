@@ -17,6 +17,13 @@ verified commit signature, and approval from a code owner other than the last
 pusher. Maintainers aim for consensus and record material design decisions in
 the relevant issue or pull request.
 
+For routine changes, "independent review" means review by a different person,
+not merely a second account controlled by the author. The reviewer evaluates
+the final material revision before merge. A later comment, an automated check,
+or approval of a revision that was materially replaced is not counted as
+independent acceptance. Release evidence records the qualifying review history
+without treating emergency continuity bypasses as routine reviews.
+
 When consensus cannot be reached, the lead maintainer makes the final decision
 after considering the technical evidence, user impact, compatibility, security,
 and long-term maintenance cost. Anyone may ask for reconsideration by opening a

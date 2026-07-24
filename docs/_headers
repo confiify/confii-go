@@ -1,0 +1,11 @@
+# Copyright 2026 The Confii Contributors
+# SPDX-License-Identifier: MIT
+# Security headers for static hosts that support the Cloudflare Pages
+# _headers format. GitHub Pages ignores this file; see HOSTING.md.
+/*
+  Content-Security-Policy: default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: https://api.securityscorecards.dev https://codecov.io https://github.com https://img.shields.io https://pkg.go.dev https://raw.githubusercontent.com https://www.bestpractices.dev; connect-src 'self' https://api.github.com; worker-src 'self' blob:; manifest-src 'self'; upgrade-insecure-requests
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), geolocation=(), microphone=()
+  Strict-Transport-Security: max-age=31536000; includeSubDomains

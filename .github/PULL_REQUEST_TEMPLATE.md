@@ -26,6 +26,13 @@ Brief description of what this PR does.
 - [ ] Doc comments added for new exported symbols
 - [ ] CHANGELOG.md updated (if user-facing change)
 - [ ] Every commit includes my DCO `Signed-off-by` trailer
+- [ ] A different person reviewed the final material change before merge
+
+## Independent review evidence
+
+- Reviewer:
+- Final material change reviewed at commit:
+- Review completed before merge: [ ]
 
 ## Related issues
 

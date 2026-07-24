@@ -16,9 +16,12 @@ tag through the protected continuity namespace. The evidence is recorded below.
 
 The public maintainer roster is in
 [`MAINTAINERS.md`](https://github.com/confiify/confii-go/blob/main/MAINTAINERS.md).
-Each maintainer uses an individual GitHub account, individual authentication
-and signing keys, and non-SMS two-factor authentication. Private keys,
-passwords, recovery codes, and one-time-password seeds are never shared.
+Each maintainer uses an individual GitHub account and individual authentication
+and signing keys. The continuity maintainer has confirmed non-SMS two-factor
+authentication. Gold-wide verification of every privileged account's 2FA
+method is tracked separately and is not inferred from repository access.
+Private keys, passwords, recovery codes, and one-time-password seeds are never
+shared.
 
 The continuity maintainer needs only the repository capabilities required to:
 
