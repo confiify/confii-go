@@ -7,10 +7,10 @@ testing, signature, or provenance requirements.
 
 ## Activation status
 
-Repository access and emergency protections are configured for `qualityCOE`,
-the continuity maintainer. Final activation requires the remaining release dry
-run and recorded drill below. Until those checks complete, the project continues
-to report the OpenSSF `access_continuity` and `bus_factor` criteria as unmet.
+The continuity arrangement is active. On 2026-07-25, `qualityCOE` independently
+reviewed the continuity controls, entered the protected `release` environment,
+completed the non-publishing release dry run, and pushed a GitHub-verified signed
+tag through the protected continuity namespace. The evidence is recorded below.
 
 ## People and access
 
@@ -42,11 +42,12 @@ active and after any relevant access change:
 - [x] GitHub recognizes the candidate's commit and tag signing key;
 - [x] the candidate confirmed non-SMS two-factor authentication is enabled;
 - [x] branch and release-tag rules permit the documented emergency path;
-- [ ] the candidate can inspect Actions results and repository security alerts
-      needed to evaluate a change;
-- [ ] the candidate completed the release procedure from a clean checkout;
-- [ ] a continuity drill was completed without sharing credentials; and
-- [ ] the drill result and evidence links were reviewed publicly.
+- [x] the candidate can inspect Actions results and required security-check
+      results needed to evaluate a change;
+- [x] the candidate completed the release dry-run procedure from clean
+      checkouts;
+- [x] a continuity drill was completed without sharing credentials; and
+- [x] the drill result and evidence links were reviewed publicly.
 
 ## Emergency procedure
 
@@ -88,7 +89,13 @@ or expose keys and recovery material.
 
 | Date | Maintainer | Result | Public evidence |
 | --- | --- | --- | --- |
-| Pending | `qualityCOE` | Not run | [Tracking issue #60](https://github.com/confiify/confii-go/issues/60) |
+| 2026-07-25 | `qualityCOE` | Passed | [Reviewed controls in PR #63](https://github.com/confiify/confii-go/pull/63), [successful release dry run](https://github.com/confiify/confii-go/actions/runs/30125736952), [verified signed tag object](https://api.github.com/repos/confiify/confii-go/git/tags/e8d28df8f6b2722f67f52577b2d091d1aa5424c3), and [audit narrative in issue #60](https://github.com/confiify/confii-go/issues/60) |
+
+The drill demonstrated that the independently controlled continuity maintainer
+can review a proposed change, pass the protected release environment, run module
+and race tests, build and checksum a GoReleaser snapshot without publishing,
+and create a verified signed annotated tag despite protected tag creation. The
+tag targets the same verified merge commit exercised by the workflow.
 
 The readiness checklist and drill are repeated at least annually, after a
 maintainer or protection change, and before claiming continuity evidence that

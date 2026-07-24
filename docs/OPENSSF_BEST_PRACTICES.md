@@ -33,6 +33,18 @@ Achieving Passing unlocks Silver; achieving Silver unlocks Gold.
 - copyright and SPDX license statements in source and build automation; and
 - public, bounded `good first issue` tasks for new contributors.
 
+## Human continuity evidence
+
+The project has two independently controlled maintainers with individual
+authentication, signing keys, and non-SMS 2FA. The continuity maintainer has
+write access, a pull-request-only emergency branch bypass, protected tag
+authority, and release-environment review access. The procedure and successful
+2026-07-25 drill are recorded in [`CONTINUITY.md`](CONTINUITY.md).
+
+This evidence supports the OpenSSF `access_continuity` and `bus_factor`
+criteria. It does not by itself establish the separate contribution-history or
+review-ratio criteria below.
+
 ## Criteria not yet claimed
 
 The following criteria depend on people, access, authentication methods, or
@@ -40,19 +52,12 @@ sustained history. Repository text alone cannot make them true.
 
 | Criterion | Requirement before it can be marked Met |
 | --- | --- |
-| `access_continuity` | The project can continue issues, changes, and releases within one week after losing any one person, through another real maintainer or a tested access/legal-rights escrow plan. |
-| `bus_factor` | At least two people—not merely two accounts controlled by one person—can maintain and release the project. |
 | `contributors_unassociated` | At least two significant contributors are unaffiliated under the badge definition. |
 | `two_person_review` | Public history demonstrates that another person reviewed at least 50% of non-trivial changes before acceptance. |
 | `secure_2FA` | Privileged maintainers confirm they use phishing-resistant or app/hardware-based 2FA rather than SMS-only authentication. This is a Gold recommendation, not a mandatory Gold criterion. |
 
 Confii will not mark these criteria Met until the public or maintainer-verified
 evidence supports them. This distinction keeps the badge credible.
-
-The access onboarding and verification procedure is documented in
-[`CONTINUITY.md`](CONTINUITY.md). A named candidate or written procedure is not
-itself proof of continuity: its readiness checklist and drill record must be
-complete before `access_continuity` or `bus_factor` is changed to Met.
 
 ## Review cadence
 
