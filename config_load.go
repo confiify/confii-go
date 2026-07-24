@@ -31,6 +31,8 @@ func (c *Config[T]) load(ctx context.Context) error {
 // before the Config is published.
 func (c *Config[T]) loadSelected(ctx context.Context, selected map[string]bool) error {
 	var configs []map[string]any
+	var resolvedConfigs []map[string]any
+	usesEnvironmentFiles := false
 	if len(c.loaderLayers) != len(c.loaders) {
 		c.loaderLayers = make([]map[string]any, len(c.loaders))
 		c.loaderDependencies = make([][]string, len(c.loaders))
@@ -38,13 +40,20 @@ func (c *Config[T]) loadSelected(ctx context.Context, selected map[string]bool) 
 	}
 
 	for i, l := range c.loaders {
+		selectedFile, isEnvironmentFile := l.(interface{ selectedEnvironmentFile() bool })
+		isEnvironmentFile = isEnvironmentFile && selectedFile.selectedEnvironmentFile()
+		usesEnvironmentFiles = usesEnvironmentFiles || isEnvironmentFile
 		shouldLoad := selected == nil || selected[l.Source()]
 		if !shouldLoad {
 			if c.loaderLayers[i] != nil {
 				layer := copyMap(c.loaderLayers[i])
 				resolvedLayer := c.envHandler.Resolve(layer, c.env)
+				if isEnvironmentFile {
+					resolvedLayer = layer
+				}
 				c.sourceTracker.TrackConfig(resolvedLayer, l.Source(), loaderTypeName(l), c.env, "")
 				configs = append(configs, layer)
+				resolvedConfigs = append(resolvedConfigs, resolvedLayer)
 			}
 			continue
 		}
@@ -115,6 +124,12 @@ func (c *Config[T]) loadSelected(ctx context.Context, selected map[string]bool) 
 		// because the loader source is already the right answer.
 		loaderType := loaderTypeName(l)
 		resolvedLayer := c.envHandler.Resolve(composed, c.env)
+		if isEnvironmentFile {
+			// This file was already selected for the active environment;
+			// its contents are flat application configuration, even if a
+			// legitimate key happens to equal the environment name.
+			resolvedLayer = composed
+		}
 		c.sourceTracker.TrackConfig(resolvedLayer, l.Source(), loaderType, c.env, "")
 
 		// Track file for incremental reload.
@@ -126,10 +141,20 @@ func (c *Config[T]) loadSelected(ctx context.Context, selected map[string]bool) 
 		c.loaderLayers[i] = copyMap(composed)
 		c.loaderDependencies[i] = append([]string(nil), dependencies...)
 		configs = append(configs, composed)
+		resolvedConfigs = append(resolvedConfigs, resolvedLayer)
 	}
 
 	c.mergedConfig = merge.MergeAll(c.merger, configs...)
-	c.envConfig = c.envHandler.Resolve(c.mergedConfig, c.env)
+	if usesEnvironmentFiles {
+		// Resolve every other source independently, then merge all resolved
+		// contributions in loader order. This lets an environment_files
+		// source coexist with section-based files, environment variables,
+		// and remote loaders without the final section resolver discarding
+		// their flat keys.
+		c.envConfig = merge.MergeAll(c.merger, resolvedConfigs...)
+	} else {
+		c.envConfig = c.envHandler.Resolve(c.mergedConfig, c.env)
+	}
 
 	return nil
 }

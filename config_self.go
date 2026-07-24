@@ -125,16 +125,12 @@ func applySelfConfig(opts *options) error {
 		opts.Logger = slog.New(handler)
 	}
 
-	// `sources` appends a declarative loader chain. Each entry is a
-	// {type, path|prefix, ...} map. Honors the `loaders` explicitlySet
-	// flag with the same "skip when explicit" semantics as default_files,
-	// so explicit code (WithLoaders / Builder.AddLoader) wins.
+	// Preserve declarative sources until New has resolved EnvSwitcher. The
+	// environment_files source needs the final active environment, and
+	// deferring the complete list keeps mixed source ordering intact.
+	// Explicit code (WithLoaders / Builder.AddLoader) still wins.
 	if !opts.isSet("loaders") && len(settings.Sources) > 0 {
-		for _, src := range settings.Sources {
-			if err := appendSelfConfigSource(opts, src); err != nil {
-				return err
-			}
-		}
+		opts.selfConfigSources = append([]map[string]any(nil), settings.Sources...)
 	}
 
 	// `secrets` installs a built-in secret-resolution hook from a
@@ -190,6 +186,13 @@ func appendSelfConfigSource(opts *options, src map[string]any) error {
 	rawType, _ := src["type"].(string)
 	t := strings.ToLower(strings.TrimSpace(rawType))
 	switch t {
+	case "environment_files", "environment-files":
+		loaders, err := buildEnvironmentFileLoaders(opts, src)
+		if err != nil {
+			return err
+		}
+		opts.Loaders = append(opts.Loaders, loaders...)
+		return nil
 	case "yaml", "yml", "json", "toml", "ini", "cfg", "envfile":
 		path, _ := src["path"].(string)
 		if path == "" {
@@ -255,7 +258,7 @@ func appendSelfConfigSource(opts *options, src map[string]any) error {
 		return &ConfigError{
 			Op: "ApplySelfConfig",
 			Err: fmt.Errorf(
-				"%w: unsupported self-config source type %q (supported: yaml, yml, json, toml, ini, cfg, env, envfile, environment)",
+				"%w: unsupported self-config source type %q (supported: environment_files, yaml, yml, json, toml, ini, cfg, env, envfile, environment)",
 				ErrConfigLoad, rawType,
 			),
 		}

@@ -167,6 +167,27 @@ default_files:
   - config/dev.yaml
 ```
 
+For projects that keep one file per environment, opt in with an
+`environment_files` source instead of hard-coding the selected file:
+
+```yaml
+# .confii.yaml
+default_environment: development
+env_switcher: APP_ENV
+sources:
+  - type: environment_files
+    search_paths: [config, .]
+    default_file: default.yaml
+    environment_file: "{environment}.yaml"
+```
+
+Confii loads the first `default.yaml` it finds, then the first file matching
+the selected environment (for example `config/production.yaml`). The
+environment file overrides the defaults. This mode is explicit: a normal
+`type: yaml` source such as `application.yaml` keeps the existing top-level
+`default` / `production` section behavior and never triggers named-file
+searching.
+
 Settings apply with 3-tier priority: **explicit code argument > self-config file > built-in default**. Search order: CWD (`confii.*`, `.confii.*`), then `~/.config/confii/`.
 
 > **Full example:** [`examples/self-config/`](examples/self-config/main.go)

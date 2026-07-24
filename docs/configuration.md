@@ -68,6 +68,12 @@ The first file found wins:
 
     # Declarative sources (alternative to default_files)
     sources:
+      - type: environment_files
+        search_paths: [config, .]
+        default_file: default.yaml
+        environment_file: "{environment}.yaml"
+        default_required: false
+        environment_required: true
       - type: yaml
         path: config/base.yaml
       - type: json
@@ -142,13 +148,72 @@ The first file found wins:
 | `debug_mode` | `bool` | `false` | Enable full source tracking and override history |
 | `on_error` | `string` | `"raise"` | Error policy: `raise`, `warn`, or `ignore` |
 | `log_level` | `string` | `""` | Log level for Confii's internal logger |
-| `sources` | `[]map` | `[]` | Declarative source definitions |
+| `sources` | `[]map` | `[]` | Ordered declarative source definitions, including opt-in `environment_files` discovery |
 | `secrets` | `map` | `{}` | Declarative secret store configuration |
 
 !!! tip "When to use self-config"
     Self-configuration files are ideal for team-wide defaults that you commit to
     version control. Individual developers or CI pipelines can override specific
     settings via constructor options in code.
+
+#### Named Environment Files
+
+Use an `environment_files` source when a project stores defaults and each
+deployment environment in separate files:
+
+```text
+project/
+├── .confii.yaml
+└── config/
+    ├── default.yaml
+    ├── development.yaml
+    ├── staging.yaml
+    └── production.yaml
+```
+
+```yaml title=".confii.yaml"
+default_environment: development
+env_switcher: APP_ENV
+
+sources:
+  - type: environment_files
+    search_paths:
+      - config
+      - .
+    default_file: default.yaml
+    environment_file: "{environment}.yaml"
+    default_required: false
+    environment_required: true
+```
+
+The active environment is resolved with the normal precedence: explicit
+`WithEnv`, then the value named by `env_switcher`, then
+`default_environment`. Confii searches each role independently. With the
+configuration above it:
+
+1. Loads the first `default.yaml` found in `config/`, then the project root.
+2. Loads the first `{environment}.yaml` found in the same search order.
+3. Deep-merges the environment layer over the default layer.
+
+Relative search paths are resolved from `WithWorkingDir`, or from the
+self-config working directory when no explicit working directory is supplied.
+Absolute search paths are also accepted. Named files support the same formats
+as declarative file sources: YAML, JSON, TOML, INI/CFG, and `.env`; change the
+two filename patterns accordingly.
+
+`default_required` defaults to `false`. `environment_required` defaults to
+`true` when an environment is selected; when no environment is selected, only
+the optional/default role is considered. Environment names are restricted to
+letters, digits, `.`, `_`, and `-` and cannot contain `..`, path separators, or
+other traversal characters.
+
+This feature does not change existing loading modes:
+
+- `type: yaml` with an `application.yaml` containing top-level `default`,
+  `development`, or `production` sections continues to resolve those sections.
+- `default_files`, other declarative sources, explicit `WithLoaders`, and
+  builder-provided loaders retain their existing precedence and behavior.
+- Explicit loaders suppress self-config sources, as before.
 
 ---
 

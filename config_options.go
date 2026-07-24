@@ -103,6 +103,12 @@ type options struct {
 	OnError          ErrorPolicy
 	DebugMode        bool
 	Logger           *slog.Logger
+
+	// selfConfigSources holds declarative `.confii.*` sources until the
+	// active environment has been resolved. Most source types do not depend
+	// on the environment, but `environment_files` does; deferring the entire
+	// ordered list preserves source precedence when the two kinds are mixed.
+	selfConfigSources []map[string]any
 	// SecretHook is a context-aware hook registered on the Config's hook
 	// processor at construction time so secret placeholders (for example
 	// ${secret:db/password}) are resolved during value access. It is the

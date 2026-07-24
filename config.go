@@ -149,6 +149,15 @@ func New[T any](ctx context.Context, cfgOpts ...Option) (*Config[T], error) {
 		}
 	}
 
+	// Declarative sources are materialized only after environment selection.
+	// This is observable only for the opt-in `environment_files` source;
+	// existing source types retain their previous order and behavior.
+	for _, src := range opts.selfConfigSources {
+		if err := appendSelfConfigSource(&opts, src); err != nil {
+			return nil, err
+		}
+	}
+
 	// Step 3: Set up merger.
 	// An AdvancedMerger is required whenever the caller supplies a default
 	// merge strategy OR a non-empty per-path strategy map. Previously the

@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Opt-in `environment_files` self-config source for projects that keep
+  `default` and environment overrides in separate files. It supports ordered
+  search paths, configurable filename templates, required/optional roles,
+  safe environment-name validation, source introspection, and reload through
+  the existing loader pipeline without changing section-based single-file or
+  explicit-loader behavior.
+
 ## [1.1.0] - 2026-07-23
 
 This release is a defensive-hardening pass. It strengthens the
