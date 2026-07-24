@@ -1,3 +1,6 @@
+// Copyright 2026 The Confii Contributors
+// SPDX-License-Identifier: MIT
+
 package dictutil
 
 // V-03 (Wave 23) — Negative tests for the reflection-based DeepCopyValue.

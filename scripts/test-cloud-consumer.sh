@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright 2026 The Confii Contributors
+# SPDX-License-Identifier: MIT
 
 # Verify cloud-tagged packages from the same module shape an actual consumer
 # uses. The core and cloud modules are replaced with their local checkouts;

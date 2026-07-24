@@ -1,3 +1,6 @@
+// Copyright 2026 The Confii Contributors
+// SPDX-License-Identifier: MIT
+
 // Package main demonstrates type-safe configuration access using Go generics.
 // Config[T] decodes and validates the config into a strongly-typed struct.
 package main

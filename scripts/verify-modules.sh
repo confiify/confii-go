@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright 2026 The Confii Contributors
+# SPDX-License-Identifier: MIT
 
 # Verify that every publishable module is tidy without requiring release tags
 # to exist first. Nested modules are checked through temporary modfiles whose

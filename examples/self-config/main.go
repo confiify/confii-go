@@ -1,3 +1,6 @@
+// Copyright 2026 The Confii Contributors
+// SPDX-License-Identifier: MIT
+
 // Package main demonstrates Confii's self-configuration feature.
 // Confii reads its own settings from a .confii.yaml file before any
 // user loaders run. Settings are applied with 3-tier priority:

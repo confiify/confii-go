@@ -1,3 +1,6 @@
+// Copyright 2026 The Confii Contributors
+// SPDX-License-Identifier: MIT
+
 // Package hook provides a thread-safe hook processor for transforming
 // configuration values during access.
 package hook

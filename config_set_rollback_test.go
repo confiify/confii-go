@@ -1,3 +1,6 @@
+// Copyright 2026 The Confii Contributors
+// SPDX-License-Identifier: MIT
+
 package confii_test
 
 // F-Set-RollbackFidelity (Wave 17) coverage for Config.Set's failure-path

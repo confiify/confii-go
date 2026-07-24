@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Security
+
+- Enforce at least 80% condition/branch coverage across non-example shipping
+  packages using the pinned BSD-licensed Gobco v1.3.4 tool, replacing an
+  incorrect assumption that Go branch coverage was not measurable.
+
+- Upgrade the OpenTelemetry API, metric, trace, and SDK modules used by the
+  opt-in cloud packages to v1.44.0, fixing GO-2026-5158 / CVE-2026-41178
+  (unbounded baggage-header parsing).
+
+### Added
+
+- Add machine-readable OpenSSF Best Practices evidence, a public roadmap,
+  consolidated quality policy, dated security review and assurance case,
+  reproducible-build verification, a mandatory 90% non-example statement
+  coverage gate, and per-source-file copyright/SPDX declarations.
+
 ## [1.2.0] - 2026-07-24
 
 ### Added

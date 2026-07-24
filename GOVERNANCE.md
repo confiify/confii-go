@@ -3,6 +3,12 @@
 Confii uses a maintainer-led governance model. The current roles and contact
 points are listed in [MAINTAINERS.md](MAINTAINERS.md).
 
+Maintainer responsibilities are separated between release/security ownership
+and review. At least two maintainers should retain sufficient
+repository knowledge and access to review, release, respond to vulnerabilities,
+and recover the project. `MAINTAINERS.md` is the public role record; actual
+access is reviewed after each maintainer change and during release preparation.
+
 ## Decisions
 
 Routine changes are proposed through pull requests and decided by maintainers

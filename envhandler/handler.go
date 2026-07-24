@@ -1,3 +1,6 @@
+// Copyright 2026 The Confii Contributors
+// SPDX-License-Identifier: MIT
+
 // Package envhandler resolves environment-specific configuration by merging
 // a "default" section with the active environment section.
 //

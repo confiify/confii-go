@@ -1,3 +1,6 @@
+// Copyright 2026 The Confii Contributors
+// SPDX-License-Identifier: MIT
+
 // Package sourcekind centralizes the predicate that classifies a Loader
 // source string as either a local-filesystem path or a non-file source
 // (HTTP/HTTPS URL, env-prefix marker, cloud-store identifier, secret-store

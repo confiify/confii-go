@@ -1,3 +1,6 @@
+// Copyright 2026 The Confii Contributors
+// SPDX-License-Identifier: MIT
+
 // Package main demonstrates both struct tag validation and JSON Schema
 // validation for configuration.
 package main

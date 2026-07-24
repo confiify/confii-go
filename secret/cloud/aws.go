@@ -1,3 +1,6 @@
+// Copyright 2026 The Confii Contributors
+// SPDX-License-Identifier: MIT
+
 //go:build aws
 
 // Package cloud provides cloud-based secret store implementations behind build tags.

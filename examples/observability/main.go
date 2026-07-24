@@ -1,3 +1,6 @@
+// Copyright 2026 The Confii Contributors
+// SPDX-License-Identifier: MIT
+
 // Package main demonstrates observability features: access metrics,
 // event emission, and monitoring config usage patterns.
 package main

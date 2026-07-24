@@ -1,3 +1,6 @@
+// Copyright 2026 The Confii Contributors
+// SPDX-License-Identifier: MIT
+
 // Package main demonstrates loading configuration from multiple sources.
 // Later loaders override earlier ones. Environment variables can also be used.
 package main

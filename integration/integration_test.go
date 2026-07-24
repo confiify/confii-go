@@ -1,3 +1,6 @@
+// Copyright 2026 The Confii Contributors
+// SPDX-License-Identifier: MIT
+
 // Package integration contains end-to-end tests that exercise confii
 // the way a real consumer would: import the library, load real config files,
 // and verify the full pipeline works. No mocks or stubs.

@@ -1,3 +1,6 @@
+// Copyright 2026 The Confii Contributors
+// SPDX-License-Identifier: MIT
+
 package confii_test
 
 // V-05 / V-06 / V-08 (Wave 24) — Adversarial tests for the second-wave

@@ -1,3 +1,6 @@
+// Copyright 2026 The Confii Contributors
+// SPDX-License-Identifier: MIT
+
 // Package watch provides file-watching capabilities for automatic config reloading.
 package watch
 

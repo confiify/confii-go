@@ -1,3 +1,6 @@
+// Copyright 2026 The Confii Contributors
+// SPDX-License-Identifier: MIT
+
 //go:build vault
 
 // Package main demonstrates Vault KV plus interactive OIDC authentication.

@@ -1,3 +1,6 @@
+// Copyright 2026 The Confii Contributors
+// SPDX-License-Identifier: MIT
+
 // Package main demonstrates Confii's introspection capabilities:
 // Explain, Layers, Schema, source tracking, and debug reports.
 package main

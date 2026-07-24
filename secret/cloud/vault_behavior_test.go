@@ -1,3 +1,6 @@
+// Copyright 2026 The Confii Contributors
+// SPDX-License-Identifier: MIT
+
 //go:build vault
 
 // Behavior tests for the HashiCorp Vault secret store.

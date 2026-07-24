@@ -4,8 +4,8 @@
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 1.1.x   | Yes                |
-| < 1.1   | No                 |
+| 1.2.x   | Yes                |
+| < 1.2   | No                 |
 
 ## Reporting a Vulnerability
 
@@ -35,6 +35,12 @@ Include the following in your report:
 - **Initial assessment:** Within 5 business days
 - **Fix timeline:** We aim to release a patch within 30 days for confirmed vulnerabilities
 - **Disclosure:** We will coordinate public disclosure with you after a fix is available
+
+Confirmed critical vulnerabilities are fixed before the next release. Other
+confirmed vulnerabilities are targeted within 60 days and normally within 30
+days. If a deadline cannot be met safely, maintainers document the reason,
+mitigations, and revised disclosure plan with the reporter. With permission,
+reporters are credited in the advisory and release notes.
 
 ## Scope
 
@@ -78,6 +84,8 @@ caller must remember to enable.
 
 For the design reasoning behind these mitigations, see
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+The dated boundary review and structured assurance argument are in
+[docs/SECURITY_REVIEW.md](docs/SECURITY_REVIEW.md).
 
 ### Memory-safety threats
 

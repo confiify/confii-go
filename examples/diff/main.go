@@ -1,3 +1,6 @@
+// Copyright 2026 The Confii Contributors
+// SPDX-License-Identifier: MIT
+
 // Package main demonstrates config diffing and drift detection.
 // Compare two Config instances or detect drift from an intended baseline.
 package main

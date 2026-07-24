@@ -1,3 +1,6 @@
+// Copyright 2026 The Confii Contributors
+// SPDX-License-Identifier: MIT
+
 // Package main demonstrates advanced merge strategies.
 // Different sections can use different strategies: replace, merge, append,
 // prepend, intersection, or union.

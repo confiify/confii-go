@@ -1,3 +1,6 @@
+// Copyright 2026 The Confii Contributors
+// SPDX-License-Identifier: MIT
+
 // Tests for D07 (fileAutoLoader skips D01 YAML normalization) and the
 // G19-residual scope (fileAutoLoader still YAML/JSON only). Each test
 // pins a distinct OBSERVABLE that fails under the pre-fix code: the

@@ -1,3 +1,6 @@
+// Copyright 2026 The Confii Contributors
+// SPDX-License-Identifier: MIT
+
 //go:build gcp
 
 // Package main demonstrates Google Cloud Storage and Secret Manager wiring.

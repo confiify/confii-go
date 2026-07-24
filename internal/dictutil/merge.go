@@ -1,3 +1,6 @@
+// Copyright 2026 The Confii Contributors
+// SPDX-License-Identifier: MIT
+
 // Package dictutil provides utility functions for working with nested
 // map[string]any configuration dictionaries.
 package dictutil

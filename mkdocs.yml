@@ -1,3 +1,5 @@
+# Copyright 2026 The Confii Contributors
+# SPDX-License-Identifier: MIT
 site_name: Confii
 site_url: https://confiify.github.io/confii-go/
 site_description: Complete configuration management for Go
@@ -69,6 +71,9 @@ nav:
   - Examples: examples.md
   - FAQ: faq.md
   - Architecture: ARCHITECTURE.md
+  - Quality Policy: QUALITY.md
+  - Security Review: SECURITY_REVIEW.md
+  - OpenSSF Evidence: OPENSSF_BEST_PRACTICES.md
   - Changelog: changelog.md
   - Releasing: RELEASING.md
 

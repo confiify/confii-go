@@ -1,3 +1,6 @@
+// Copyright 2026 The Confii Contributors
+// SPDX-License-Identifier: MIT
+
 // Package selfconfig reads Confii's own configuration from dedicated
 // config files before user loaders run.
 //
