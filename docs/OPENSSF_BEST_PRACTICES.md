@@ -53,7 +53,7 @@ sustained history. Repository text alone cannot make them true.
 | Criterion | Current evidence | Requirement before it can be marked Met |
 | --- | --- | --- |
 | `contributors_unassociated` | The public record does not yet establish two qualifying contributors. | At least two significant contributors are unaffiliated under the badge definition. |
-| `two_person_review` | The 2026-07-25 ledger records 3 qualifying independently reviewed PRs among 17 non-trivial merged PRs. | Public history demonstrates that another person reviewed at least 50% of non-trivial changes before acceptance. |
+| `two_person_review` | The 2026-07-25 ledger records 5 qualifying independently reviewed PRs among 19 non-trivial merged PRs. | Public history demonstrates that another person reviewed at least 50% of non-trivial changes before acceptance. |
 | `secure_2FA` | **Met:** the people controlling `confiify`, `qatoolist`, and `qualityCOE` confirmed on 2026-07-25 that every privileged account uses an authenticator application and none relies on SMS-only 2FA. | Reconfirm after any privileged-account or authentication-method change. This is a Gold recommendation, not a mandatory Gold criterion. |
 | `hardened_site` | **Met:** <https://confii-go-docs.pages.dev/> passed `make docs-live-headers` on 2026-07-25 with nonpermissive CSP, MIME-sniffing protection, anti-framing, HSTS, referrer, and permissions policies. Deployment and repeatable-test evidence is in [`HOSTING.md`](HOSTING.md). | Repeat the live test and browser smoke test after any hosting or header-policy change. |
 
@@ -75,10 +75,12 @@ ledger is:
 | [#63](https://github.com/confiify/confii-go/pull/63) | `confiify` | `qualityCOE` | `cf379fe0ba4ff57843771b8abe41f4229f865aa7` | 2026-07-24 20:47:23 UTC; merged 20:47:58 UTC |
 | [#65](https://github.com/confiify/confii-go/pull/65) | `confiify` | `qualityCOE` | `ec1f15132333d81ae901c36f7d5f8b648a8fff6c` | 2026-07-24 21:42:12 UTC; merged 21:49:57 UTC |
 | [#66](https://github.com/confiify/confii-go/pull/66) | `confiify` | `qualityCOE` | `32667d45e0d3bfa007ec51625e025d10480964df` | 2026-07-24 21:54:31 UTC; merged 21:56:49 UTC |
+| [#67](https://github.com/confiify/confii-go/pull/67) | `confiify` | `qualityCOE` | `bbb0c22a6f34fb9a7159013b8c98c79c8b98ddd5` | 2026-07-24 22:00:46 UTC; merged 22:03:11 UTC |
+| [#68](https://github.com/confiify/confii-go/pull/68) | `confiify` | `qualityCOE` | `c6223a08a1d36e2d8436159ed7510724c54f569f` | 2026-07-24 22:22:01 UTC; merged 22:24:54 UTC |
 
-This establishes 3 qualifying reviews among 17 non-trivial merged PRs. If
-every subsequent PR qualifies, 11 additional substantive reviewed PRs are
-needed to reach 50%: `(3 + 11) / (17 + 11) = 50%`. This is a planning baseline,
+This establishes 5 qualifying reviews among 19 non-trivial merged PRs. If
+every subsequent PR qualifies, 9 additional substantive reviewed PRs are
+needed to reach 50%: `(5 + 9) / (19 + 9) = 50%`. This is a planning baseline,
 not a request to create artificial pull requests. The ratio is recalculated
 from the public history at each release.
 
