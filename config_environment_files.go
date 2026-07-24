@@ -48,7 +48,7 @@ func buildEnvironmentFileLoadersWithAbs(
 		return nil, err
 	}
 	if defaultPath != "" {
-		loaders = append(loaders, newEnvironmentFileLoader(defaultPath, opts))
+		loaders = append(loaders, newEnvironmentFileLoader(defaultPath, "default", opts))
 	} else if cfg.defaultRequired {
 		return nil, missingEnvironmentFileError("default", candidates)
 	}
@@ -67,7 +67,7 @@ func buildEnvironmentFileLoadersWithAbs(
 		return nil, err
 	}
 	if environmentPath != "" {
-		loaders = append(loaders, newEnvironmentFileLoader(environmentPath, opts))
+		loaders = append(loaders, newEnvironmentFileLoader(environmentPath, "environment", opts))
 	} else if cfg.environmentRequired {
 		return nil, missingEnvironmentFileError(fmt.Sprintf("environment %q", env), candidates)
 	}
@@ -80,11 +80,13 @@ func buildEnvironmentFileLoadersWithAbs(
 // flat data instead of passing it through the section-based resolver again.
 type environmentFileLoader struct {
 	file *fileAutoLoader
+	role string
 }
 
-func newEnvironmentFileLoader(path string, opts *options) Loader {
+func newEnvironmentFileLoader(path, role string, opts *options) Loader {
 	return &environmentFileLoader{
 		file: &fileAutoLoader{path: path, errorPolicy: opts.OnError, logger: opts.Logger},
+		role: role,
 	}
 }
 
@@ -95,6 +97,8 @@ func (l *environmentFileLoader) Load(ctx context.Context) (map[string]any, error
 }
 
 func (l *environmentFileLoader) selectedEnvironmentFile() bool { return true }
+
+func (l *environmentFileLoader) environmentFileRole() string { return l.role }
 
 func parseEnvironmentFilesSource(src map[string]any) (environmentFilesSource, error) {
 	cfg := environmentFilesSource{

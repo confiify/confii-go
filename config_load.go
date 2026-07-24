@@ -2,9 +2,13 @@ package confii
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"reflect"
+	"sort"
+	"strings"
 
+	"github.com/confiify/confii-go/internal/dictutil"
 	"github.com/confiify/confii-go/merge"
 )
 
@@ -33,6 +37,54 @@ func (c *Config[T]) loadSelected(ctx context.Context, selected map[string]bool) 
 	var configs []map[string]any
 	var resolvedConfigs []map[string]any
 	usesEnvironmentFiles := false
+	plan := SourcePlan{
+		Environment:    c.env,
+		Strategy:       c.opts.EnvironmentStrategy,
+		ConflictPolicy: c.opts.EnvironmentConflictPolicy,
+		Layers:         make([]SourcePlanLayer, len(c.loaders)),
+	}
+	writers := make(map[string][]environmentSourceWriter)
+	sawSectionedSource := false
+	sawNamedSource := false
+	var sourcePlanErr error
+	for i, loader := range c.loaders {
+		plan.Layers[i] = SourcePlanLayer{
+			Order:      i + 1,
+			Source:     loader.Source(),
+			LoaderType: loaderTypeName(loader),
+			Role:       sourcePlanRole(loader),
+		}
+	}
+	recordPlanLayer := func(index int, loader Loader, composed, resolved map[string]any, isEnvironmentFile bool) {
+		layer := &plan.Layers[index]
+		layer.Keys = append([]string(nil), dictutil.FlatKeys(resolved)...)
+		sort.Strings(layer.Keys)
+
+		family := ""
+		if isEnvironmentFile {
+			family = "named_files"
+			sawNamedSource = true
+			if roleLoader, ok := loader.(interface{ environmentFileRole() string }); ok {
+				layer.Role = roleLoader.environmentFileRole()
+			}
+		} else if c.envHandler.IsEnvironmentAware(composed, c.env) {
+			family = "sectioned"
+			sawSectionedSource = true
+			layer.Role = "sectioned"
+			if c.opts.EnvironmentStrategy == EnvironmentStrategyNamedFiles && sourcePlanErr == nil {
+				sourcePlanErr = environmentStrategyError(
+					"environment_strategy \"named_files\" detected environment sections in source " +
+						fmt.Sprintf("%q; use flat configuration or explicitly select \"hybrid\"", loader.Source()),
+				)
+			}
+		}
+
+		if family != "" {
+			for _, key := range layer.Keys {
+				writers[key] = append(writers[key], environmentSourceWriter{family: family, source: loader.Source()})
+			}
+		}
+	}
 	if len(c.loaderLayers) != len(c.loaders) {
 		c.loaderLayers = make([]map[string]any, len(c.loaders))
 		c.loaderDependencies = make([][]string, len(c.loaders))
@@ -51,6 +103,7 @@ func (c *Config[T]) loadSelected(ctx context.Context, selected map[string]bool) 
 				if isEnvironmentFile {
 					resolvedLayer = layer
 				}
+				recordPlanLayer(i, l, layer, resolvedLayer, isEnvironmentFile)
 				c.sourceTracker.TrackConfig(resolvedLayer, l.Source(), loaderTypeName(l), c.env, "")
 				configs = append(configs, layer)
 				resolvedConfigs = append(resolvedConfigs, resolvedLayer)
@@ -130,6 +183,7 @@ func (c *Config[T]) loadSelected(ctx context.Context, selected map[string]bool) 
 			// legitimate key happens to equal the environment name.
 			resolvedLayer = composed
 		}
+		recordPlanLayer(i, l, composed, resolvedLayer, isEnvironmentFile)
 		c.sourceTracker.TrackConfig(resolvedLayer, l.Source(), loaderType, c.env, "")
 
 		// Track file for incremental reload.
@@ -144,6 +198,13 @@ func (c *Config[T]) loadSelected(ctx context.Context, selected map[string]bool) 
 		resolvedConfigs = append(resolvedConfigs, resolvedLayer)
 	}
 
+	if sourcePlanErr != nil {
+		return sourcePlanErr
+	}
+	if plan.Strategy == EnvironmentStrategyAuto && sawSectionedSource {
+		plan.Strategy = EnvironmentStrategySectioned
+	}
+
 	c.mergedConfig = merge.MergeAll(c.merger, configs...)
 	if usesEnvironmentFiles {
 		// Resolve every other source independently, then merge all resolved
@@ -156,7 +217,36 @@ func (c *Config[T]) loadSelected(ctx context.Context, selected map[string]bool) 
 		c.envConfig = c.envHandler.Resolve(c.mergedConfig, c.env)
 	}
 
+	if c.opts.EnvironmentStrategy == EnvironmentStrategyHybrid {
+		if !sawNamedSource || !sawSectionedSource {
+			return environmentStrategyError("environment_strategy \"hybrid\" requires both a loaded environment_files layer and a section-based environment source")
+		}
+		plan.Conflicts = mixedEnvironmentConflicts(writers)
+		if len(plan.Conflicts) > 0 {
+			summary := environmentConflictSummary(plan.Conflicts)
+			switch c.opts.EnvironmentConflictPolicy {
+			case EnvironmentConflictError:
+				return environmentStrategyError("hybrid environment sources write the same keys: " + summary)
+			case EnvironmentConflictWarn:
+				c.logger.Warn("hybrid environment source conflicts", slog.String("conflicts", summary))
+			case EnvironmentConflictLastWins:
+				// Deliberately preserve declared loader precedence.
+			}
+		}
+	}
+	c.sourcePlan = cloneSourcePlan(plan)
+
 	return nil
+}
+
+func sourcePlanRole(loader Loader) string {
+	if roleLoader, ok := loader.(interface{ environmentFileRole() string }); ok {
+		return roleLoader.environmentFileRole()
+	}
+	if strings.HasPrefix(loader.Source(), "environment:") {
+		return "runtime"
+	}
+	return "flat"
 }
 
 // loaderTypeName returns the underlying type name of a Loader implementation,

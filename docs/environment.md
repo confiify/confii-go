@@ -129,6 +129,7 @@ separate-file mode explicitly in `.confii.yaml`:
 ```yaml
 default_environment: development
 env_switcher: APP_ENV
+environment_strategy: named_files
 sources:
   - type: environment_files
     search_paths: [config, .]
@@ -143,9 +144,12 @@ is absent from `config/`. Set `default_required` or `environment_required` to
 control missing-file failures; their defaults are `false` and `true`,
 respectively.
 
-The mode is intentionally opt-in. Loading `application.yaml` with `type: yaml`
-continues to use its top-level `default` and selected-environment sections and
-does not search for any additional files.
+The mode is intentionally opt-in. Declaring `environment_files` infers the
+`named_files` strategy. Flat sources remain composable, but a source containing
+top-level environment sections is rejected so a project cannot accidentally
+activate two environment models. Use `environment_strategy: hybrid` together
+with an explicit `environment_conflict_policy` only for a deliberate migration
+or integration, and inspect it with `confii plan <environment>`.
 
 ---
 

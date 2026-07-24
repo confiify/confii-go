@@ -103,6 +103,28 @@ cfg, err := confii.New[any](ctx,
 
 ## Source Tracking Methods
 
+### SourcePlan
+
+Returns the environment model and ordered loader roles from the last successful
+load. Unlike general override history, `Conflicts` is limited to keys written
+by both environment models in explicit hybrid mode.
+
+```go
+plan := cfg.SourcePlan()
+fmt.Println(plan.Strategy)
+for _, layer := range plan.Layers {
+    fmt.Printf("%d. %s [%s] (%d keys)\n",
+        layer.Order, layer.Source, layer.Role, len(layer.Keys))
+}
+for _, conflict := range plan.Conflicts {
+    fmt.Printf("%s: %v; last writer=%s\n",
+        conflict.Key, conflict.Sources, conflict.LastWriter)
+}
+```
+
+The returned plan is defensively copied. Mutating its layer keys or conflict
+source slices cannot affect the live configuration or subsequent calls.
+
 ### GetSourceInfo
 
 Returns the full `SourceInfo` struct for a key:

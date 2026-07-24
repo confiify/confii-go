@@ -1,7 +1,9 @@
 package confii_test
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
@@ -256,4 +258,308 @@ sources:
 	require.NoError(t, os.WriteFile(filepath.Join(root, "config", "production.yaml"), []byte("value: after\n"), 0o600))
 	require.NoError(t, cfg.Reload(context.Background()))
 	assert.Equal(t, "after", cfg.GetStringOr("value", ""))
+}
+
+func TestEnvironmentStrategy_InferredNamedFilesRejectsSectionedSource(t *testing.T) {
+	root := writeEnvironmentFilesProject(t, `
+default_environment: production
+sources:
+  - type: yaml
+    path: application.yaml
+  - type: environment_files
+`, map[string]string{
+		"application.yaml":       "default:\n  server:\n    port: 7000\nproduction:\n  server:\n    host: application.example.com\n",
+		"config/default.yaml":    "server:\n  port: 8080\n",
+		"config/production.yaml": "server:\n  host: named.example.com\n",
+	})
+
+	original, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(root))
+	t.Cleanup(func() { _ = os.Chdir(original) })
+
+	_, err = confii.New[any](context.Background(), confii.WithWorkingDir(root))
+	require.Error(t, err)
+	assert.ErrorIs(t, err, confii.ErrConfigLoad)
+	assert.Contains(t, err.Error(), `environment_strategy "named_files"`)
+	assert.Contains(t, err.Error(), `explicitly select "hybrid"`)
+}
+
+func TestEnvironmentStrategy_NamedFilesAllowsFlatSourcesAndBuildsPlan(t *testing.T) {
+	root := writeEnvironmentFilesProject(t, `
+default_environment: production
+sources:
+  - type: yaml
+    path: application.yaml
+  - type: environment_files
+`, map[string]string{
+		"application.yaml":       "feature:\n  enabled: true\n",
+		"config/default.yaml":    "server:\n  port: 8080\n",
+		"config/production.yaml": "server:\n  host: named.example.com\n",
+	})
+
+	original, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(root))
+	t.Cleanup(func() { _ = os.Chdir(original) })
+
+	cfg, err := confii.New[any](context.Background(), confii.WithWorkingDir(root))
+	require.NoError(t, err)
+	assert.True(t, cfg.GetBoolOr("feature.enabled", false))
+	assert.Equal(t, 8080, cfg.GetIntOr("server.port", 0))
+	assert.Equal(t, "named.example.com", cfg.GetStringOr("server.host", ""))
+
+	plan := cfg.SourcePlan()
+	assert.Equal(t, confii.EnvironmentStrategyNamedFiles, plan.Strategy)
+	assert.Equal(t, confii.EnvironmentConflictLastWins, plan.ConflictPolicy)
+	require.Len(t, plan.Layers, 3)
+	assert.Equal(t, []string{"flat", "default", "environment"}, []string{
+		plan.Layers[0].Role,
+		plan.Layers[1].Role,
+		plan.Layers[2].Role,
+	})
+	assert.Empty(t, plan.Conflicts)
+}
+
+func TestEnvironmentStrategy_AutoReportsEffectiveSectionedPlan(t *testing.T) {
+	root := writeEnvironmentFilesProject(t, `
+default_environment: production
+sources:
+  - type: yaml
+    path: application.yaml
+`, map[string]string{
+		"application.yaml": "default:\n  server:\n    port: 8080\nproduction:\n  server:\n    host: api.example.com\n",
+	})
+
+	original, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(root))
+	t.Cleanup(func() { _ = os.Chdir(original) })
+
+	cfg, err := confii.New[any](context.Background(), confii.WithWorkingDir(root))
+	require.NoError(t, err)
+	assert.Equal(t, 8080, cfg.GetIntOr("server.port", 0))
+	assert.Equal(t, "api.example.com", cfg.GetStringOr("server.host", ""))
+
+	plan := cfg.SourcePlan()
+	assert.Equal(t, confii.EnvironmentStrategySectioned, plan.Strategy)
+	require.Len(t, plan.Layers, 1)
+	assert.Equal(t, "sectioned", plan.Layers[0].Role)
+}
+
+func TestEnvironmentStrategy_HybridConflictPoliciesAndPrecedence(t *testing.T) {
+	files := map[string]string{
+		"application.yaml":       "default:\n  server:\n    port: 7000\nproduction:\n  server:\n    host: application.example.com\n",
+		"config/default.yaml":    "server:\n  port: 8080\n",
+		"config/production.yaml": "server:\n  host: named.example.com\n",
+	}
+
+	t.Run("error", func(t *testing.T) {
+		root := writeEnvironmentFilesProject(t, `
+default_environment: production
+environment_strategy: hybrid
+environment_conflict_policy: error
+sources:
+  - type: yaml
+    path: application.yaml
+  - type: environment_files
+`, files)
+		original, err := os.Getwd()
+		require.NoError(t, err)
+		require.NoError(t, os.Chdir(root))
+		t.Cleanup(func() { _ = os.Chdir(original) })
+
+		_, err = confii.New[any](context.Background(), confii.WithWorkingDir(root))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "hybrid environment sources write the same keys")
+		assert.Contains(t, err.Error(), "server.host")
+		assert.Contains(t, err.Error(), "server.port")
+	})
+
+	t.Run("last wins", func(t *testing.T) {
+		root := writeEnvironmentFilesProject(t, `
+default_environment: production
+environment_strategy: hybrid
+environment_conflict_policy: last_wins
+sources:
+  - type: yaml
+    path: application.yaml
+  - type: environment_files
+`, files)
+		original, err := os.Getwd()
+		require.NoError(t, err)
+		require.NoError(t, os.Chdir(root))
+		t.Cleanup(func() { _ = os.Chdir(original) })
+
+		cfg, err := confii.New[any](context.Background(), confii.WithWorkingDir(root))
+		require.NoError(t, err)
+		assert.Equal(t, 8080, cfg.GetIntOr("server.port", 0))
+		assert.Equal(t, "named.example.com", cfg.GetStringOr("server.host", ""))
+
+		plan := cfg.SourcePlan()
+		assert.Equal(t, confii.EnvironmentStrategyHybrid, plan.Strategy)
+		assert.Equal(t, confii.EnvironmentConflictLastWins, plan.ConflictPolicy)
+		require.Len(t, plan.Conflicts, 2)
+		assert.Equal(t, "server.host", plan.Conflicts[0].Key)
+		assert.Equal(t, filepath.Join(root, "config", "production.yaml"), plan.Conflicts[0].LastWriter)
+		assert.Equal(t, "server.port", plan.Conflicts[1].Key)
+		assert.Equal(t, filepath.Join(root, "config", "default.yaml"), plan.Conflicts[1].LastWriter)
+
+		plan.Layers[0].Keys[0] = "mutated"
+		plan.Conflicts[0].Sources[0] = "mutated"
+		fresh := cfg.SourcePlan()
+		assert.NotEqual(t, "mutated", fresh.Layers[0].Keys[0])
+		assert.NotEqual(t, "mutated", fresh.Conflicts[0].Sources[0])
+	})
+
+	t.Run("warn", func(t *testing.T) {
+		root := writeEnvironmentFilesProject(t, `
+default_environment: production
+environment_strategy: hybrid
+environment_conflict_policy: warn
+sources:
+  - type: yaml
+    path: application.yaml
+  - type: environment_files
+`, files)
+		original, err := os.Getwd()
+		require.NoError(t, err)
+		require.NoError(t, os.Chdir(root))
+		t.Cleanup(func() { _ = os.Chdir(original) })
+
+		var logs bytes.Buffer
+		logger := slog.New(slog.NewTextHandler(&logs, nil))
+		cfg, err := confii.New[any](context.Background(),
+			confii.WithWorkingDir(root),
+			confii.WithLogger(logger),
+		)
+		require.NoError(t, err)
+		assert.Equal(t, "named.example.com", cfg.GetStringOr("server.host", ""))
+		assert.Contains(t, logs.String(), "hybrid environment source conflicts")
+		assert.Contains(t, logs.String(), "server.host")
+	})
+
+	t.Run("declared source order remains authoritative", func(t *testing.T) {
+		root := writeEnvironmentFilesProject(t, `
+default_environment: production
+environment_strategy: hybrid
+environment_conflict_policy: last_wins
+sources:
+  - type: environment_files
+  - type: yaml
+    path: application.yaml
+`, files)
+		original, err := os.Getwd()
+		require.NoError(t, err)
+		require.NoError(t, os.Chdir(root))
+		t.Cleanup(func() { _ = os.Chdir(original) })
+
+		cfg, err := confii.New[any](context.Background(), confii.WithWorkingDir(root))
+		require.NoError(t, err)
+		assert.Equal(t, 7000, cfg.GetIntOr("server.port", 0))
+		assert.Equal(t, "application.example.com", cfg.GetStringOr("server.host", ""))
+	})
+
+	t.Run("non-overlapping models are valid", func(t *testing.T) {
+		root := writeEnvironmentFilesProject(t, `
+default_environment: production
+environment_strategy: hybrid
+environment_conflict_policy: error
+sources:
+  - type: yaml
+    path: application.yaml
+  - type: environment_files
+`, map[string]string{
+			"application.yaml":       "default:\n  server:\n    port: 7000\nproduction:\n  server:\n    host: application.example.com\n",
+			"config/default.yaml":    "feature:\n  enabled: true\n",
+			"config/production.yaml": "database:\n  host: database.example.com\n",
+		})
+		original, err := os.Getwd()
+		require.NoError(t, err)
+		require.NoError(t, os.Chdir(root))
+		t.Cleanup(func() { _ = os.Chdir(original) })
+
+		cfg, err := confii.New[any](context.Background(), confii.WithWorkingDir(root))
+		require.NoError(t, err)
+		assert.Equal(t, 7000, cfg.GetIntOr("server.port", 0))
+		assert.True(t, cfg.GetBoolOr("feature.enabled", false))
+		assert.Equal(t, "database.example.com", cfg.GetStringOr("database.host", ""))
+		assert.Empty(t, cfg.SourcePlan().Conflicts)
+	})
+}
+
+func TestEnvironmentStrategy_ConfigurationValidation(t *testing.T) {
+	tests := []struct {
+		name       string
+		selfConfig string
+		files      map[string]string
+		message    string
+	}{
+		{
+			name:       "invalid strategy",
+			selfConfig: "environment_strategy: everything\n",
+			message:    "invalid environment_strategy",
+		},
+		{
+			name:       "invalid conflict policy",
+			selfConfig: "environment_conflict_policy: silent\n",
+			message:    "invalid environment_conflict_policy",
+		},
+		{
+			name: "sectioned rejects environment files",
+			selfConfig: `
+environment_strategy: sectioned
+sources:
+  - type: environment_files
+`,
+			message: "cannot be combined",
+		},
+		{
+			name:       "named files requires source",
+			selfConfig: "environment_strategy: named_files\n",
+			message:    "requires an environment_files source",
+		},
+		{
+			name: "hybrid requires explicit policy",
+			selfConfig: `
+environment_strategy: hybrid
+sources:
+  - type: environment_files
+`,
+			message: "requires an explicit environment_conflict_policy",
+		},
+		{
+			name: "hybrid requires loaded sectioned source",
+			selfConfig: `
+default_environment: production
+environment_strategy: hybrid
+environment_conflict_policy: last_wins
+sources:
+  - type: yaml
+    path: application.yaml
+  - type: environment_files
+`,
+			files: map[string]string{
+				"application.yaml":       "feature: true\n",
+				"config/default.yaml":    "server:\n  port: 8080\n",
+				"config/production.yaml": "server:\n  host: api.example.com\n",
+			},
+			message: "requires both a loaded environment_files layer and a section-based environment source",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := writeEnvironmentFilesProject(t, tt.selfConfig, tt.files)
+			original, err := os.Getwd()
+			require.NoError(t, err)
+			require.NoError(t, os.Chdir(root))
+			t.Cleanup(func() { _ = os.Chdir(original) })
+
+			_, err = confii.New[any](context.Background(), confii.WithWorkingDir(root))
+			require.Error(t, err)
+			assert.ErrorIs(t, err, confii.ErrConfigLoad)
+			assert.Contains(t, err.Error(), tt.message)
+		})
+	}
 }

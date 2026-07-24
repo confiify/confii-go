@@ -68,6 +68,21 @@ func applySelfConfig(opts *options) error {
 	if !opts.isSet("schema_path") && settings.SchemaPath != "" {
 		opts.SchemaPath = settings.SchemaPath
 	}
+	if !opts.isSet("environment_strategy") && settings.EnvironmentStrategy != "" {
+		strategy, err := parseEnvironmentStrategy(settings.EnvironmentStrategy)
+		if err != nil {
+			return err
+		}
+		opts.EnvironmentStrategy = strategy
+	}
+	if !opts.isSet("environment_conflict_policy") && settings.EnvironmentConflictPolicy != "" {
+		policy, err := parseEnvironmentConflictPolicy(settings.EnvironmentConflictPolicy)
+		if err != nil {
+			return err
+		}
+		opts.EnvironmentConflictPolicy = policy
+		opts.environmentConflictPolicyConfigured = true
+	}
 	if !opts.isSet("on_error") && settings.OnError != "" {
 		// G07: validate the on_error string instead of blindly coercing.
 		// Previously any string (including misspellings like "warning"

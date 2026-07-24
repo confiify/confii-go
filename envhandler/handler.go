@@ -104,7 +104,7 @@ func (h *Handler) Resolve(config map[string]any, env string) map[string]any {
 
 	// Decide whether the config is in environment mode.
 	defaultMap, defaultIsMap := defaultSection.(map[string]any)
-	envMode := h.isEnvMode(config, env, hasDefault, defaultIsMap)
+	envMode := h.IsEnvironmentAware(config, env)
 
 	if !envMode {
 		// Backwards-compatible default-only shorthand: a config that
@@ -142,6 +142,16 @@ func (h *Handler) Resolve(config map[string]any, env string) map[string]any {
 	}
 
 	return dictutil.DeepMerge(base, envMap)
+}
+
+// IsEnvironmentAware reports whether config will be interpreted as a set of
+// environment sections by Resolve. It exposes Resolve's exact detection rule
+// so higher-level source planning can reject accidental mixing without
+// maintaining a second, potentially divergent heuristic.
+func (h *Handler) IsEnvironmentAware(config map[string]any, env string) bool {
+	defaultSection, hasDefault := config["default"]
+	_, defaultIsMap := defaultSection.(map[string]any)
+	return h.isEnvMode(config, env, hasDefault, defaultIsMap)
 }
 
 // isEnvMode reports whether the merged config should be treated as

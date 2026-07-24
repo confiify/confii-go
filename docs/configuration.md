@@ -148,6 +148,8 @@ The first file found wins:
 | `debug_mode` | `bool` | `false` | Enable full source tracking and override history |
 | `on_error` | `string` | `"raise"` | Error policy: `raise`, `warn`, or `ignore` |
 | `log_level` | `string` | `""` | Log level for Confii's internal logger |
+| `environment_strategy` | `string` | `"auto"` | Environment model: `auto`, `sectioned`, `named_files`, or explicit `hybrid` |
+| `environment_conflict_policy` | `string` | `"last_wins"` | In hybrid mode: `error`, `warn`, or `last_wins`; it must be explicitly configured |
 | `sources` | `[]map` | `[]` | Ordered declarative source definitions, including opt-in `environment_files` discovery |
 | `secrets` | `map` | `{}` | Declarative secret store configuration |
 
@@ -174,6 +176,7 @@ project/
 ```yaml title=".confii.yaml"
 default_environment: development
 env_switcher: APP_ENV
+environment_strategy: named_files
 
 sources:
   - type: environment_files
@@ -194,6 +197,36 @@ configuration above it:
 1. Loads the first `default.yaml` found in `config/`, then the project root.
 2. Loads the first `{environment}.yaml` found in the same search order.
 3. Deep-merges the environment layer over the default layer.
+
+Declaring `environment_files` infers `named_files` when the strategy is
+omitted. Flat sources may be placed before or after it, preserving normal
+ordered precedence. If another source is recognized as a section-based
+environment file (`default:` plus environment sections), construction fails
+with a typed configuration error instead of silently combining both models.
+
+For a deliberate migration, opt into hybrid mode and choose how overlapping
+keys are handled:
+
+```yaml
+environment_strategy: hybrid
+environment_conflict_policy: error # error | warn | last_wins
+
+sources:
+  - type: yaml
+    path: config/application.yaml
+  - type: environment_files
+    search_paths: [config, .]
+```
+
+Hybrid mode requires both environment models to load. Confii compares their
+resolved leaf keys. `error` rejects overlaps with the complete source chain,
+`warn` logs them and continues, and `last_wins` preserves declared loader
+order. Overrides within one model—such as `default.yaml` followed by
+`production.yaml`—remain expected and are not reported as mixed-model
+conflicts.
+
+Run `confii plan production` to inspect the inferred strategy, ordered layer
+roles, key counts, and any permitted hybrid conflicts before deployment.
 
 Relative search paths are resolved from `WithWorkingDir`, or from the
 self-config working directory when no explicit working directory is supplied.
@@ -243,6 +276,8 @@ This is the most common approach for application code.
 | --- | --- | --- |
 | `WithLoaders(loaders...)` | Set the ordered list of configuration sources. Later loaders override earlier ones. | none |
 | `WithEnv(name)` | Set the active environment (e.g. `"production"`, `"staging"`). | `""` |
+| `WithEnvironmentStrategy(strategy)` | Select the environment model; explicit options override self-config. | `EnvironmentStrategyAuto` |
+| `WithEnvironmentConflictPolicy(policy)` | Control mixed sectioned/named conflicts in hybrid mode. | `EnvironmentConflictLastWins` |
 | `WithEnvSwitcher(envVar)` | Read the environment name from the given OS variable at startup. | none |
 | `WithEnvPrefix(prefix)` | Auto-add an `EnvironmentLoader` with this prefix (e.g. `"APP"` reads `APP_*` vars). | none |
 | `WithDeepMerge(bool)` | Enable recursive deep merge of nested maps when combining sources. | `true` |

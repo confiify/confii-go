@@ -59,6 +59,10 @@ type Config[T any] struct {
 	// Typed model cache.
 	validatedModel *T
 
+	// sourcePlan is rebuilt atomically with the resolved configuration and
+	// exposed through SourcePlan for preflight/runtime introspection.
+	sourcePlan SourcePlan
+
 	// Compiled JSON Schema validator (G01).
 	//
 	// Populated lazily by [resolveSchemaValidator] from either a
@@ -147,6 +151,9 @@ func New[T any](ctx context.Context, cfgOpts ...Option) (*Config[T], error) {
 		if envVal := os.Getenv(opts.EnvSwitcher); envVal != "" {
 			opts.Env = envVal
 		}
+	}
+	if err := resolveEnvironmentStrategy(&opts); err != nil {
+		return nil, err
 	}
 
 	// Declarative sources are materialized only after environment selection.
