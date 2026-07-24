@@ -100,7 +100,7 @@ Go has several configuration libraries, but none provides a complete configurati
 ## Installation
 
 ```bash
-go get github.com/confiify/confii-go@v1.1.0
+go get github.com/confiify/confii-go@v1.2.0
 ```
 
 Cloud providers are opt-in through separate modules and build tags, so the
@@ -109,8 +109,8 @@ provider SDK versions:
 
 ```bash
 # Example: AWS
-go get github.com/confiify/confii-go/loader/cloud@v1.1.0
-go get github.com/confiify/confii-go/secret/cloud@v1.1.0
+go get github.com/confiify/confii-go/loader/cloud@v1.2.0
+go get github.com/confiify/confii-go/secret/cloud@v1.2.0
 go build -tags aws ./...
 
 # Other providers
@@ -668,7 +668,7 @@ jsonDocs, _ := cfg.GenerateDocs("json")
 ## CLI Tool
 
 ```bash
-go install github.com/confiify/confii-go/confii@v1.1.0
+go install github.com/confiify/confii-go/confii@v1.2.0
 ```
 
 | Command | Description |
