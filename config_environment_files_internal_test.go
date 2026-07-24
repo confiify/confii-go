@@ -102,6 +102,16 @@ func TestBuildEnvironmentFileLoadersOptionalEnvironment(t *testing.T) {
 }
 
 func TestBuildEnvironmentFileLoadersDiscoveryErrorBranches(t *testing.T) {
+	t.Run("project root resolution error", func(t *testing.T) {
+		opts := defaultOptions()
+		_, err := buildEnvironmentFileLoadersWithAbs(&opts, map[string]any{}, func(string) (string, error) {
+			return "", errors.New("working directory unavailable")
+		})
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrConfigLoad)
+		assert.Contains(t, err.Error(), "resolve project root: working directory unavailable")
+	})
+
 	t.Run("empty working directory uses current directory", func(t *testing.T) {
 		opts := defaultOptions()
 		loaders, err := buildEnvironmentFileLoaders(&opts, map[string]any{

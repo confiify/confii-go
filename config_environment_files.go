@@ -20,6 +20,14 @@ type environmentFilesSource struct {
 }
 
 func buildEnvironmentFileLoaders(opts *options, src map[string]any) ([]Loader, error) {
+	return buildEnvironmentFileLoadersWithAbs(opts, src, filepath.Abs)
+}
+
+func buildEnvironmentFileLoadersWithAbs(
+	opts *options,
+	src map[string]any,
+	absPath func(string) (string, error),
+) ([]Loader, error) {
 	cfg, err := parseEnvironmentFilesSource(src)
 	if err != nil {
 		return nil, err
@@ -29,7 +37,7 @@ func buildEnvironmentFileLoaders(opts *options, src map[string]any) ([]Loader, e
 	if root == "" {
 		root = "."
 	}
-	root, err = filepath.Abs(root)
+	root, err = absPath(root)
 	if err != nil {
 		return nil, environmentFilesError("resolve project root", err)
 	}
