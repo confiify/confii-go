@@ -25,6 +25,7 @@ Brief description of what this PR does.
 - [ ] New code has tests (90%+ coverage target)
 - [ ] Doc comments added for new exported symbols
 - [ ] CHANGELOG.md updated (if user-facing change)
+- [ ] Every commit includes my DCO `Signed-off-by` trailer
 
 ## Related issues
 

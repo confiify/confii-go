@@ -8,8 +8,25 @@ Thank you for your interest in contributing to Confii! This guide will help you 
 2. Clone your fork: `git clone https://github.com/<your-username>/confii-go.git`
 3. Create a branch: `git checkout -b feature/your-feature`
 4. Make your changes
-5. Run checks: `make ci-full`
-6. Push and open a pull request
+5. Sign off every commit: `git commit --signoff`
+6. Run checks: `make ci-full`
+7. Push and open a pull request
+
+## Developer Certificate of Origin
+
+Confii uses the [Developer Certificate of Origin 1.1](https://developercertificate.org/)
+to confirm that contributors have the right to submit their work under this
+project's license. Every commit must contain a `Signed-off-by` trailer matching
+the contributor's commit identity:
+
+```text
+Signed-off-by: Your Name <your.email@example.com>
+```
+
+Create it with `git commit --signoff` (or `git commit -s`). This sign-off is a
+legal certification, not a replacement for the cryptographic commit signatures
+required on the protected default branch. If a pull request contains an
+unsigned commit, amend or rebase it to add the trailer before review.
 
 ## Development Setup
 
@@ -62,6 +79,7 @@ make test-cloud    # all cloud-provider tags in a consumer fixture
 - Include tests for new functionality
 - Update documentation if behavior changes
 - Reference related issues in the PR description
+- Ensure every commit includes a DCO `Signed-off-by` trailer
 
 ## Reporting Issues
 

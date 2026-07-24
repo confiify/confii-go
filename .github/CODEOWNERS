@@ -1,6 +1,6 @@
-* @confiify
+* @confiify @qatoolist
 
-/.github/ @confiify
-/SECURITY.md @confiify
-/loader/cloud/ @confiify
-/secret/cloud/ @confiify
+/.github/ @confiify @qatoolist
+/SECURITY.md @confiify @qatoolist
+/loader/cloud/ @confiify @qatoolist
+/secret/cloud/ @confiify @qatoolist

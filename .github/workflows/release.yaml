@@ -64,38 +64,29 @@ jobs:
       - name: Verify cloud provider packages as a consumer
         run: sh scripts/test-cloud-consumer.sh 'aws,azure,gcp,vault,ibm' test
 
-      - name: Build release archives
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p dist staging
-          for target in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64 windows-amd64; do
-            goos="${target%-*}"
-            goarch="${target#*-}"
-            name="confii-${GITHUB_REF_NAME}-${target}"
-            mkdir -p "staging/$name"
-            binary="confii"
-            if [[ "$goos" == windows ]]; then binary="confii.exe"; fi
-            CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" go build \
-              -trimpath -ldflags="-s -w -X main.version=$GITHUB_REF_NAME" \
-              -o "staging/$name/$binary" ./confii
-            cp LICENSE README.md "staging/$name/"
-            if [[ "$goos" == windows ]]; then
-              (cd staging && zip -qr "../dist/$name.zip" "$name")
-            else
-              tar -C staging -czf "dist/$name.tar.gz" "$name"
-            fi
-          done
-          (cd dist && sha256sum ./*.tar.gz ./*.zip > checksums.txt)
+      - name: Build and stage draft GitHub release
+        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
+        with:
+          distribution: goreleaser
+          version: v2.17.0
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
 
       - name: Attest release artifacts
+        id: attest
         uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4.2.0
         with:
-          subject-path: dist/*
+          subject-checksums: dist/checksums.txt
 
-      - name: Create GitHub release
-        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
-        with:
-          generate_release_notes: true
-          fail_on_unmatched_files: true
-          files: dist/*
+      - name: Attach provenance and publish release
+        shell: bash
+        env:
+          ATTESTATION_BUNDLE: ${{ steps.attest.outputs.bundle-path }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          provenance="confii-${GITHUB_REF_NAME}.intoto.jsonl"
+          cp "$ATTESTATION_BUNDLE" "$provenance"
+          gh release upload "$GITHUB_REF_NAME" "$provenance" --clobber
+          gh release edit "$GITHUB_REF_NAME" --draft=false
