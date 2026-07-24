@@ -200,7 +200,7 @@
   "code_review_standards_status": "Met",
   "code_review_standards_justification": "https://github.com/confiify/confii-go/blob/main/docs/QUALITY.md#coding-and-review-standards",
   "two_person_review_status": "Unmet",
-  "two_person_review_justification": "The 2026-07-25 baseline found 1 qualifying independently reviewed PR among 15 non-trivial merged PRs. The measurement and forward policy are documented at https://github.com/confiify/confii-go/blob/main/docs/OPENSSF_BEST_PRACTICES.md.",
+  "two_person_review_justification": "The 2026-07-25 ledger records 2 qualifying independently reviewed PRs among 16 non-trivial merged PRs. The evidence, measurement, and forward policy are documented at https://github.com/confiify/confii-go/blob/main/docs/OPENSSF_BEST_PRACTICES.md.",
   "build_reproducible_status": "Met",
   "build_reproducible_justification": "https://github.com/confiify/confii-go/blob/main/scripts/check-reproducible-build.sh",
   "test_statement_coverage90_status": "Met",
