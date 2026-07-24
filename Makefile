@@ -178,6 +178,12 @@ lint: fmt-check vet ## Run all linters (fmt-check + vet + golangci-lint)
 .PHONY: docs-check
 docs-check: ## Build documentation with warnings treated as errors
 	mkdocs build --strict
+	sh scripts/check-docs-artifact.sh
+
+.PHONY: docs-live-headers
+docs-live-headers: ## Verify live docs headers (usage: make docs-live-headers URL=https://...)
+	@test -n "$(URL)" || { echo "URL is required" >&2; exit 2; }
+	sh scripts/check-site-headers.sh "$(URL)"
 
 .PHONY: vulncheck
 vulncheck: ## Run Go vulnerability checks for core and cloud modules

@@ -43,7 +43,7 @@ make mod-verify   # every module is tidy and checksummed
 make lint         # fmt-check + vet + golangci-lint
 make ci-full      # core, race, integration, and cloud consumer tests
 make vulncheck    # govulncheck for the core module
-mkdocs build --strict
+make docs-check
 ```
 
 All checks must pass. Target 90%+ test coverage for new code.
@@ -82,6 +82,22 @@ make test-cloud    # all cloud-provider tags in a consumer fixture
 - Reference related issues in the PR description
 - Ensure every commit includes a DCO `Signed-off-by` trailer
 - Follow the security and quality review checklist in [docs/QUALITY.md](docs/QUALITY.md)
+- Leave final acceptance to a reviewer who is a different person from the
+  author and who has reviewed the final material revision
+
+## Contributor pathway
+
+Confii welcomes contributors who are not maintainers and are not affiliated
+with the project's maintainers. Issues labelled
+[`good first issue`](https://github.com/confiify/confii-go/issues?q=is%3Aopen+label%3A%22good+first+issue%22)
+are intended to be bounded entry points; help is available through the public
+channels in [SUPPORT.md](SUPPORT.md).
+
+Maintainer status is not required for contribution credit. Meaningful code,
+tests, documentation, design, security, and interoperability contributions are
+credited through Git history, pull requests, release notes where appropriate,
+and the GitHub contributors view. Contributions are evaluated for user value
+and technical quality—not to manufacture badge statistics.
 
 ## Reporting Issues
 

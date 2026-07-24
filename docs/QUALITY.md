@@ -14,9 +14,11 @@ Actions workflows, and protected-branch rules.
 - Pull requests must be focused, explain user and security impact, update
   documentation where behavior changes, and include a DCO sign-off on every
   commit.
-- A code-owner other than the last pusher must approve changes. Stale approvals
-  are dismissed, conversations must be resolved, required checks must pass,
-  and commits reaching `main` must have verified signatures.
+- A code-owner who is a different person from the author must approve the final
+  material revision. A second account controlled by the author is not an
+  independent review. Stale approvals are dismissed, conversations must be
+  resolved, required checks must pass, and commits reaching `main` must have
+  verified signatures.
 - Reviewers check API compatibility, failure behavior, input validation,
   concurrency safety, secret handling, dependency impact, documentation, and
   tests—not only formatting or the happy path.
