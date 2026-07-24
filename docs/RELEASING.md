@@ -59,3 +59,12 @@ go list -m github.com/confiify/confii-go/secret/cloud@v1.2.0
 
 Tags and published releases are immutable. If a release is defective, publish
 a new patch version; never move or replace a published tag.
+
+## Continuity drill
+
+The manual `Maintainer continuity drill` workflow verifies release-environment
+approval, module checks, race tests, and a GoReleaser snapshot without creating
+a tag or publishing a release. The continuity maintainer runs and approves this
+workflow as described in [`CONTINUITY.md`](CONTINUITY.md). It is evidence that
+the release tooling remains operable, not a substitute for the full production
+release procedure above.

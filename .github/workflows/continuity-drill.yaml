@@ -1,0 +1,52 @@
+# Copyright 2026 The Confii Contributors
+# SPDX-License-Identifier: MIT
+name: Maintainer continuity drill
+
+on:
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  release-dry-run:
+    name: Release dry run
+    runs-on: ubuntu-latest
+    environment: release
+
+    steps:
+      - name: Restrict the drill to maintainers
+        shell: bash
+        env:
+          ACTOR: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+          actor="$(printf '%s' "$ACTOR" | tr '[:upper:]' '[:lower:]')"
+          case "$actor" in
+            confiify|qatoolist|qualitycoe) ;;
+            *) echo "${ACTOR} is not a continuity-drill maintainer" >&2; exit 1 ;;
+          esac
+
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Verify modules and tests
+        run: |
+          sh scripts/verify-modules.sh
+          go test -race -timeout 120s ./...
+
+      - name: Build release snapshot without publishing
+        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
+        with:
+          distribution: goreleaser
+          version: v2.17.0
+          args: release --snapshot --clean
+
+      - name: Verify snapshot output
+        run: test -s dist/checksums.txt

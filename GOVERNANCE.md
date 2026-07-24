@@ -25,6 +25,21 @@ focused issue with new evidence.
 Security-sensitive decisions follow the private disclosure process in
 [SECURITY.md](SECURITY.md) until coordinated disclosure is safe.
 
+## Maintainer continuity
+
+The project maintains a tested continuity path under
+[`docs/CONTINUITY.md`](docs/CONTINUITY.md). Routine work never uses emergency
+access. If loss of a maintainer would otherwise deadlock a protected branch or
+release, the continuity maintainer may use the scoped bypass recorded in the
+repository rules only after required automated checks succeed. The pull request
+must identify the activation, explain why independent review was unavailable,
+and receive retrospective review when another maintainer is available.
+
+Emergency access does not authorize rewriting history, moving release tags,
+publishing unreviewed source, or disabling security gates. A release performed
+under continuity procedures retains the signed-tag, immutable-release,
+attestation, and consumer-verification requirements in `docs/RELEASING.md`.
+
 ## Maintainer changes
 
 Maintainers are selected based on sustained, constructive contributions;
