@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +11,61 @@ import (
 	confii "github.com/confiify/confii-go"
 	"github.com/spf13/cobra"
 )
+
+// NewPlanCmd creates the 'plan' command.
+func NewPlanCmd() *cobra.Command {
+	var loaders []string
+	var jsonOutput bool
+
+	cmd := &cobra.Command{
+		Use:   "plan [env]",
+		Short: "Show environment strategy, source precedence, and conflicts",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(c *cobra.Command, args []string) error {
+			env := ""
+			if len(args) > 0 {
+				env = args[0]
+			}
+			cfg, err := buildConfig(env, loaders)
+			if err != nil {
+				return err
+			}
+			plan := cfg.SourcePlan()
+			if jsonOutput {
+				encoder := json.NewEncoder(c.OutOrStdout())
+				encoder.SetIndent("", "  ")
+				return encoder.Encode(plan)
+			}
+
+			lines := []string{
+				fmt.Sprintf("Environment: %s", plan.Environment),
+				fmt.Sprintf("Strategy: %s", plan.Strategy),
+				fmt.Sprintf("Conflict policy: %s", plan.ConflictPolicy),
+				"",
+				"Load plan:",
+			}
+			for _, layer := range plan.Layers {
+				lines = append(lines, fmt.Sprintf("  %d. %s [%s] (%d keys)",
+					layer.Order, layer.Source, layer.Role, len(layer.Keys)))
+			}
+			if len(plan.Conflicts) == 0 {
+				lines = append(lines, "", "Mixed environment conflicts: none")
+			} else {
+				lines = append(lines, "", "Mixed environment conflicts:")
+				for _, conflict := range plan.Conflicts {
+					lines = append(lines, fmt.Sprintf("  %s: %s (last writer: %s)",
+						conflict.Key, strings.Join(conflict.Sources, " -> "), conflict.LastWriter))
+				}
+			}
+			_, err = fmt.Fprintln(c.OutOrStdout(), strings.Join(lines, "\n"))
+			return err
+		},
+	}
+
+	cmd.Flags().StringSliceVarP(&loaders, "loader", "l", nil, "Loader spec (type:source)")
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output the source plan as JSON")
+	return cmd
+}
 
 // NewDebugCmd creates the 'debug' command.
 func NewDebugCmd() *cobra.Command {

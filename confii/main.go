@@ -29,6 +29,7 @@ func newRootCommand(out, errOut io.Writer) *cobra.Command {
 		cmd.NewDiffCmd(),
 		cmd.NewDebugCmd(),
 		cmd.NewExplainCmd(),
+		cmd.NewPlanCmd(),
 		cmd.NewLintCmd(),
 		cmd.NewDocsCmd(),
 		cmd.NewMigrateCmd(),

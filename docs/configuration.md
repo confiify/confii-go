@@ -68,6 +68,12 @@ The first file found wins:
 
     # Declarative sources (alternative to default_files)
     sources:
+      - type: environment_files
+        search_paths: [config, .]
+        default_file: default.yaml
+        environment_file: "{environment}.yaml"
+        default_required: false
+        environment_required: true
       - type: yaml
         path: config/base.yaml
       - type: json
@@ -142,13 +148,105 @@ The first file found wins:
 | `debug_mode` | `bool` | `false` | Enable full source tracking and override history |
 | `on_error` | `string` | `"raise"` | Error policy: `raise`, `warn`, or `ignore` |
 | `log_level` | `string` | `""` | Log level for Confii's internal logger |
-| `sources` | `[]map` | `[]` | Declarative source definitions |
+| `environment_strategy` | `string` | `"auto"` | Environment model: `auto`, `sectioned`, `named_files`, or explicit `hybrid` |
+| `environment_conflict_policy` | `string` | `"last_wins"` | In hybrid mode: `error`, `warn`, or `last_wins`; it must be explicitly configured |
+| `sources` | `[]map` | `[]` | Ordered declarative source definitions, including opt-in `environment_files` discovery |
 | `secrets` | `map` | `{}` | Declarative secret store configuration |
 
 !!! tip "When to use self-config"
     Self-configuration files are ideal for team-wide defaults that you commit to
     version control. Individual developers or CI pipelines can override specific
     settings via constructor options in code.
+
+#### Named Environment Files
+
+Use an `environment_files` source when a project stores defaults and each
+deployment environment in separate files:
+
+```text
+project/
+├── .confii.yaml
+└── config/
+    ├── default.yaml
+    ├── development.yaml
+    ├── staging.yaml
+    └── production.yaml
+```
+
+```yaml title=".confii.yaml"
+default_environment: development
+env_switcher: APP_ENV
+environment_strategy: named_files
+
+sources:
+  - type: environment_files
+    search_paths:
+      - config
+      - .
+    default_file: default.yaml
+    environment_file: "{environment}.yaml"
+    default_required: false
+    environment_required: true
+```
+
+The active environment is resolved with the normal precedence: explicit
+`WithEnv`, then the value named by `env_switcher`, then
+`default_environment`. Confii searches each role independently. With the
+configuration above it:
+
+1. Loads the first `default.yaml` found in `config/`, then the project root.
+2. Loads the first `{environment}.yaml` found in the same search order.
+3. Deep-merges the environment layer over the default layer.
+
+Declaring `environment_files` infers `named_files` when the strategy is
+omitted. Flat sources may be placed before or after it, preserving normal
+ordered precedence. If another source is recognized as a section-based
+environment file (`default:` plus environment sections), construction fails
+with a typed configuration error instead of silently combining both models.
+
+For a deliberate migration, opt into hybrid mode and choose how overlapping
+keys are handled:
+
+```yaml
+environment_strategy: hybrid
+environment_conflict_policy: error # error | warn | last_wins
+
+sources:
+  - type: yaml
+    path: config/application.yaml
+  - type: environment_files
+    search_paths: [config, .]
+```
+
+Hybrid mode requires both environment models to load. Confii compares their
+resolved leaf keys. `error` rejects overlaps with the complete source chain,
+`warn` logs them and continues, and `last_wins` preserves declared loader
+order. Overrides within one model—such as `default.yaml` followed by
+`production.yaml`—remain expected and are not reported as mixed-model
+conflicts.
+
+Run `confii plan production` to inspect the inferred strategy, ordered layer
+roles, key counts, and any permitted hybrid conflicts before deployment.
+
+Relative search paths are resolved from `WithWorkingDir`, or from the
+self-config working directory when no explicit working directory is supplied.
+Absolute search paths are also accepted. Named files support the same formats
+as declarative file sources: YAML, JSON, TOML, INI/CFG, and `.env`; change the
+two filename patterns accordingly.
+
+`default_required` defaults to `false`. `environment_required` defaults to
+`true` when an environment is selected; when no environment is selected, only
+the optional/default role is considered. Environment names are restricted to
+letters, digits, `.`, `_`, and `-` and cannot contain `..`, path separators, or
+other traversal characters.
+
+This feature does not change existing loading modes:
+
+- `type: yaml` with an `application.yaml` containing top-level `default`,
+  `development`, or `production` sections continues to resolve those sections.
+- `default_files`, other declarative sources, explicit `WithLoaders`, and
+  builder-provided loaders retain their existing precedence and behavior.
+- Explicit loaders suppress self-config sources, as before.
 
 ---
 
@@ -178,6 +276,8 @@ This is the most common approach for application code.
 | --- | --- | --- |
 | `WithLoaders(loaders...)` | Set the ordered list of configuration sources. Later loaders override earlier ones. | none |
 | `WithEnv(name)` | Set the active environment (e.g. `"production"`, `"staging"`). | `""` |
+| `WithEnvironmentStrategy(strategy)` | Select the environment model; explicit options override self-config. | `EnvironmentStrategyAuto` |
+| `WithEnvironmentConflictPolicy(policy)` | Control mixed sectioned/named conflicts in hybrid mode. | `EnvironmentConflictLastWins` |
 | `WithEnvSwitcher(envVar)` | Read the environment name from the given OS variable at startup. | none |
 | `WithEnvPrefix(prefix)` | Auto-add an `EnvironmentLoader` with this prefix (e.g. `"APP"` reads `APP_*` vars). | none |
 | `WithDeepMerge(bool)` | Enable recursive deep merge of nested maps when combining sources. | `true` |

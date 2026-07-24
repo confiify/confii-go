@@ -131,6 +131,15 @@ func (c *Config[T]) Layers() []map[string]any {
 	return layers
 }
 
+// SourcePlan returns the environment strategy, ordered source roles, and any
+// mixed-model conflicts observed during the last successful load. The result
+// is defensively copied and safe for callers to mutate.
+func (c *Config[T]) SourcePlan() SourcePlan {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return cloneSourcePlan(c.sourcePlan)
+}
+
 // GetSourceInfo returns source tracking info for a key.
 func (c *Config[T]) GetSourceInfo(keyPath string) *sourcetrack.SourceInfo {
 	return c.sourceTracker.GetSourceInfo(keyPath)

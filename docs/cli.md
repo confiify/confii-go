@@ -1,6 +1,6 @@
 # CLI Tool
 
-Confii includes a command-line tool with 10 commands for loading, inspecting, validating, exporting, and comparing configurations.
+Confii includes a command-line tool with 11 commands for loading, inspecting, validating, exporting, and comparing configurations.
 
 ---
 
@@ -251,6 +251,41 @@ confii explain production -l yaml:config.yaml --key database.host
 # environment:       production
 # override_count:    1
 ```
+
+---
+
+### plan
+
+Show the active environment strategy and the exact loader precedence plan.
+When the project explicitly uses `hybrid`, the command also lists keys written
+by both the sectioned and named-file environment models.
+
+```bash
+confii plan [env] [--json]
+```
+
+With no `--loader` flags, `plan` uses the project's auto-discovered
+`.confii.yaml` sources:
+
+```bash
+confii plan production
+# Environment: production
+# Strategy: named_files
+# Conflict policy: last_wins
+#
+# Load plan:
+#   1. config/default.yaml [default] (8 keys)
+#   2. config/production.yaml [environment] (3 keys)
+#
+# Mixed environment conflicts: none
+
+confii plan production --json
+```
+
+If `environment_conflict_policy: error` rejects a hybrid configuration, the
+startup error contains the conflicting keys and ordered source chain. Change
+the policy only after reviewing that chain; `last_wins` should be a deliberate
+migration choice, not a way to silence an unknown conflict.
 
 ---
 

@@ -16,6 +16,8 @@ default_environment: production
 env_prefix: APP
 deep_merge: true
 debug_mode: true
+environment_strategy: hybrid
+environment_conflict_policy: warn
 `)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "confii.yaml"), content, 0644))
 
@@ -29,6 +31,8 @@ debug_mode: true
 	assert.True(t, *settings.DebugMode)
 	require.NotNil(t, settings.DeepMerge)
 	assert.True(t, *settings.DeepMerge)
+	assert.Equal(t, "hybrid", settings.EnvironmentStrategy)
+	assert.Equal(t, "warn", settings.EnvironmentConflictPolicy)
 }
 
 func TestRead_HiddenYAMLFile(t *testing.T) {

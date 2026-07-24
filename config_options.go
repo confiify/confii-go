@@ -82,27 +82,36 @@ type options struct {
 	// (selfconfig.Read) and as the basePath for the include/defaults
 	// composer (compose.New). When empty, the process CWD (".") is used,
 	// matching pre-G06 behavior. Set via [WithWorkingDir].
-	WorkingDir       string
-	Env              string
-	EnvSwitcher      string
-	Loaders          []Loader
-	DynamicReloading bool
-	UseEnvExpander   bool
-	UseTypeCasting   bool
-	DeepMerge        bool
-	MergeStrategy    *MergeStrategy
-	MergeStrategyMap map[string]MergeStrategy
-	EnvPrefix        string
-	SysenvFallback   bool
-	SecretResolver   any // *secret.Resolver, kept as any to avoid circular imports
-	Schema           any
-	SchemaPath       string
-	ValidateOnLoad   bool
-	StrictValidation bool
-	FreezeOnLoad     bool
-	OnError          ErrorPolicy
-	DebugMode        bool
-	Logger           *slog.Logger
+	WorkingDir                          string
+	Env                                 string
+	EnvSwitcher                         string
+	Loaders                             []Loader
+	DynamicReloading                    bool
+	UseEnvExpander                      bool
+	UseTypeCasting                      bool
+	DeepMerge                           bool
+	MergeStrategy                       *MergeStrategy
+	MergeStrategyMap                    map[string]MergeStrategy
+	EnvPrefix                           string
+	SysenvFallback                      bool
+	SecretResolver                      any // *secret.Resolver, kept as any to avoid circular imports
+	Schema                              any
+	SchemaPath                          string
+	ValidateOnLoad                      bool
+	StrictValidation                    bool
+	FreezeOnLoad                        bool
+	OnError                             ErrorPolicy
+	DebugMode                           bool
+	Logger                              *slog.Logger
+	EnvironmentStrategy                 EnvironmentStrategy
+	EnvironmentConflictPolicy           EnvironmentConflictPolicy
+	environmentConflictPolicyConfigured bool
+
+	// selfConfigSources holds declarative `.confii.*` sources until the
+	// active environment has been resolved. Most source types do not depend
+	// on the environment, but `environment_files` does; deferring the entire
+	// ordered list preserves source precedence when the two kinds are mixed.
+	selfConfigSources []map[string]any
 	// SecretHook is a context-aware hook registered on the Config's hook
 	// processor at construction time so secret placeholders (for example
 	// ${secret:db/password}) are resolved during value access. It is the
@@ -120,13 +129,35 @@ type options struct {
 
 func defaultOptions() options {
 	return options{
-		Env:            "",
-		UseEnvExpander: true,
-		UseTypeCasting: true,
-		DeepMerge:      true,
-		OnError:        ErrorPolicyRaise,
-		Logger:         slog.Default(),
-		explicitlySet:  make(map[string]bool),
+		Env:                       "",
+		UseEnvExpander:            true,
+		UseTypeCasting:            true,
+		DeepMerge:                 true,
+		OnError:                   ErrorPolicyRaise,
+		Logger:                    slog.Default(),
+		EnvironmentStrategy:       EnvironmentStrategyAuto,
+		EnvironmentConflictPolicy: EnvironmentConflictLastWins,
+		explicitlySet:             make(map[string]bool),
+	}
+}
+
+// WithEnvironmentStrategy selects the project's primary environment model.
+// Auto preserves legacy section-based behavior and infers named_files when an
+// environment_files self-config source is present.
+func WithEnvironmentStrategy(strategy EnvironmentStrategy) Option {
+	return func(o *options) {
+		o.EnvironmentStrategy = strategy
+		o.explicitlySet["environment_strategy"] = true
+	}
+}
+
+// WithEnvironmentConflictPolicy controls mixed-model key conflicts in
+// explicit hybrid mode.
+func WithEnvironmentConflictPolicy(policy EnvironmentConflictPolicy) Option {
+	return func(o *options) {
+		o.EnvironmentConflictPolicy = policy
+		o.environmentConflictPolicyConfigured = true
+		o.explicitlySet["environment_conflict_policy"] = true
 	}
 }
 

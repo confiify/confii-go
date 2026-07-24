@@ -73,7 +73,7 @@ Go has several configuration libraries, but none provides a complete configurati
 | Hook/middleware system (4 types) | Yes | No | No | No |
 | File watching + incremental reload | Yes | Yes | Yes | Partial |
 | JSON Schema validation | Yes | No | No | No |
-| CLI tool (10 commands) | Yes | No | No | No |
+| CLI tool (11 commands) | Yes | No | No | No |
 | Thread-safe (RWMutex) | Yes | [No](https://github.com/spf13/viper/issues/268) | Partial | Varies |
 
 <!-- markdownlint-disable MD033 -->
@@ -167,6 +167,30 @@ default_files:
   - config/dev.yaml
 ```
 
+For projects that keep one file per environment, opt in with an
+`environment_files` source instead of hard-coding the selected file:
+
+```yaml
+# .confii.yaml
+default_environment: development
+env_switcher: APP_ENV
+environment_strategy: named_files
+sources:
+  - type: environment_files
+    search_paths: [config, .]
+    default_file: default.yaml
+    environment_file: "{environment}.yaml"
+```
+
+Confii loads the first `default.yaml` it finds, then the first file matching
+the selected environment (for example `config/production.yaml`). The
+environment file overrides the defaults. When `environment_strategy` is
+omitted, declaring `environment_files` infers `named_files`. A normal flat
+`type: yaml` source may still provide shared base values, but a file containing
+top-level environment sections is rejected to prevent accidental mixed-model
+precedence. Deliberate migrations can select `hybrid` with an explicit
+`environment_conflict_policy` of `error`, `warn`, or `last_wins`.
+
 Settings apply with 3-tier priority: **explicit code argument > self-config file > built-in default**. Search order: CWD (`confii.*`, `.confii.*`), then `~/.config/confii/`.
 
 > **Full example:** [`examples/self-config/`](examples/self-config/main.go)
@@ -203,6 +227,8 @@ cfg, err := confii.NewBuilder[AppConfig]().
 | `WithLoaders(loaders...)` | Set configuration sources | none |
 | `WithEnv(name)` | Set active environment (e.g. `"production"`) | `""` |
 | `WithEnvSwitcher(envVar)` | Read environment name from OS variable | none |
+| `WithEnvironmentStrategy(strategy)` | Select `Auto`, `Sectioned`, `NamedFiles`, or explicit `Hybrid` behavior | `Auto` |
+| `WithEnvironmentConflictPolicy(policy)` | Control cross-model conflicts in hybrid mode | `LastWins` |
 | `WithEnvPrefix(prefix)` | Auto-add an `EnvironmentLoader` with this prefix | none |
 | `WithDeepMerge(bool)` | Enable recursive merge of nested maps | `true` |
 | `WithMergeStrategyOption(strategy)` | Default merge strategy | `Merge` |
@@ -654,6 +680,7 @@ go install github.com/confiify/confii-go/confii@v1.1.0
 | `confii diff` | Compare two configs or environments |
 | `confii debug` | Debug source tracking for a key |
 | `confii explain` | Detailed resolution info for a key |
+| `confii plan` | Show environment strategy, source order, and mixed-model conflicts |
 | `confii lint` | Lint config for issues |
 | `confii docs` | Generate documentation |
 | `confii migrate` | Migrate from other config formats |
@@ -665,6 +692,7 @@ confii export production -l yaml:config.yaml -f json -o config.json
 confii validate production -l yaml:config.yaml --schema schema.json
 confii diff dev production --loader1 yaml:c.yaml --loader2 yaml:c.yaml
 confii explain production -l yaml:config.yaml --key database.host
+confii plan production
 confii lint production -l yaml:config.yaml --strict
 confii docs production -l yaml:config.yaml -f markdown -o DOCS.md
 confii migrate dotenv .env -o config.yaml
@@ -747,7 +775,7 @@ github.com/confiify/confii-go/
   ├── internal/              # Internal utilities (dictutil, typecoerce, formatparse)
   ├── integration/           # End-to-end integration tests
   ├── examples/              # Runnable examples
-  └── confii/                # CLI tool (10 commands)
+  └── confii/                # CLI tool (11 commands)
 ```
 
 ## Requirements

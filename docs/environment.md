@@ -120,6 +120,37 @@ default_environment: development
 
 This applies with the lowest priority -- any explicit code option overrides it.
 
+### Separate Files Per Environment
+
+Section-based environments are still the default for a normal file loader. If
+you prefer `config/default.yaml` plus `config/<environment>.yaml`, enable the
+separate-file mode explicitly in `.confii.yaml`:
+
+```yaml
+default_environment: development
+env_switcher: APP_ENV
+environment_strategy: named_files
+sources:
+  - type: environment_files
+    search_paths: [config, .]
+    default_file: default.yaml
+    environment_file: "{environment}.yaml"
+```
+
+For `APP_ENV=production`, Confii loads `config/default.yaml` first and
+`config/production.yaml` second. Each role uses the first match in
+`search_paths`, so a root-level file is only used when the corresponding file
+is absent from `config/`. Set `default_required` or `environment_required` to
+control missing-file failures; their defaults are `false` and `true`,
+respectively.
+
+The mode is intentionally opt-in. Declaring `environment_files` infers the
+`named_files` strategy. Flat sources remain composable, but a source containing
+top-level environment sections is rejected so a project cannot accidentally
+activate two environment models. Use `environment_strategy: hybrid` together
+with an explicit `environment_conflict_policy` only for a deliberate migration
+or integration, and inspect it with `confii plan <environment>`.
+
 ---
 
 ## Inheritance Behavior
