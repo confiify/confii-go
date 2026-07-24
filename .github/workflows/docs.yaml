@@ -8,12 +8,14 @@ on:
     paths:
       - "docs/**"
       - "mkdocs.yml"
+      - "Makefile"
       - "scripts/check-docs-artifact.sh"
       - "scripts/check-site-headers.sh"
   pull_request:
     paths:
       - "docs/**"
       - "mkdocs.yml"
+      - "Makefile"
       - "scripts/check-docs-artifact.sh"
       - "scripts/check-site-headers.sh"
 

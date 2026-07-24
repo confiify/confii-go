@@ -21,7 +21,7 @@ Brief description of what this PR does.
 - [ ] Every module is tidy (`make mod-verify`)
 - [ ] Lint passes (`make lint`)
 - [ ] No vulnerabilities (`make vulncheck`)
-- [ ] Documentation builds strictly (`mkdocs build --strict`)
+- [ ] Documentation and its deployable policy pass (`make docs-check`)
 - [ ] New code has tests (90%+ coverage target)
 - [ ] Doc comments added for new exported symbols
 - [ ] CHANGELOG.md updated (if user-facing change)

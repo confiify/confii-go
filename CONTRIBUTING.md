@@ -43,7 +43,7 @@ make mod-verify   # every module is tidy and checksummed
 make lint         # fmt-check + vet + golangci-lint
 make ci-full      # core, race, integration, and cloud consumer tests
 make vulncheck    # govulncheck for the core module
-mkdocs build --strict
+make docs-check
 ```
 
 All checks must pass. Target 90%+ test coverage for new code.
