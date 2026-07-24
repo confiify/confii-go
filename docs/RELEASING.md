@@ -35,14 +35,23 @@ git push --atomic origin loader/cloud/v1.2.0 secret/cloud/v1.2.0 v1.2.0
 ```
 
 The root tag starts the release workflow. It re-runs module, race, and cloud
-tests; checks all three tags and internal versions; cross-compiles the CLI;
-publishes checksums; and records GitHub artifact attestations.
+tests and checks all three tags and internal versions. A version-pinned
+GoReleaser toolchain then cross-compiles the CLI and stages the GitHub release
+as a draft. The workflow generates SLSA provenance for every checksummed
+archive, attaches the signed Sigstore bundle as
+`confii-<tag>.intoto.jsonl`, and only then publishes the release.
 
 After the workflow succeeds, verify one archive and verify all modules through
 a clean consumer:
 
 ```bash
-gh attestation verify confii-v1.2.0-linux-amd64.tar.gz --repo confiify/confii-go
+gh release download v1.2.0 \
+  --pattern 'confii-v1.2.0-linux-amd64.tar.gz' \
+  --pattern 'confii-v1.2.0.intoto.jsonl'
+gh attestation verify confii-v1.2.0-linux-amd64.tar.gz \
+  --repo confiify/confii-go \
+  --bundle confii-v1.2.0.intoto.jsonl \
+  --signer-workflow confiify/confii-go/.github/workflows/release.yaml
 go list -m github.com/confiify/confii-go@v1.2.0
 go list -m github.com/confiify/confii-go/loader/cloud@v1.2.0
 go list -m github.com/confiify/confii-go/secret/cloud@v1.2.0
