@@ -5,6 +5,12 @@ The documentation is built as a static MkDocs site and published at
 `site/` artifact containing a
 [Cloudflare Pages compatible `_headers` policy](https://developers.cloudflare.com/pages/configuration/headers/).
 
+Cloudflare Pages is the sole production documentation host. The repository's
+`Docs` workflow builds and validates the site, but intentionally has no GitHub
+Pages upload, deployment job, `pages: write` permission, or OpenID Connect
+permission. This separation keeps pull-request validation on GitHub while
+Cloudflare performs production deployment from `main`.
+
 The production URL passed the repository's live response-header test on
 2026-07-25. Maintainers can repeat the test after any hosting or policy change.
 
@@ -64,6 +70,11 @@ migration, maintainers should:
 2. update the repository website URL and badge evidence;
 3. redirect or retire the old GitHub Pages URL; and
 4. mark `hardened_site` Met with the tested production URL.
+
+The legacy GitHub Pages site must remain unpublished in **Settings → Pages**.
+Removing the deployment job prevents this repository from recreating it; if a
+Pages deployment mechanism is added in the future, a successful run can
+publish the legacy URL again and must receive security review first.
 
 The hosting account must also follow the continuity model: at least two
 independently controlled maintainers need appropriate administrative or
