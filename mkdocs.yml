@@ -74,6 +74,7 @@ nav:
   - Quality Policy: QUALITY.md
   - Security Review: SECURITY_REVIEW.md
   - OpenSSF Evidence: OPENSSF_BEST_PRACTICES.md
+  - Maintainer Continuity: CONTINUITY.md
   - Changelog: changelog.md
   - Releasing: RELEASING.md
 

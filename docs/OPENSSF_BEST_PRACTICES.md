@@ -49,6 +49,11 @@ sustained history. Repository text alone cannot make them true.
 Confii will not mark these criteria Met until the public or maintainer-verified
 evidence supports them. This distinction keeps the badge credible.
 
+The access onboarding and verification procedure is documented in
+[`CONTINUITY.md`](CONTINUITY.md). A named candidate or written procedure is not
+itself proof of continuity: its readiness checklist and drill record must be
+complete before `access_continuity` or `bus_factor` is changed to Met.
+
 ## Review cadence
 
 Evidence is rechecked during every release and after changes to maintainers,
