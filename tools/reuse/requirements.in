@@ -1,0 +1,4 @@
+# Copyright 2026 The Confii Contributors
+# SPDX-License-Identifier: MIT
+
+reuse[charset-normalizer]==6.2.0

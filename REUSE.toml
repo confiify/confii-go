@@ -1,0 +1,19 @@
+version = 1
+
+# Confii publishes repository-authored material under MIT. Existing embedded
+# headers remain authoritative; this fallback covers documentation, fixtures,
+# manifests, generated dependency locks, and binary artwork that cannot carry
+# a useful source header.
+[[annotations]]
+path = "**"
+precedence = "closest"
+SPDX-FileCopyrightText = "2026 The Confii Contributors"
+SPDX-License-Identifier = "MIT"
+
+# This evidence file contains SPDX prose as JSON string data. Override content
+# scanning so that the prose is not mistaken for a malformed file header.
+[[annotations]]
+path = ".bestpractices.json"
+precedence = "override"
+SPDX-FileCopyrightText = "2026 The Confii Contributors"
+SPDX-License-Identifier = "MIT"

@@ -10,7 +10,8 @@ Actions workflows, and protected-branch rules.
   Go. Exported identifiers require doc comments.
 - `golangci-lint`, CodeQL, dependency review, Govulncheck, OSV Scanner, and
   Gitleaks findings must be resolved or accompanied by a narrowly scoped,
-  documented rationale.
+  documented rationale. The REUSE 3.3 validator must report complete,
+  machine-readable copyright and license information for every covered file.
 - Pull requests must be focused, explain user and security impact, update
   documentation where behavior changes, and include a DCO sign-off on every
   commit.
@@ -39,12 +40,13 @@ The required suite includes:
 - short fuzz campaigns for parsers, merging, normalization, and secret
   resolution;
 - aggregate statement and condition/branch coverage gates;
-- static analysis, vulnerability analysis, dependency review, and secret
-  scanning; and
+- static analysis, vulnerability analysis, dependency review, secret
+  scanning, and REUSE license-compliance validation; and
 - documentation builds with warnings treated as errors.
 
-Run `make ci-full`, `make lint`, `make vulncheck`, and `make docs-check` before
-requesting review. CI runs the same classes of checks on every pull request.
+Run `make ci-full`, `make lint`, `make reuse-lint`, `make vulncheck`, and
+`make docs-check` before requesting review. CI runs the same classes of checks
+on every pull request.
 
 ## Coverage
 

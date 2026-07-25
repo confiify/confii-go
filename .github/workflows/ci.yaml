@@ -242,6 +242,24 @@ jobs:
       - name: Verify all module manifests
         run: sh scripts/verify-modules.sh
 
+  license-compliance:
+    name: License compliance
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: tools/reuse/requirements.txt
+
+      - name: Verify REUSE 3.3 compliance
+        run: make reuse-lint
+
   reproducible-build:
     name: Reproducible build
     runs-on: ubuntu-latest
@@ -322,6 +340,7 @@ jobs:
       - coverage
       - lint
       - module-integrity
+      - license-compliance
       - reproducible-build
       - dependency-review
       - secret-scan
@@ -340,6 +359,7 @@ jobs:
           test '${{ needs.coverage.result }}' = success
           test '${{ needs.lint.result }}' = success
           test '${{ needs.module-integrity.result }}' = success
+          test '${{ needs.license-compliance.result }}' = success
           test '${{ needs.reproducible-build.result }}' = success
           test '${{ needs.secret-scan.result }}' = success
 
