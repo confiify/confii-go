@@ -42,6 +42,12 @@ days. If a deadline cannot be met safely, maintainers document the reason,
 mitigations, and revised disclosure plan with the reporter. With permission,
 reporters are credited in the advisory and release notes.
 
+Confirmed vulnerabilities are published through GitHub Security Advisories
+after coordinated disclosure and referenced from the changelog or release
+notes. If an investigation concludes that a reported dependency vulnerability
+is not exploitable, the repository records the narrow suppression and its
+technical justification instead of silently discarding the finding.
+
 ## Scope
 
 The following are in scope:

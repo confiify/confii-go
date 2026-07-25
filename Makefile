@@ -47,6 +47,10 @@ build-all: ## Build CLI with all cloud provider tags
 reproducible-build-check: ## Verify two clean CLI builds are byte-for-byte identical
 	sh scripts/check-reproducible-build.sh
 
+.PHONY: dco-check
+dco-check: ## Verify DCO sign-offs in DCO_BASE..DCO_HEAD (defaults: origin/main..HEAD)
+	sh scripts/check-dco.sh "$${DCO_BASE:-origin/main}" "$${DCO_HEAD:-HEAD}"
+
 .PHONY: install
 install: ## Install the CLI binary to $GOPATH/bin
 	$(GO) install $(CLI_PKG)
