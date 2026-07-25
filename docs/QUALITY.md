@@ -14,7 +14,8 @@ Actions workflows, and protected-branch rules.
   machine-readable copyright and license information for every covered file.
 - Pull requests must be focused, explain user and security impact, update
   documentation where behavior changes, and include a DCO sign-off on every
-  commit.
+  commit. The required `DCO sign-off` CI job checks the complete proposed
+  commit range and requires a trailer matching each commit author's identity.
 - A code-owner who is a different person from the author must approve the final
   material revision. A second account controlled by the author is not an
   independent review. Stale approvals are dismissed, conversations must be
@@ -44,9 +45,9 @@ The required suite includes:
   scanning, and REUSE license-compliance validation; and
 - documentation builds with warnings treated as errors.
 
-Run `make ci-full`, `make lint`, `make reuse-lint`, `make vulncheck`, and
-`make docs-check` before requesting review. CI runs the same classes of checks
-on every pull request.
+Run `make dco-check`, `make ci-full`, `make lint`, `make reuse-lint`,
+`make vulncheck`, and `make docs-check` before requesting review. CI runs the
+same classes of checks on every pull request.
 
 ## Coverage
 

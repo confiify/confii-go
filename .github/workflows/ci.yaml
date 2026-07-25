@@ -288,6 +288,24 @@ jobs:
       - name: Dependency Review
         uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
 
+  dco:
+    name: DCO sign-off
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - name: Checkout repository history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify every proposed commit is signed off
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: sh scripts/check-dco.sh "$BASE_SHA" "$HEAD_SHA"
+
   secret-scan:
     name: Secret scan
     runs-on: ubuntu-latest
@@ -343,6 +361,7 @@ jobs:
       - license-compliance
       - reproducible-build
       - dependency-review
+      - dco
       - secret-scan
     runs-on: ubuntu-latest
 
@@ -363,9 +382,16 @@ jobs:
           test '${{ needs.reproducible-build.result }}' = success
           test '${{ needs.secret-scan.result }}' = success
 
-          # Dependency review runs on pull requests and is intentionally
-          # skipped on the post-merge push to main.
-          case '${{ needs.dependency-review.result }}' in
-            success|skipped) ;;
+          # Dependency and DCO review must succeed on pull requests. They are
+          # intentionally skipped only on the post-merge push to main.
+          case '${{ github.event_name }}' in
+            pull_request)
+              test '${{ needs.dependency-review.result }}' = success
+              test '${{ needs.dco.result }}' = success
+              ;;
+            push)
+              test '${{ needs.dependency-review.result }}' = skipped
+              test '${{ needs.dco.result }}' = skipped
+              ;;
             *) exit 1 ;;
           esac

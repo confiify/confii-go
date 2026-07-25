@@ -73,6 +73,7 @@ nav:
   - Architecture: ARCHITECTURE.md
   - Quality Policy: QUALITY.md
   - Security Review: SECURITY_REVIEW.md
+  - OSPS Baseline: OSPS_BASELINE.md
   - OpenSSF Evidence: OPENSSF_BEST_PRACTICES.md
   - Documentation Hosting: HOSTING.md
   - Maintainer Continuity: CONTINUITY.md

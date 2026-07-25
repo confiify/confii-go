@@ -40,6 +40,7 @@ Before submitting a PR, run:
 
 ```bash
 make mod-verify   # every module is tidy and checksummed
+make dco-check    # DCO sign-offs on commits not yet in origin/main
 make lint         # fmt-check + vet + golangci-lint
 make reuse-lint   # machine-readable copyright and license coverage
 make ci-full      # core, race, integration, and cloud consumer tests
@@ -47,7 +48,9 @@ make vulncheck    # govulncheck for the core module
 make docs-check
 ```
 
-All checks must pass. Target 90%+ test coverage for new code.
+All checks must pass. CI independently checks every pull-request commit and
+rejects a sign-off that is missing or does not match that commit's author
+identity. Target 90%+ test coverage for new code.
 
 ## Code Style
 
