@@ -209,7 +209,7 @@ store, err := cloud.NewGCPSecretManager(ctx,
 
 When no version is specified, GCP defaults to `"latest"`.
 
-### HashiCorp Vault
+### HashiCorp Vault and OpenBao
 
 ```bash
 go build -tags vault
@@ -228,6 +228,24 @@ store, err := cloud.NewHashiCorpVault(
 )
 ```
 
+OpenBao uses the same build tag, options, authentication implementations, and
+KV v1/v2 behavior. Use the explicit constructor when the server is OpenBao:
+
+```go
+store, err := cloud.NewOpenBao(
+    cloud.WithVaultURL("https://openbao.example.com:8200"),
+    cloud.WithVaultAuth(&cloud.AppRoleAuth{
+        RoleID: roleID,
+        SecretID: secretID,
+    }),
+)
+```
+
+Confii's CI starts a real, digest-pinned OpenBao 2.6.1 server and verifies KV
+write, read, field extraction, list, delete, token authentication, and AppRole
+authentication. The shared implementation deliberately retains the existing
+`VaultOption` and `HashiCorpVault` names for API compatibility.
+
 Vault also supports the `"path:field"` syntax for extracting specific fields:
 
 ```go
@@ -239,7 +257,9 @@ val, _ := store.GetSecret(ctx, "db/credentials:password")
 
 ## Vault Auth Methods
 
-HashiCorp Vault supports 9 authentication methods. Pass them via `WithVaultAuth`:
+The Vault-compatible integration provides 9 authentication implementations.
+Pass them via `WithVaultAuth`; availability and server-side configuration of a
+method still depend on the selected HashiCorp Vault or OpenBao deployment:
 
 === "Token"
 

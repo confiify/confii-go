@@ -111,6 +111,78 @@ jobs:
       - name: Test as a cloud consumer
         run: sh scripts/test-cloud-consumer.sh '${{ matrix.tags }}' test
 
+  openbao-interop:
+    name: OpenBao interoperability
+    runs-on: ubuntu-latest
+
+    services:
+      openbao:
+        image: ghcr.io/openbao/openbao:2.6.1@sha256:5b2486ab0fb90bbc788cc345b0a08616dfb375873ee8be5df3a2fd4d378a67e0
+        env:
+          BAO_DEV_ROOT_TOKEN_ID: confii-openbao-ci-root
+        ports:
+          - 8200:8200
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Configure ephemeral OpenBao AppRole
+        shell: bash
+        env:
+          OPENBAO_ADDR: http://127.0.0.1:8200
+          OPENBAO_TOKEN: confii-openbao-ci-root
+        run: |
+          set -euo pipefail
+
+          for attempt in {1..30}; do
+            if curl --fail --silent --show-error "$OPENBAO_ADDR/v1/sys/health" >/dev/null; then
+              break
+            fi
+            if (( attempt == 30 )); then
+              echo "::error::OpenBao did not become ready"
+              exit 1
+            fi
+            sleep 1
+          done
+
+          call_bao() {
+            curl --fail --silent --show-error \
+              --header "X-Vault-Token: $OPENBAO_TOKEN" \
+              --header 'Content-Type: application/json' "$@"
+          }
+
+          call_bao --request POST --data '{"type":"approle"}' \
+            "$OPENBAO_ADDR/v1/sys/auth/approle"
+          policy=$(jq -nc --arg policy 'path "secret/data/confii-ci/*" { capabilities = ["create", "read", "update", "delete"] } path "secret/metadata/confii-ci" { capabilities = ["list"] } path "secret/metadata/confii-ci/*" { capabilities = ["read", "list", "delete"] }' '{policy: $policy}')
+          call_bao --request PUT --data "$policy" \
+            "$OPENBAO_ADDR/v1/sys/policies/acl/confii-ci"
+          call_bao --request POST --data '{"token_policies":["confii-ci"],"token_ttl":"5m","token_max_ttl":"10m"}' \
+            "$OPENBAO_ADDR/v1/auth/approle/role/confii-ci"
+
+          role_id=$(call_bao "$OPENBAO_ADDR/v1/auth/approle/role/confii-ci/role-id" | jq -er '.data.role_id')
+          secret_id=$(call_bao --request POST --data '{}' "$OPENBAO_ADDR/v1/auth/approle/role/confii-ci/secret-id" | jq -er '.data.secret_id')
+          [[ "$role_id" =~ ^[[:alnum:]-]{16,128}$ ]]
+          [[ "$secret_id" =~ ^[[:alnum:]-]{16,128}$ ]]
+          echo "::add-mask::$role_id"
+          echo "::add-mask::$secret_id"
+          {
+            echo "CONFII_OPENBAO_ADDR=$OPENBAO_ADDR"
+            echo "CONFII_OPENBAO_TOKEN=$OPENBAO_TOKEN"
+            echo "CONFII_OPENBAO_ROLE_ID=$role_id"
+            echo "CONFII_OPENBAO_SECRET_ID=$secret_id"
+          } >>"$GITHUB_ENV"
+
+      - name: Exercise token and AppRole operations against OpenBao
+        run: make test-openbao
+
   test-integration:
     name: Integration tests
     runs-on: ubuntu-latest
@@ -150,9 +222,11 @@ jobs:
           - "./loader:FuzzEnvFileLoader"
           - "./loader:FuzzUnquoteEnvValue"
           - "./secret:FuzzResolverResolve"
+          - "./hook:FuzzEnvExpanderHook"
           - "./internal/dictutil:FuzzGetNested"
           - "./internal/dictutil:FuzzSetNested"
           - "./internal/dictutil:FuzzDeepMerge"
+          - "./internal/typecoerce:FuzzParseScalar"
 
     steps:
       - name: Checkout repository
@@ -170,6 +244,43 @@ jobs:
           fn="${target##*:}"
           echo "Fuzzing $fn in $pkg for 30s"
           go test -run='^$' -fuzz="^${fn}$" -fuzztime=30s -timeout=120s "$pkg"
+
+  fuzz-introspector:
+    name: Fuzz Introspector
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            tools/fuzz-introspector/package.txt
+            tools/fuzz-introspector/requirements.txt
+
+      - name: Install hash-locked Fuzz Introspector
+        run: |
+          python -m pip install --disable-pip-version-check --only-binary=:all: \
+            --require-hashes --requirement tools/fuzz-introspector/requirements.txt
+          python -m pip install --disable-pip-version-check --only-binary=:all: \
+            --no-deps --require-hashes --requirement tools/fuzz-introspector/package.txt
+
+      - name: Generate and verify report
+        run: make fuzz-introspector-report FUZZ_INTROSPECTOR="$(command -v fuzz-introspector)"
+
+      - name: Upload report
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: fuzz-introspector-report
+          path: bin/fuzz-introspector-report/
+          if-no-files-found: error
+          retention-days: 14
 
   coverage:
     name: Coverage
@@ -391,8 +502,10 @@ jobs:
       - build
       - test
       - test-cloud-tags
+      - openbao-interop
       - test-integration
       - fuzz
+      - fuzz-introspector
       - coverage
       - lint
       - module-integrity
@@ -413,8 +526,10 @@ jobs:
           test '${{ needs.build.result }}' = success
           test '${{ needs.test.result }}' = success
           test '${{ needs.test-cloud-tags.result }}' = success
+          test '${{ needs.openbao-interop.result }}' = success
           test '${{ needs.test-integration.result }}' = success
           test '${{ needs.fuzz.result }}' = success
+          test '${{ needs.fuzz-introspector.result }}' = success
           test '${{ needs.coverage.result }}' = success
           test '${{ needs.lint.result }}' = success
           test '${{ needs.module-integrity.result }}' = success

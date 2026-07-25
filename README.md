@@ -488,10 +488,15 @@ cfg.HookProcessor().RegisterGlobalHook(resolver.Hook())
 | --- | --- | --- |
 | AWS Secrets Manager | `cloud.NewAWSSecretsManager(ctx, opts...)` | `aws` |
 | HashiCorp Vault | `cloud.NewHashiCorpVault(opts...)` | `vault` |
+| OpenBao | `cloud.NewOpenBao(opts...)` | `vault` |
 | Azure Key Vault | `cloud.NewAzureKeyVault(url, cred)` | `azure` |
 | GCP Secret Manager | `cloud.NewGCPSecretManager(ctx, project)` | `gcp` |
 
-Vault supports 9 auth methods: Token, AppRole, LDAP, JWT, Kubernetes, AWS IAM, Azure, GCP, and OIDC.
+The Vault-compatible integration provides Token, AppRole, LDAP, JWT,
+Kubernetes, AWS IAM, Azure, GCP, and OIDC authentication implementations.
+Confii continuously tests token and AppRole KV operations against a real,
+digest-pinned OpenBao server; the other methods have protocol-level fixtures
+and require their corresponding server-side identity providers.
 
 **Multi-store fallback** — try stores in priority order:
 

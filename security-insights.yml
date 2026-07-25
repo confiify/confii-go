@@ -1,0 +1,143 @@
+# Copyright 2026 The Confii Contributors
+# SPDX-License-Identifier: MIT
+header:
+  schema-version: 2.2.0
+  last-updated: '2026-07-25'
+  last-reviewed: '2026-07-25'
+  url: https://raw.githubusercontent.com/confiify/confii-go/main/security-insights.yml
+  comment: >-
+    Machine-readable security and maintenance posture for the Confii Go
+    configuration library and CLI.
+
+project:
+  name: Confii
+  homepage: https://confii-go-docs.pages.dev/
+  roadmap: https://github.com/confiify/confii-go/blob/main/ROADMAP.md
+  administrators:
+    - name: Confii lead maintainer
+      social: https://github.com/confiify
+      primary: true
+    - name: Confii continuity maintainer
+      social: https://github.com/qualityCOE
+  documentation:
+    quickstart-guide: https://confii-go-docs.pages.dev/quickstart/
+    detailed-guide: https://confii-go-docs.pages.dev/
+    design: https://confii-go-docs.pages.dev/ARCHITECTURE/
+    code-of-conduct: https://github.com/confiify/confii-go/blob/main/CODE_OF_CONDUCT.md
+    release-process: https://confii-go-docs.pages.dev/RELEASING/
+    support-policy: https://github.com/confiify/confii-go/blob/main/SUPPORT.md
+    signature-verification: https://confii-go-docs.pages.dev/RELEASING/#tag-and-publish
+  repositories:
+    - name: confii-go
+      url: https://github.com/confiify/confii-go
+      comment: Authoritative source for the Confii Go library, CLI, cloud modules, and documentation.
+  vulnerability-reporting:
+    reports-accepted: true
+    bug-bounty-available: false
+    contact:
+      name: Confii security maintainers
+      social: https://github.com/confiify/confii-go/security/advisories/new
+      primary: true
+    policy: https://github.com/confiify/confii-go/security/policy
+    comment: Please report vulnerabilities privately through GitHub Security Advisories.
+
+repository:
+  url: https://github.com/confiify/confii-go
+  status: active
+  bug-fixes-only: false
+  accepts-change-request: true
+  accepts-automated-change-request: true
+  no-third-party-packages: false
+  core-team:
+    - name: Confii lead maintainer
+      social: https://github.com/confiify
+      primary: true
+    - name: Confii continuity maintainer
+      social: https://github.com/qualityCOE
+  documentation:
+    contributing-guide: https://github.com/confiify/confii-go/blob/main/CONTRIBUTING.md
+    review-policy: https://github.com/confiify/confii-go/blob/main/docs/QUALITY.md
+    security-policy: https://github.com/confiify/confii-go/security/policy
+    governance: https://github.com/confiify/confii-go/blob/main/GOVERNANCE.md
+    dependency-management-policy: https://github.com/confiify/confii-go/blob/main/docs/QUALITY.md#dependency-lifecycle
+  license:
+    url: https://github.com/confiify/confii-go/blob/main/LICENSE
+    expression: MIT
+  release:
+    changelog: https://github.com/confiify/confii-go/releases/tag/{version}
+    automated-pipeline: true
+    attestations:
+      - name: SPDX 2.3 release SBOMs
+        predicate-uri: https://spdx.dev/Document
+        location: https://github.com/confiify/confii-go/releases/tag/{version}
+        comment: Each compiled archive has a checksummed SPDX JSON SBOM.
+      - name: SLSA build provenance
+        predicate-uri: https://slsa.dev/provenance/v1
+        location: https://github.com/confiify/confii-go/attestations
+        comment: GitHub artifact attestations cover checksummed release archives.
+      - name: OpenVEX statements
+        predicate-uri: https://openvex.dev/ns/v0.2.0
+        location: https://github.com/confiify/confii-go/releases/tag/{version}
+        comment: Applicable vulnerability non-exploitability statements accompany releases.
+    distribution-points:
+      - uri: https://github.com/confiify/confii-go/releases
+        comment: Signed source tags and compiled CLI archives.
+      - uri: https://pkg.go.dev/github.com/confiify/confii-go
+        comment: Go module documentation and version discovery.
+  security:
+    assessments:
+      self:
+        evidence: https://github.com/confiify/confii-go/blob/main/docs/SECURITY_REVIEW.md
+        date: '2026-07-25'
+        comment: Maintainer security boundary review and assurance case.
+      third-party:
+        - evidence: https://securityscorecards.dev/viewer/?uri=github.com/confiify/confii-go
+          date: '2026-07-25'
+          comment: OpenSSF Scorecard continuous assessment.
+        - evidence: https://www.bestpractices.dev/projects/12279
+          date: '2026-07-25'
+          comment: OpenSSF Best Practices self-certification with public evidence.
+    champions:
+      - name: Confii security maintainers
+        social: https://github.com/confiify/confii-go/security/policy
+        primary: true
+    tools:
+      - name: CodeQL
+        type: SAST
+        rulesets:
+          - security-extended
+          - security-and-quality
+        integration:
+          adhoc: false
+          ci: true
+          release: false
+        results: {}
+      - name: Govulncheck and OSV-Scanner
+        type: SCA
+        rulesets:
+          - Go vulnerability database
+          - OSV database
+        integration:
+          adhoc: true
+          ci: true
+          release: true
+        results: {}
+      - name: Gitleaks and GitHub secret scanning
+        type: secrets
+        rulesets:
+          - built-in
+          - repository allowlist
+        integration:
+          adhoc: true
+          ci: true
+          release: false
+        results: {}
+      - name: Native Go fuzzing and Fuzz Introspector
+        type: fuzzing
+        rulesets:
+          - repository fuzz target inventory
+        integration:
+          adhoc: true
+          ci: true
+          release: false
+        results: {}
