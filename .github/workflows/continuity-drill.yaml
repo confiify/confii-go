@@ -41,6 +41,15 @@ jobs:
           sh scripts/verify-modules.sh
           go test -race -timeout 120s ./...
 
+      - name: Verify VEX decisions and install pinned Syft
+        shell: bash
+        run: |
+          set -euo pipefail
+          make vex-check
+          syft_dir="$RUNNER_TEMP/syft-bin"
+          sh scripts/install-syft.sh "$syft_dir"
+          echo "$syft_dir" >> "$GITHUB_PATH"
+
       - name: Build release snapshot without publishing
         uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
         with:
@@ -49,4 +58,4 @@ jobs:
           args: release --snapshot --clean
 
       - name: Verify snapshot output
-        run: test -s dist/checksums.txt
+        run: make release-artifacts-check

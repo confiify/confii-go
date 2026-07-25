@@ -15,6 +15,7 @@ cloud-loader, and cloud-secret tags all identify the same reviewed commit.
    make ci-full
    make lint
    make vulncheck
+   make supply-chain-check
    mkdocs build --strict
    ```
 
@@ -36,9 +37,11 @@ git push --atomic origin loader/cloud/v1.2.0 secret/cloud/v1.2.0 v1.2.0
 
 The root tag starts the release workflow. It re-runs module, race, and cloud
 tests and checks all three tags and internal versions. A version-pinned
-GoReleaser toolchain then cross-compiles the CLI and stages the GitHub release
-as a draft. The workflow generates SLSA provenance for every checksummed
-archive, attaches the signed Sigstore bundle as
+GoReleaser toolchain then cross-compiles the CLI, creates an SPDX JSON SBOM for
+each archive, includes the SBOMs and applicable OpenVEX documents in the
+release checksum manifest, and stages the GitHub release as a draft. The
+workflow rejects incomplete release metadata before publication, generates
+SLSA provenance for every checksummed archive, attaches the signed Sigstore bundle as
 `confii-<tag>.intoto.jsonl`, and only then publishes the release.
 
 After the workflow succeeds, verify one archive and verify all modules through
@@ -47,7 +50,13 @@ a clean consumer:
 ```bash
 gh release download v1.2.0 \
   --pattern 'confii-v1.2.0-linux-amd64.tar.gz' \
+  --pattern 'confii-v1.2.0-linux-amd64.tar.gz.sbom.json' \
+  --pattern 'checksums.txt' \
+  --pattern '*.openvex.json' \
   --pattern 'confii-v1.2.0.intoto.jsonl'
+sha256sum --check --ignore-missing checksums.txt
+jq -e '.spdxVersion == "SPDX-2.3" and (.packages | length > 0)' \
+  confii-v1.2.0-linux-amd64.tar.gz.sbom.json
 gh attestation verify confii-v1.2.0-linux-amd64.tar.gz \
   --repo confiify/confii-go \
   --bundle confii-v1.2.0.intoto.jsonl \
@@ -64,7 +73,8 @@ a new patch version; never move or replace a published tag.
 
 The manual `Maintainer continuity drill` workflow verifies release-environment
 approval, module checks, race tests, and a GoReleaser snapshot without creating
-a tag or publishing a release. The continuity maintainer runs and approves this
-workflow as described in [`CONTINUITY.md`](CONTINUITY.md). It is evidence that
-the release tooling remains operable, not a substitute for the full production
-release procedure above.
+a tag or publishing a release. The snapshot must contain all expected archives,
+per-archive SPDX SBOMs, OpenVEX documents, and checksum entries. The continuity
+maintainer runs and approves this workflow as described in
+[`CONTINUITY.md`](CONTINUITY.md). It is evidence that the release tooling remains
+operable, not a substitute for the full production release procedure above.

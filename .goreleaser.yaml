@@ -42,8 +42,15 @@ archives:
       - LICENSE
       - README.md
 
+sboms:
+  - id: archives
+    artifacts: archive
+    disable: false
+
 checksum:
   name_template: checksums.txt
+  extra_files:
+    - glob: .openvex/*.openvex.json
 
 changelog:
   use: github-native
@@ -51,3 +58,5 @@ changelog:
 release:
   draft: true
   prerelease: auto
+  extra_files:
+    - glob: .openvex/*.openvex.json
