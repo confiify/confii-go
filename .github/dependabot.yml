@@ -8,6 +8,7 @@ updates:
       - /loader/cloud
       - /secret/cloud
       - /examples/cloud
+      - /tools/security-insights-check
     schedule:
       interval: weekly
       day: monday
@@ -48,3 +49,14 @@ updates:
         applies-to: version-updates
         patterns:
           - "*"
+
+  - package-ecosystem: pip
+    directory: /tools/fuzz-introspector
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: "deps"
+    labels:
+      - dependencies
+    open-pull-requests-limit: 2

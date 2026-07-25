@@ -62,8 +62,12 @@ case "$mode" in
 		# shellcheck disable=SC2086 # package list is intentionally word-split.
 		govulncheck -tags "$tags" $packages
 		;;
+	openbao)
+		go test -tags vault -count=1 -run '^TestOpenBaoInterop$' -timeout=60s \
+			github.com/confiify/confii-go/secret/cloud
+		;;
 	*)
-		echo "usage: $0 [tags] [build|test|vet|vuln]" >&2
+		echo "usage: $0 [tags] [build|test|vet|vuln|openbao]" >&2
 		exit 2
 		;;
 esac

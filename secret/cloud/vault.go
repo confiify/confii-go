@@ -16,7 +16,8 @@ import (
 	"github.com/hashicorp/vault/api"
 )
 
-// HashiCorpVault implements SecretStore for HashiCorp Vault.
+// HashiCorpVault implements SecretStore for HashiCorp Vault and API-compatible
+// OpenBao deployments.
 type HashiCorpVault struct {
 	client     *api.Client
 	mountPoint string
@@ -123,6 +124,15 @@ func NewHashiCorpVault(opts ...VaultOption) (*HashiCorpVault, error) {
 		kvVersion:  cfg.KVVersion,
 		namespace:  cfg.Namespace,
 	}, nil
+}
+
+// NewOpenBao creates a secret store for an OpenBao server. OpenBao preserves
+// the Vault HTTP API used by this implementation, so it shares VaultOption,
+// authentication methods, KV behavior, and the HashiCorpVault concrete type.
+// Confii continuously verifies this compatibility against a pinned OpenBao
+// release in CI.
+func NewOpenBao(opts ...VaultOption) (*HashiCorpVault, error) {
+	return NewHashiCorpVault(opts...)
 }
 
 // GetSecret retrieves a secret from HashiCorp Vault, supporting KV v1 and v2, versioned reads, and field extraction via "path:field" syntax.

@@ -73,7 +73,9 @@ nav:
   - Architecture: ARCHITECTURE.md
   - Quality Policy: QUALITY.md
   - Credential Policy: CREDENTIALS.md
+  - Minder Monitoring: MINDER.md
   - Security Review: SECURITY_REVIEW.md
+  - Security Tooling: SECURITY_TOOLING.md
   - OSPS Baseline: OSPS_BASELINE.md
   - OpenSSF Evidence: OPENSSF_BEST_PRACTICES.md
   - Documentation Hosting: HOSTING.md

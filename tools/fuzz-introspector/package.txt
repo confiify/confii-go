@@ -1,0 +1,7 @@
+# Copyright 2026 The Confii Contributors
+# SPDX-License-Identifier: MIT
+
+# Install this file with --no-deps after requirements.txt. See requirements.in
+# for the two security-patched dependency overrides.
+fuzz-introspector==0.1.10 \
+    --hash=sha256:a50b2ff3ecf62c9aafe20fd61b03e6ed007f239aacdf9a3dae556939251bd84d

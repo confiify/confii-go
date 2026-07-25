@@ -7,9 +7,16 @@ set -eu
 repo_root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 dist_dir=${1:-"$repo_root/dist"}
 checksum_file="$dist_dir/checksums.txt"
+bomctl=${BOMCTL:-bomctl}
+work_dir=$(mktemp -d "${TMPDIR:-/tmp}/confii-bomctl.XXXXXX")
+trap 'rm -rf "$work_dir"' EXIT HUP INT TERM
 
 command -v jq >/dev/null 2>&1 || {
 	echo "jq is required to validate release SBOMs" >&2
+	exit 1
+}
+command -v "$bomctl" >/dev/null 2>&1 || {
+	echo "bomctl is required to semantically validate release SBOMs" >&2
 	exit 1
 }
 [ -s "$checksum_file" ] || {
@@ -52,6 +59,21 @@ for archive in "$dist_dir"/confii-*.tar.gz "$dist_dir"/confii-*.zip; do
 		(.packages | type == "array" and length > 0)
 	' "$sbom" >/dev/null
 
+	# Import through bomctl/protobom and re-export SPDX 2.3. This catches
+	# structurally plausible JSON that cannot be consumed as an SBOM graph.
+	alias="release-$archive_count"
+	cache_dir="$work_dir/cache-$archive_count"
+	roundtrip="$work_dir/$alias.spdx.json"
+	mkdir -p "$cache_dir"
+	"$bomctl" import --cache-dir "$cache_dir" --alias "$alias" "$sbom"
+	"$bomctl" export --cache-dir "$cache_dir" --format spdx-2.3 \
+		--output-file "$roundtrip" "$alias"
+	jq -e '
+		.spdxVersion == "SPDX-2.3" and
+		(.SPDXID | type == "string" and length > 0) and
+		(.packages | type == "array" and length > 0)
+	' "$roundtrip" >/dev/null
+
 	checksum_contains_once "$archive_name" || {
 		echo "$archive_name is missing from checksums.txt" >&2
 		exit 1
@@ -81,4 +103,4 @@ for vex_file in "$repo_root"/.openvex/*.openvex.json; do
 	}
 done
 
-echo "release artifacts include five valid SPDX SBOMs and checksummed VEX metadata"
+echo "release artifacts include five bomctl-validated SPDX SBOMs and checksummed VEX metadata"

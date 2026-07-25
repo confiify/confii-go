@@ -13,6 +13,8 @@ GOBCO_VERSION := v1.3.4
 GOBCO_BIN := $(abspath $(TOOLS_DIR)/gobco)
 APIDIFF_VERSION := v0.0.0-20260718201538-764159d718ef
 APIDIFF_BIN := $(abspath $(TOOLS_DIR)/apidiff)
+BOMCTL_VERSION := 1ef4106fac3e300895dab039677895429847b127
+BOMCTL_BIN := $(abspath $(TOOLS_DIR)/bomctl)
 PYTHON ?= python3
 REUSE_VENV := $(abspath $(TOOLS_DIR)/reuse-venv)
 REUSE_BIN := $(REUSE_VENV)/bin/reuse
@@ -121,6 +123,10 @@ $(GOBCO_BIN):
 test-cloud: ## Test all cloud providers in an isolated consumer module
 	sh scripts/test-cloud-consumer.sh "$(TAGS_ALL)" test
 
+.PHONY: test-openbao
+test-openbao: ## Run live OpenBao compatibility test (requires CONFII_OPENBAO_* variables)
+	sh scripts/test-cloud-consumer.sh "$(TAGS_VAULT)" openbao
+
 .PHONY: bench
 bench: ## Run benchmarks
 	$(GOTEST) ./... -bench=. -benchmem -run='^$$' -timeout 120s
@@ -145,9 +151,11 @@ FUZZ_TARGETS := \
 	./loader:FuzzEnvFileLoader \
 	./loader:FuzzUnquoteEnvValue \
 	./secret:FuzzResolverResolve \
+	./hook:FuzzEnvExpanderHook \
 	./internal/dictutil:FuzzGetNested \
 	./internal/dictutil:FuzzSetNested \
-	./internal/dictutil:FuzzDeepMerge
+	./internal/dictutil:FuzzDeepMerge \
+	./internal/typecoerce:FuzzParseScalar
 
 .PHONY: fuzz
 fuzz: ## Run all fuzz targets for FUZZTIME each (default 30s; e.g. make fuzz FUZZTIME=2m)
@@ -163,7 +171,18 @@ fuzz: ## Run all fuzz targets for FUZZTIME each (default 30s; e.g. make fuzz FUZ
 .PHONY: fuzz-seeds
 fuzz-seeds: ## Run fuzz targets in seed-only mode (no -fuzz flag) — fast unit-test path
 	$(GOTEST) -run='^Fuzz' -count=1 -timeout 60s \
-		./loader/... ./secret/... ./internal/dictutil/...
+		./loader/... ./secret/... ./hook/... ./internal/dictutil/... ./internal/typecoerce/...
+
+.PHONY: fuzz-introspector-report
+fuzz-introspector-report: ## Generate and validate a Fuzz Introspector report (Linux x86-64, Python 3.11)
+	@test -n "$(FUZZ_INTROSPECTOR)" || { \
+		echo "FUZZ_INTROSPECTOR must point to the fuzz-introspector executable" >&2; \
+		exit 2; \
+	}
+	@rm -rf "$(abspath $(BUILD_DIR)/fuzz-introspector-report)"
+	"$(FUZZ_INTROSPECTOR)" full --target-dir "$(CURDIR)" --language go \
+		--out-dir "$(abspath $(BUILD_DIR)/fuzz-introspector-report)" --name confii-go
+	sh scripts/check-fuzz-introspector.sh "$(abspath $(BUILD_DIR)/fuzz-introspector-report)"
 
 # ---- Code Quality ----
 
@@ -225,11 +244,19 @@ vex-check: ## Validate OpenVEX records, OSV suppression coverage, and non-exploi
 	sh scripts/check-vex.sh
 
 .PHONY: supply-chain-check
-supply-chain-check: vex-check ## Verify checked-in supply-chain metadata
+supply-chain-check: vex-check security-insights-check ## Verify checked-in supply-chain metadata
+
+.PHONY: security-insights-check
+security-insights-check: ## Validate machine-readable Security Insights metadata
+	cd tools/security-insights-check && $(GO) run . ../../security-insights.yml ../../.minder/confii-profile.yaml
 
 .PHONY: release-artifacts-check
-release-artifacts-check: ## Verify dist contains checksummed SPDX SBOMs and VEX metadata
-	sh scripts/check-release-artifacts.sh dist
+release-artifacts-check: $(BOMCTL_BIN) ## Verify dist contains semantically valid, checksummed SPDX SBOMs and VEX metadata
+	BOMCTL="$(BOMCTL_BIN)" sh scripts/check-release-artifacts.sh dist
+
+$(BOMCTL_BIN):
+	@mkdir -p "$(@D)"
+	GOBIN="$(abspath $(@D))" $(GO) install github.com/bomctl/bomctl@$(BOMCTL_VERSION)
 
 # ---- CI ----
 

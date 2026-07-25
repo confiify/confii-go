@@ -112,6 +112,22 @@ func TestVault_GetSecret_HappyPath_KVv2_Map(t *testing.T) {
 	}
 }
 
+func TestNewOpenBao_UsesVaultCompatibleImplementation(t *testing.T) {
+	store, err := NewOpenBao(
+		WithVaultURL("http://127.0.0.1:8200"),
+		WithVaultToken("test-token"),
+	)
+	if err != nil {
+		t.Fatalf("NewOpenBao: %v", err)
+	}
+	if store == nil {
+		t.Fatal("NewOpenBao returned a nil store")
+	}
+	if store.mountPoint != "secret" || store.kvVersion != 2 {
+		t.Fatalf("defaults = mount %q, KV v%d; want secret, KV v2", store.mountPoint, store.kvVersion)
+	}
+}
+
 // TestVault_GetSecret_HappyPath_FieldExtraction asserts that the
 // "path:field" syntax pulls a single field from the KV v2 envelope.
 func TestVault_GetSecret_HappyPath_FieldExtraction(t *testing.T) {

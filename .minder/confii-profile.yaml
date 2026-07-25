@@ -1,0 +1,101 @@
+# Copyright 2026 The Confii Contributors
+# SPDX-License-Identifier: MIT
+---
+version: v1
+type: profile
+name: confii-repository-security
+display_name: Confii repository security (audit only)
+context:
+  provider: github
+alert: "off"
+remediate: "off"
+repository:
+  - type: secret_scanning
+    def: {}
+  - type: secret_push_protection
+    def: {}
+  - type: branch_protection_enabled
+    params:
+      branch: ""
+    def: {}
+  - type: branch_protection_require_pull_requests
+    params:
+      branch: ""
+    def:
+      required_pull_request_reviews: true
+  - type: branch_protection_require_pull_request_approving_review_count
+    params:
+      branch: ""
+    def:
+      required_approving_review_count: 1
+  - type: branch_protection_require_pull_request_code_owners_review
+    params:
+      branch: ""
+    def:
+      require_code_owner_reviews: true
+  - type: branch_protection_require_pull_request_dismiss_stale_reviews
+    params:
+      branch: ""
+    def:
+      dismiss_stale_reviews: true
+  - type: branch_protection_require_pull_request_last_push_approval
+    params:
+      branch: ""
+    def:
+      require_last_push_approval: true
+  - type: branch_protection_require_conversation_resolution
+    params:
+      branch: ""
+    def:
+      required_conversation_resolution: true
+  - type: branch_protection_require_status_checks
+    params:
+      branch: ""
+    def: {}
+  - type: branch_protection_require_signatures
+    params:
+      branch: ""
+    def: {}
+  - type: default_workflow_permissions
+    def:
+      default_workflow_permissions: read
+      can_approve_pull_request_reviews: false
+  - type: actions_check_default_permissions
+    name: actions-check-default-permissions
+    displayName: Workflows declare least-privilege default permissions
+  - type: actions_check_pinned_tags
+    name: actions-check-pinned-dependencies
+    displayName: GitHub Actions dependencies are commit-pinned
+    def:
+      exclude: []
+  - type: security_insights
+    name: security-insights-published
+    displayName: Security Insights metadata is published
+    def:
+      filename: security-insights.yml
+  - type: security_insights_dep_policy
+    name: security-insights-dependency-policy
+    displayName: Security Insights links the dependency policy
+    def:
+      filename: security-insights.yml
+  - type: codeql_enabled
+    def:
+      languages: [go]
+      schedule_interval: '0 6 * * 1'
+  - type: security_policy
+    def:
+      filename: SECURITY.md
+  - type: no_binaries_in_repo
+    name: no-binaries-in-repository
+    displayName: Repository contains no generated executable artifacts
+  - type: dependabot_configured
+    name: dependabot-go-modules
+    def:
+      package_ecosystem: gomod
+      schedule_interval: weekly
+      apply_if_file: go.mod
+  - type: dependabot_configured
+    name: dependabot-github-actions
+    def:
+      package_ecosystem: github-actions
+      schedule_interval: weekly

@@ -40,7 +40,10 @@ tests and checks all three tags and internal versions. A version-pinned
 GoReleaser toolchain then cross-compiles the CLI, creates an SPDX JSON SBOM for
 each archive, includes the SBOMs and applicable OpenVEX documents in the
 release checksum manifest, and stages the GitHub release as a draft. The
-workflow rejects incomplete release metadata before publication, generates
+release gate imports and re-exports every SBOM with commit-pinned
+[bomctl](https://github.com/bomctl/bomctl), proving that the documents are
+semantically consumable through the protobom model rather than merely valid
+JSON. The workflow rejects incomplete release metadata before publication, generates
 SLSA provenance for every checksummed archive, attaches the signed Sigstore bundle as
 `confii-<tag>.intoto.jsonl`, and only then publishes the release.
 

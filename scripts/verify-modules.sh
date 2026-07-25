@@ -94,5 +94,6 @@ verify_nested example "$repo_root/examples/cloud" \
 	"github.com/confiify/confii-go=$repo_root" \
 	"github.com/confiify/confii-go/loader/cloud=$repo_root/loader/cloud" \
 	"github.com/confiify/confii-go/secret/cloud=$repo_root/secret/cloud"
+verify_nested security_insights "$repo_root/tools/security-insights-check"
 
 echo "All module manifests are tidy and verified."

@@ -1,0 +1,38 @@
+# Copyright 2026 The Confii Contributors
+# SPDX-License-Identifier: MIT
+
+# Dependency set declared by fuzz-introspector 0.1.10. The package itself is
+# installed separately with --no-deps from package.txt because its metadata
+# exact-pins two versions with known vulnerabilities. The safe overrides are
+# documented inline and exercised by the complete report job.
+beautifulsoup4==4.10.0
+cxxfilt==0.3.0
+lxml==6.1.0          # fixes PYSEC-2026-87 / GHSA-vfmq-68hx-4jfw
+matplotlib==3.10.0
+PyYAML==6.0.1
+soupsieve==2.8.4     # fixes PYSEC-2026-3071 and PYSEC-2026-3072
+yapf==0.40.1
+flake8
+pep8
+mypy
+psutil
+toml
+pytest
+sphinx==6.0.0
+sphinx_rtd_theme
+configparser
+coverage
+atheris
+setuptools>=65.5.1
+tqdm
+rust-demangler
+numpy==2.1.0
+tree-sitter==0.23.2
+tree-sitter-python==0.23.6
+networkx
+tree-sitter-languages==1.10.2
+tree-sitter-c==0.23.4
+tree-sitter-cpp==0.23.4
+tree-sitter-go==0.23.4
+tree-sitter-java==0.23.5
+tree-sitter-rust==0.23.2
