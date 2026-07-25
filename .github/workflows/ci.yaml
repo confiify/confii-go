@@ -366,6 +366,24 @@ jobs:
       - name: Scan release tree
         run: gitleaks dir . --redact --no-banner --exit-code 1
 
+  supply-chain-metadata:
+    name: Supply-chain metadata
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Verify VEX coverage and non-exploitability
+        run: make supply-chain-check
+
   required:
     name: CI required
     if: always()
@@ -384,6 +402,7 @@ jobs:
       - dco
       - api-compatibility
       - secret-scan
+      - supply-chain-metadata
     runs-on: ubuntu-latest
 
     steps:
@@ -403,6 +422,7 @@ jobs:
           test '${{ needs.reproducible-build.result }}' = success
           test '${{ needs.api-compatibility.result }}' = success
           test '${{ needs.secret-scan.result }}' = success
+          test '${{ needs.supply-chain-metadata.result }}' = success
 
           # Dependency and DCO review must succeed on pull requests. They are
           # intentionally skipped only on the post-merge push to main.

@@ -72,6 +72,7 @@ nav:
   - FAQ: faq.md
   - Architecture: ARCHITECTURE.md
   - Quality Policy: QUALITY.md
+  - Credential Policy: CREDENTIALS.md
   - Security Review: SECURITY_REVIEW.md
   - OSPS Baseline: OSPS_BASELINE.md
   - OpenSSF Evidence: OPENSSF_BEST_PRACTICES.md

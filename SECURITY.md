@@ -2,10 +2,28 @@
 
 ## Supported Versions
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 1.2.x   | Yes                |
-| < 1.2   | No                 |
+Confii supports each stable minor release line for at least 12 months from its
+first release and until at least 6 months after the next stable minor or major
+line is published, whichever is later. Within a supported line, users must run
+the latest patch release to receive security and correctness fixes. New features
+are delivered only in the latest stable line; maintainers may backport critical
+correctness fixes when the risk of the backport is lower than the defect.
+
+| Release line | First release | Security support ends | Status |
+| --- | --- | --- | --- |
+| 1.2.x | 2026-07-24 | No earlier than 2027-07-24, and no earlier than 6 months after the next stable line | Supported |
+| < 1.2 | Before 2026-07-24 | 2026-07-24 | End of life |
+
+Pre-releases and development snapshots receive no separate support window and
+are superseded by the next pre-release or stable release. Go module source and
+the compiled `confii` CLI archives have the same support lifecycle.
+
+Maintainers announce a scheduled end of security support in this table, the
+changelog, and release notes at least 90 days in advance when practicable. If a
+release line must end sooner because a dependency, platform, or legal constraint
+makes safe maintenance impossible, the project publishes the reason, available
+mitigations, and replacement version. End-of-life releases remain downloadable
+but receive no security updates.
 
 ## Reporting a Vulnerability
 
@@ -76,6 +94,10 @@ We appreciate security researchers who help keep Confii safe. With your permissi
 - Enable `WithFreezeOnLoad(true)` in production to prevent runtime config mutation
 - Use build tags to include only the cloud providers you need
 - Keep your Go toolchain and Confii version up to date
+
+The policy for project-controlled CI/CD, hosting, release, authentication, and
+signing credentials is documented in
+[`docs/CREDENTIALS.md`](docs/CREDENTIALS.md).
 
 ---
 

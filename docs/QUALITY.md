@@ -98,11 +98,16 @@ dependency review rejects newly introduced vulnerable or incompatible
 dependencies; Govulncheck checks reachable Go vulnerabilities; and OSV Scanner
 checks every nested module and documentation lockfile. Confirmed vulnerabilities
 are prioritized according to `SECURITY.md` and are fixed by updating, removing,
-or isolating the affected component.
+or isolating the affected component. An OSV suppression is permitted only when
+an OpenVEX document in `.openvex/` records the affected component, status,
+justification, and impact statement. `make vex-check` verifies that suppressions
+and VEX decisions remain synchronized and that excluded Go code is not reachable.
 
 ## Release and maintenance policy
 
 Releases follow Semantic Versioning and the multi-module procedure in
 `docs/RELEASING.md`. Tags are immutable and signed, release artifacts carry
-GitHub attestations, and supported release lines are listed in `SECURITY.md`.
-Older unsupported versions remain available from Git history and releases.
+per-archive SPDX SBOMs, checksums, GitHub attestations, and applicable OpenVEX
+statements. Supported release lines and their security-update lifetimes are
+listed in `SECURITY.md`. Older unsupported versions remain available from Git
+history and releases.

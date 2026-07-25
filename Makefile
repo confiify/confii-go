@@ -220,15 +220,26 @@ vulncheck: ## Run Go vulnerability checks for core and cloud modules
 mod-verify: ## Verify every module is tidy and internally consistent
 	sh scripts/verify-modules.sh
 
+.PHONY: vex-check
+vex-check: ## Validate OpenVEX records, OSV suppression coverage, and non-exploitability
+	sh scripts/check-vex.sh
+
+.PHONY: supply-chain-check
+supply-chain-check: vex-check ## Verify checked-in supply-chain metadata
+
+.PHONY: release-artifacts-check
+release-artifacts-check: ## Verify dist contains checksummed SPDX SBOMs and VEX metadata
+	sh scripts/check-release-artifacts.sh dist
+
 # ---- CI ----
 
 .PHONY: ci
-ci: mod-verify fmt-check vet reuse-lint test ## Run core module, format, license, vet, and test gates
+ci: mod-verify fmt-check vet reuse-lint supply-chain-check test ## Run core module, format, license, supply-chain, vet, and test gates
 	@echo ""
 	@echo "CI passed."
 
 .PHONY: ci-full
-ci-full: mod-verify fmt-check vet-all reuse-lint reproducible-build-check test test-race test-integration test-cloud test-branch-cover ## Full CI including licensing, reproducibility, coverage, race, integration, and cloud consumer tests
+ci-full: mod-verify fmt-check vet-all reuse-lint supply-chain-check reproducible-build-check test test-race test-integration test-cloud test-branch-cover ## Full CI including licensing, supply-chain, reproducibility, coverage, race, integration, and cloud consumer tests
 	@echo ""
 	@echo "Full CI passed."
 

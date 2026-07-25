@@ -2,7 +2,7 @@
 
 **Assessment date:** 2026-07-25  
 **Baseline version:** [2026.02.19](https://baseline.openssf.org/versions/2026-02-19.html)  
-**Target:** Level 2, including every inherited Level 1 control
+**Target:** Level 3, including every inherited Level 1 and Level 2 control
 
 This is the project's control-to-evidence record for the Open Source Project
 Security (OSPS) Baseline. It is a self-assessment backed by public source,
@@ -61,6 +61,20 @@ distributed with Confii release assets.
 | `OSPS-SA-03.01` | The dated [`SECURITY_REVIEW.md`](SECURITY_REVIEW.md) assessment records boundary, requirements, method, findings, mitigations, and residual risks. |
 | `OSPS-VM-01.01`, `OSPS-VM-03.01` | [The security policy](https://github.com/confiify/confii-go/security/policy) defines coordinated disclosure, response/remediation targets, GitHub private reporting, and a private fallback address. |
 | `OSPS-VM-04.01` | Confirmed vulnerabilities are published as GitHub Security Advisories after coordination and referenced in the changelog or release notes. |
+
+## Level 3 controls
+
+| Control | Evidence |
+| --- | --- |
+| `OSPS-AC-04.02` | Every workflow declares a read-only top-level token and grants job-level write access only for the specific publication, attestation, or security-upload operation that requires it. Fork pull requests cannot execute those privileged jobs. |
+| `OSPS-BR-01.04` | Collaborator-controlled workflow inputs are constrained choices or validated release tags. Shell steps use static commands and pass dynamic values through quoted environment variables rather than constructing executable programs. |
+| `OSPS-BR-07.02` | [`CREDENTIALS.md`](CREDENTIALS.md) defines storage, access, review, rotation, revocation, incident, and continuity requirements for project secrets and credentials. |
+| `OSPS-DO-04.01`, `OSPS-DO-05.01` | [The security policy](https://github.com/confiify/confii-go/security/policy) identifies supported lines, minimum support duration, patch expectations, and end-of-life/security-update dates. |
+| `OSPS-GV-04.01` | [`CREDENTIALS.md`](CREDENTIALS.md), [the maintainer record](https://github.com/confiify/confii-go/blob/main/MAINTAINERS.md), and repository rules require identity, 2FA, least privilege, independent review, and documented approval before sensitive access is granted or escalated. |
+| `OSPS-QA-02.02` | The release pipeline creates a Syft-generated SPDX 2.3 JSON SBOM for every compiled archive and verifies that each SBOM is included in `checksums.txt`. A published release made after this control was introduced is required as operational evidence. |
+| `OSPS-QA-04.02` | Not applicable: all released modules are subdirectories of this repository and use the same protected workflow. The examples repository is a companion consumer and is not a release subproject. |
+| `OSPS-QA-07.01` | Protected `main` requires a non-author approval. Historical compliance with the separate 50% review-ratio criterion is measured in [`OPENSSF_BEST_PRACTICES.md`](OPENSSF_BEST_PRACTICES.md); this control is not claimed until that record reaches the required threshold. |
+| `OSPS-VM-04.02` | Every OSV exclusion must have a machine-readable OpenVEX decision in `.openvex/`; `make vex-check` validates suppression coverage, component versions, and the asserted absence of reachable vulnerable code. |
 
 ## Verification and maintenance
 

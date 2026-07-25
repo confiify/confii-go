@@ -1,0 +1,58 @@
+{
+  "@context": "https://openvex.dev/ns/v0.2.0",
+  "@id": "https://github.com/confiify/confii-go/security/vex/GO-2026-5932/1",
+  "author": "The Confii Maintainers <confii.connect@gmail.com>",
+  "role": "Document Creator",
+  "timestamp": "2026-07-25T00:00:00Z",
+  "last_updated": "2026-07-25T00:00:00Z",
+  "version": 1,
+  "tooling": "Maintainer assessment enforced by scripts/check-vex.sh and Govulncheck",
+  "statements": [
+    {
+      "@id": "https://github.com/confiify/confii-go/security/vex/GO-2026-5932/statement/1",
+      "version": 1,
+      "vulnerability": {
+        "name": "GO-2026-5932",
+        "description": "golang.org/x/crypto/openpgp is unmaintained and unsafe by design"
+      },
+      "timestamp": "2026-07-25T00:00:00Z",
+      "products": [
+        {
+          "@id": "pkg:golang/github.com/confiify/confii-go",
+          "subcomponents": [
+            {
+              "@id": "pkg:golang/golang.org/x/crypto@v0.54.0"
+            }
+          ]
+        },
+        {
+          "@id": "pkg:golang/github.com/confiify/confii-go/loader/cloud",
+          "subcomponents": [
+            {
+              "@id": "pkg:golang/golang.org/x/crypto@v0.54.0"
+            }
+          ]
+        },
+        {
+          "@id": "pkg:golang/github.com/confiify/confii-go/secret/cloud",
+          "subcomponents": [
+            {
+              "@id": "pkg:golang/golang.org/x/crypto@v0.54.0"
+            }
+          ]
+        },
+        {
+          "@id": "pkg:golang/github.com/confiify/confii-go/examples/cloud",
+          "subcomponents": [
+            {
+              "@id": "pkg:golang/golang.org/x/crypto@v0.54.0"
+            }
+          ]
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "The modules depend indirectly on golang.org/x/crypto for unrelated packages but do not import any golang.org/x/crypto/openpgp package. Govulncheck reports no reachable vulnerable symbol, and CI fails if an OpenPGP package becomes part of any module dependency graph."
+    }
+  ]
+}
