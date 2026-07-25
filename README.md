@@ -18,6 +18,13 @@
   <a href="https://api.reuse.software/info/github.com/confiify/confii-go"><img src="https://api.reuse.software/badge/github.com/confiify/confii-go" alt="REUSE status"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
 </p>
+
+<p align="center">
+  <a href="SECURITY.md">Security Policy</a> ·
+  <a href="security-insights.yml">Security Insights 2.2</a> ·
+  <a href="docs/SECURITY_TOOLING.md">Security Tooling</a> ·
+  <a href="docs/RELEASING.md">SBOMs &amp; Provenance</a>
+</p>
 <!-- markdownlint-enable MD033 MD041 -->
 
 ---
@@ -25,6 +32,7 @@
 ## Table of Contents
 
 - [Why Confii?](#why-confii)
+- [Security & Supply-Chain Assurance](#security--supply-chain-assurance)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
 - **Configuring Confii**
@@ -85,7 +93,7 @@ Go has several configuration libraries, but none provides a complete configurati
 
 **1. The multi-source merge problem.** Viper's deep merge has [known limitations](https://github.com/spf13/viper/issues/181) with slices and nested maps. Confii provides 6 merge strategies with per-path overrides — so `database` can use `replace` while `features` uses `append` in the same merge.
 
-**2. Secret management as a first-class concern.** Confii natively resolves `${secret:db/password}` placeholders from AWS Secrets Manager, Azure Key Vault, GCP Secret Manager, and HashiCorp Vault (with 9 auth methods) — with caching, TTL, and a pluggable store interface.
+**2. Secret management as a first-class concern.** Confii natively resolves `${secret:db/password}` placeholders from AWS Secrets Manager, Azure Key Vault, GCP Secret Manager, HashiCorp Vault, and OpenBao — with caching, TTL, and a pluggable store interface. The Vault-compatible integration implements nine authentication flows; CI live-tests Token and AppRole against OpenBao, while the remaining flows have protocol-level tests and require provider-side identity configuration.
 
 **3. Environment-aware configuration.** Confii natively understands `default` + `production`/`staging`/`development` sections and merges them automatically — no separate files per environment needed.
 
@@ -96,6 +104,28 @@ Go has several configuration libraries, but none provides a complete configurati
 **6. Full introspection.** `Explain("database.host")` tells you the value, where it came from, how many times it was overridden, and the full history. `Layers()` shows the source stack. `GenerateDocs("markdown")` produces a reference table.
 
 </details>
+
+---
+
+## Security & Supply-Chain Assurance
+
+Confii treats security claims as testable release controls. The repository
+publishes machine-readable security metadata and continuously exercises the
+security-sensitive integrations it advertises.
+
+| Control | Evidence |
+| --- | --- |
+| Static and dependency analysis | CodeQL, Govulncheck, OSV-Scanner, dependency review, and Gitleaks run in CI |
+| Fuzzing | All 11 native Go fuzz targets run in CI; Fuzz Introspector produces a call-graph and complexity report |
+| OpenBao interoperability | CI tests Token and AppRole authentication plus KV v2 operations against digest-pinned OpenBao 2.6.1 |
+| Security metadata | [`security-insights.yml`](security-insights.yml) conforms to OpenSSF Security Insights 2.2 |
+| Release integrity | The release pipeline produces SPDX 2.3 SBOMs, OpenVEX records, checksums, Sigstore bundles, and SLSA provenance |
+| SBOM interoperability | Every release SBOM is imported and re-exported through commit-pinned bomctl/protobom |
+| Continuous policy monitoring | An audit-only Minder profile is published; hosted activation and its current status are documented separately |
+
+See [Security Tooling](docs/SECURITY_TOOLING.md), the
+[Security Policy](SECURITY.md), and the [Release Process](docs/RELEASING.md)
+for boundaries and verification details.
 
 ---
 
@@ -871,9 +901,11 @@ go test ./... -race
 # Just the audit pins (Wave 23 + Wave 24):
 go test ./... -run 'TestV0[1-9]_|TestV10_|TestDeepCopyValue_|TestNormalizeKeys_'
 
-# Fuzzers (run by CI on a schedule; you can run them locally too):
-go test ./internal/dictutil -fuzz=FuzzMerge -fuzztime=30s
-go test ./loader -fuzz=FuzzEnvFile -fuzztime=30s
+# Run all 11 native fuzz targets:
+make fuzz FUZZTIME=30s
+
+# Exercise every seed corpus without starting the fuzz engine:
+make fuzz-seeds
 ```
 
 A PR that adds new behavior without negative tests, or that fails

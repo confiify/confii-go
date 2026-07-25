@@ -19,12 +19,12 @@ package loader
 //     that DeepMerge(result, result) can recurse through without
 //     panicking. This catches any future regression where a parser
 //     yields cyclic or otherwise pathological structures.
-//  4. Self-merge idempotence: DeepMerge(result, result) must be
-//     reflect.DeepEqual to result. This is a weaker form of full
-//     Encode/Parse round-trip but is uniform across YAML/JSON/TOML
-//     since all three decode to a map[string]any (with the documented
-//     caveat that nested values may have varying concrete types per
-//     format).
+//  4. Self-merge idempotence: DeepMerge(result, result) must be value-equal
+//     to result, treating two IEEE NaN values of the same type as equivalent.
+//     This is a weaker form of full Encode/Parse round-trip but is uniform
+//     across YAML/JSON/TOML since all three decode to a map[string]any (with
+//     the documented caveat that nested values may have varying concrete
+//     types per format).
 //
 // Empty-string keys are intentionally NOT rejected here: JSON allows
 // "" as a key and YAML can produce an empty string key from a bare
@@ -34,6 +34,7 @@ package loader
 import (
 	"context"
 	"errors"
+	"math"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -83,9 +84,81 @@ func assertLoaderInvariants(t *testing.T, result map[string]any, err error) {
 
 	// Invariant 4: idempotence under self-merge. DeepMerge(a, a) should
 	// be value-equal to a (modulo Go map iteration order, which
-	// reflect.DeepEqual handles correctly).
-	if !reflect.DeepEqual(merged, result) {
+	// reflect.DeepEqual handles correctly, except for IEEE NaN values.
+	// TOML permits NaN, so compare those as equivalent configuration values.
+	if !loaderValuesEqual(merged, result) {
 		t.Fatalf("DeepMerge(result, result) != result: result=%v merged=%v", result, merged)
+	}
+}
+
+// loaderValuesEqual applies reflect.DeepEqual semantics while treating two
+// IEEE NaN values of the same type as equivalent. TOML explicitly permits NaN,
+// whose language-level inequality to itself does not violate merge idempotence.
+func loaderValuesEqual(left, right any) bool {
+	if reflect.DeepEqual(left, right) {
+		return true
+	}
+	return loaderReflectEqual(reflect.ValueOf(left), reflect.ValueOf(right))
+}
+
+func loaderReflectEqual(left, right reflect.Value) bool {
+	if !left.IsValid() || !right.IsValid() {
+		return left.IsValid() == right.IsValid()
+	}
+	if left.Type() != right.Type() {
+		return false
+	}
+
+	switch left.Kind() {
+	case reflect.Interface:
+		if left.IsNil() || right.IsNil() {
+			return left.IsNil() == right.IsNil()
+		}
+		return loaderReflectEqual(left.Elem(), right.Elem())
+	case reflect.Map:
+		if left.IsNil() != right.IsNil() || left.Len() != right.Len() {
+			return false
+		}
+		for _, key := range left.MapKeys() {
+			rightValue := right.MapIndex(key)
+			if !rightValue.IsValid() || !loaderReflectEqual(left.MapIndex(key), rightValue) {
+				return false
+			}
+		}
+		return true
+	case reflect.Array, reflect.Slice:
+		if left.Kind() == reflect.Slice && left.IsNil() != right.IsNil() {
+			return false
+		}
+		if left.Len() != right.Len() {
+			return false
+		}
+		for index := range left.Len() {
+			if !loaderReflectEqual(left.Index(index), right.Index(index)) {
+				return false
+			}
+		}
+		return true
+	case reflect.Float32, reflect.Float64:
+		return math.IsNaN(left.Float()) && math.IsNaN(right.Float())
+	default:
+		return reflect.DeepEqual(left.Interface(), right.Interface())
+	}
+}
+
+func TestLoaderValuesEqualTreatsNaNsAsEquivalent(t *testing.T) {
+	left := map[string]any{
+		"nested": []any{math.NaN(), float32(math.NaN())},
+	}
+	right := map[string]any{
+		"nested": []any{math.NaN(), float32(math.NaN())},
+	}
+
+	if !loaderValuesEqual(left, right) {
+		t.Fatal("equivalent nested NaN values should compare equal")
+	}
+	if loaderValuesEqual(left, map[string]any{"nested": []any{1.0, float32(1)}}) {
+		t.Fatal("NaN values should not compare equal to finite values")
 	}
 }
 
@@ -159,6 +232,7 @@ func FuzzTOMLLoader(f *testing.F) {
 		"num = 42",
 		"bool = true",
 		"float = 3.14",
+		"0 = nan",
 		"[a.b]\nc = \"deep\"",
 	}
 	for _, s := range seeds {
