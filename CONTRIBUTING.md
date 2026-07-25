@@ -41,6 +41,7 @@ Before submitting a PR, run:
 ```bash
 make mod-verify   # every module is tidy and checksummed
 make dco-check    # DCO sign-offs on commits not yet in origin/main
+make api-compat   # public API compatibility with the latest stable release
 make lint         # fmt-check + vet + golangci-lint
 make reuse-lint   # machine-readable copyright and license coverage
 make ci-full      # core, race, integration, and cloud consumer tests
@@ -97,6 +98,8 @@ make test-cloud    # all cloud-provider tags in a consumer fixture
 - Update documentation if behavior changes
 - Reference related issues in the PR description
 - Ensure every commit includes a DCO `Signed-off-by` trailer
+- Preserve the public API within the current major version; run
+  `make api-compat` and document any intentional addition in the changelog
 - Follow the security and quality review checklist in [docs/QUALITY.md](docs/QUALITY.md)
 - Leave final acceptance to a reviewer who is a different person from the
   author and who has reviewed the final material revision

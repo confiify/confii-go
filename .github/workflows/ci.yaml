@@ -306,6 +306,26 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: sh scripts/check-dco.sh "$BASE_SHA" "$HEAD_SHA"
 
+  api-compatibility:
+    name: API compatibility
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository history and release tags
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Reject incompatible public API changes
+        run: make api-compat
+
   secret-scan:
     name: Secret scan
     runs-on: ubuntu-latest
@@ -362,6 +382,7 @@ jobs:
       - reproducible-build
       - dependency-review
       - dco
+      - api-compatibility
       - secret-scan
     runs-on: ubuntu-latest
 
@@ -380,6 +401,7 @@ jobs:
           test '${{ needs.module-integrity.result }}' = success
           test '${{ needs.license-compliance.result }}' = success
           test '${{ needs.reproducible-build.result }}' = success
+          test '${{ needs.api-compatibility.result }}' = success
           test '${{ needs.secret-scan.result }}' = success
 
           # Dependency and DCO review must succeed on pull requests. They are

@@ -1,2 +1,4 @@
 # Deterministic, non-production integration fixture.
 integration/testdata/secrets.env:generic-api-key:1
+# Public Go pseudo-version pin for golang.org/x/exp/apidiff; not a credential.
+Makefile:generic-api-key:14

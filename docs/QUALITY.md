@@ -24,6 +24,11 @@ Actions workflows, and protected-branch rules.
 - Reviewers check API compatibility, failure behavior, input validation,
   concurrency safety, secret handling, dependency impact, documentation, and
   tests—not only formatting or the happy path.
+- The required `API compatibility` job uses a pinned version of Go's official
+  `apidiff` tool to compare the root, cloud-loader, and cloud-secret module APIs
+  with the latest stable release. An incompatible change requires a new major
+  module path and explicit migration plan; it cannot be waived as a patch or
+  minor release.
 
 ## Test policy
 
@@ -45,9 +50,9 @@ The required suite includes:
   scanning, and REUSE license-compliance validation; and
 - documentation builds with warnings treated as errors.
 
-Run `make dco-check`, `make ci-full`, `make lint`, `make reuse-lint`,
-`make vulncheck`, and `make docs-check` before requesting review. CI runs the
-same classes of checks on every pull request.
+Run `make dco-check`, `make api-compat`, `make ci-full`, `make lint`,
+`make reuse-lint`, `make vulncheck`, and `make docs-check` before requesting
+review. CI runs the same classes of checks on every pull request.
 
 ## Coverage
 
