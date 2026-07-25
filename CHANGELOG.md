@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-07-25
+
 ### Security
 
 - Enforce at least 80% condition/branch coverage across non-example shipping
@@ -22,6 +24,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   consolidated quality policy, dated security review and assurance case,
   reproducible-build verification, a mandatory 90% non-example statement
   coverage gate, and per-source-file copyright/SPDX declarations.
+
+- Add per-archive SPDX 2.3 SBOMs, machine-readable OpenVEX decisions,
+  checksummed release metadata, Sigstore/SLSA provenance, and semantic SBOM
+  validation through pinned `bomctl`.
+
+- Add OpenSSF Security Insights 2.2 metadata, Fuzz Introspector reporting for
+  all 11 native fuzz targets, live OpenBao Token/AppRole/KV interoperability,
+  and an audit-only Minder policy profile.
+
+- Add explicit project credential, release support/EOL, continuity, and OSPS
+  Baseline Level 1–3 evidence policies, plus a hardened Cloudflare Pages
+  documentation deployment.
+
+### Changed
+
+- Enforce API compatibility, REUSE 3.3 license compliance, DCO sign-off,
+  dependency review, CodeQL, Govulncheck, secret scanning, coverage, and
+  supply-chain metadata as protected merge gates.
+
+- Update the opt-in cloud modules and security tooling to their reviewed
+  dependency releases, including `google.golang.org/api` v0.290.0 and
+  `github.com/goccy/go-yaml` v1.19.2.
+
+### Fixed
+
+- Treat TOML IEEE NaN values as equivalent configuration values in the
+  self-merge fuzz invariant while retaining strict comparisons for finite
+  values.
+
+- Accept GitHub Dependabot's exact GitHub-managed author/signoff identity pair
+  in DCO validation without granting a general bot exemption.
 
 ## [1.2.0] - 2026-07-24
 

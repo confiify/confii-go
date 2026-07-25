@@ -6,6 +6,37 @@ set -eu
 
 repo_root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 vex_dir="$repo_root/.openvex"
+workspace_dir=$(mktemp -d "${TMPDIR:-/tmp}/confii-vex-workspace.XXXXXX")
+trap 'rm -rf "$workspace_dir"' EXIT HUP INT TERM
+
+# Release-preparation branches intentionally reference the version being
+# prepared before that version exists on the public module proxy. Inspect the
+# actual local module graph through an isolated workspace so VEX verification
+# neither requires premature tags nor modifies any checked-in manifest.
+(
+	cd "$workspace_dir"
+	go work init \
+		"$repo_root" \
+		"$repo_root/loader/cloud" \
+		"$repo_root/secret/cloud" \
+		"$repo_root/examples/cloud"
+
+	# A workspace main module does not by itself prevent Go from loading the
+	# go.mod file for an explicit, not-yet-published required version while it
+	# constructs the pruned module graph. Version-specific replacements keep
+	# those graph reads local without conflicting with the workspace modules.
+	root_version=$(awk '$1 == "github.com/confiify/confii-go" { print $2; exit }' \
+		"$repo_root/loader/cloud/go.mod")
+	loader_version=$(awk '$1 == "github.com/confiify/confii-go/loader/cloud" { print $2; exit }' \
+		"$repo_root/examples/cloud/go.mod")
+	secret_version=$(awk '$1 == "github.com/confiify/confii-go/secret/cloud" { print $2; exit }' \
+		"$repo_root/examples/cloud/go.mod")
+	go work edit \
+		-replace="github.com/confiify/confii-go@$root_version=$repo_root" \
+		-replace="github.com/confiify/confii-go/loader/cloud@$loader_version=$repo_root/loader/cloud" \
+		-replace="github.com/confiify/confii-go/secret/cloud@$secret_version=$repo_root/secret/cloud"
+)
+workspace_file="$workspace_dir/go.work"
 
 command -v jq >/dev/null 2>&1 || {
 	echo "jq is required to validate OpenVEX documents" >&2
@@ -124,9 +155,9 @@ check_no_openpgp_dependency() {
 	module_dir=$1
 	tags=$2
 	if [ -n "$tags" ]; then
-		deps=$(cd "$module_dir" && go list -deps -tags "$tags" ./...)
+		deps=$(cd "$module_dir" && GOWORK="$workspace_file" go list -deps -tags "$tags" ./...)
 	else
-		deps=$(cd "$module_dir" && go list -deps ./...)
+		deps=$(cd "$module_dir" && GOWORK="$workspace_file" go list -deps ./...)
 	fi
 	if printf '%s\n' "$deps" | grep -Eq '^golang\.org/x/crypto/openpgp(/|$)'; then
 		echo "OpenPGP vulnerable code is present in $module_dir dependency graph" >&2

@@ -3,7 +3,7 @@
 ## Core Library
 
 ```bash
-go get github.com/confiify/confii-go@v1.2.0
+go get github.com/confiify/confii-go@v1.2.1
 ```
 
 Requires **Go 1.25+**.
@@ -22,8 +22,8 @@ Install one or both cloud modules, depending on which APIs your application
 uses:
 
 ```bash
-go get github.com/confiify/confii-go/loader/cloud@v1.2.0
-go get github.com/confiify/confii-go/secret/cloud@v1.2.0
+go get github.com/confiify/confii-go/loader/cloud@v1.2.1
+go get github.com/confiify/confii-go/secret/cloud@v1.2.1
 ```
 
 The cloud modules declare and checksum their supported SDK versions. You do
@@ -72,7 +72,7 @@ command completes.
 ## CLI Tool
 
 ```bash
-go install github.com/confiify/confii-go/confii@v1.2.0
+go install github.com/confiify/confii-go/confii@v1.2.1
 ```
 
 Verify the installation:

@@ -132,7 +132,7 @@ for boundaries and verification details.
 ## Installation
 
 ```bash
-go get github.com/confiify/confii-go@v1.2.0
+go get github.com/confiify/confii-go@v1.2.1
 ```
 
 Cloud providers are opt-in through separate modules and build tags, so the
@@ -141,8 +141,8 @@ provider SDK versions:
 
 ```bash
 # Example: AWS
-go get github.com/confiify/confii-go/loader/cloud@v1.2.0
-go get github.com/confiify/confii-go/secret/cloud@v1.2.0
+go get github.com/confiify/confii-go/loader/cloud@v1.2.1
+go get github.com/confiify/confii-go/secret/cloud@v1.2.1
 go build -tags aws ./...
 
 # Other providers
@@ -705,7 +705,7 @@ jsonDocs, _ := cfg.GenerateDocs("json")
 ## CLI Tool
 
 ```bash
-go install github.com/confiify/confii-go/confii@v1.2.0
+go install github.com/confiify/confii-go/confii@v1.2.1
 ```
 
 | Command | Description |

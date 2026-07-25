@@ -45,7 +45,7 @@ Confii loads, merges, validates, and manages configuration from **any source** â
 ## Install
 
 ```bash
-go get github.com/confiify/confii-go@v1.2.0
+go get github.com/confiify/confii-go@v1.2.1
 ```
 
 ## Quick Start
