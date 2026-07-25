@@ -180,6 +180,7 @@ fuzz-introspector-report: ## Generate and validate a Fuzz Introspector report (L
 		exit 2; \
 	}
 	@rm -rf "$(abspath $(BUILD_DIR)/fuzz-introspector-report)"
+	@mkdir -p "$(abspath $(BUILD_DIR))"
 	"$(FUZZ_INTROSPECTOR)" full --target-dir "$(CURDIR)" --language go \
 		--out-dir "$(abspath $(BUILD_DIR)/fuzz-introspector-report)" --name confii-go
 	sh scripts/check-fuzz-introspector.sh "$(abspath $(BUILD_DIR)/fuzz-introspector-report)"
