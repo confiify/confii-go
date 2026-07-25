@@ -44,6 +44,32 @@ trap cleanup EXIT HUP INT TERM
 mkdir -p "$tmp/old"
 git archive "$baseline" | tar -x -C "$tmp/old"
 
+# Release-preparation branches intentionally make the nested modules require
+# the version being prepared before its tag exists. Model the current source
+# tree through an isolated workspace so a clean CI runner resolves that module
+# edge locally without modifying go.mod/go.sum or requiring a premature tag.
+workspace_dir="$tmp/workspace"
+mkdir -p "$workspace_dir"
+(
+  cd "$workspace_dir"
+  go work init \
+    "$repo" \
+    "$repo/loader/cloud" \
+    "$repo/secret/cloud"
+
+  loader_root_version=$(awk '$1 == "github.com/confiify/confii-go" { print $2; exit }' \
+    "$repo/loader/cloud/go.mod")
+  secret_root_version=$(awk '$1 == "github.com/confiify/confii-go" { print $2; exit }' \
+    "$repo/secret/cloud/go.mod")
+  if [ -z "$loader_root_version" ] || [ "$loader_root_version" != "$secret_root_version" ]; then
+    echo "Cloud modules must require the same root-module version" >&2
+    exit 1
+  fi
+  go work edit \
+    -replace="github.com/confiify/confii-go@$loader_root_version=$repo"
+)
+current_workspace="$workspace_dir/go.work"
+
 check_module() {
   relative_dir=$1
   artifact_name=$2
@@ -82,12 +108,12 @@ check_module() {
     echo "Checking $module ($display_tags tags) against $baseline"
     (
       cd "$old_dir"
-      GOFLAGS="$goflags" GOCACHE="$tmp/cache-old" \
+      GOWORK=off GOFLAGS="$goflags" GOCACHE="$tmp/cache-old" \
         "$APIDIFF" -m -w "$tmp/${artifact_name}-${set_name}-old.api" "$module"
     )
     (
       cd "$current_dir"
-      GOFLAGS="$goflags" GOCACHE="$tmp/cache-current" \
+      GOWORK="$current_workspace" GOFLAGS="$goflags" GOCACHE="$tmp/cache-current" \
         "$APIDIFF" -m -w "$tmp/${artifact_name}-${set_name}-new.api" "$module"
     )
     incompatible=$("$APIDIFF" -m -incompatible \
