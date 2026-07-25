@@ -11,6 +11,8 @@ TOOLS_DIR := $(BUILD_DIR)/tools
 
 GOBCO_VERSION := v1.3.4
 GOBCO_BIN := $(abspath $(TOOLS_DIR)/gobco)
+APIDIFF_VERSION := v0.0.0-20260718201538-764159d718ef
+APIDIFF_BIN := $(abspath $(TOOLS_DIR)/apidiff)
 PYTHON ?= python3
 REUSE_VENV := $(abspath $(TOOLS_DIR)/reuse-venv)
 REUSE_BIN := $(REUSE_VENV)/bin/reuse
@@ -50,6 +52,14 @@ reproducible-build-check: ## Verify two clean CLI builds are byte-for-byte ident
 .PHONY: dco-check
 dco-check: ## Verify DCO sign-offs in DCO_BASE..DCO_HEAD (defaults: origin/main..HEAD)
 	sh scripts/check-dco.sh "$${DCO_BASE:-origin/main}" "$${DCO_HEAD:-HEAD}"
+
+.PHONY: api-compat
+api-compat: $(APIDIFF_BIN) ## Reject public API breaks against the latest stable release
+	APIDIFF="$(APIDIFF_BIN)" sh scripts/check-api-compatibility.sh
+
+$(APIDIFF_BIN):
+	@mkdir -p "$(@D)"
+	GOBIN="$(abspath $(@D))" $(GO) install golang.org/x/exp/cmd/apidiff@$(APIDIFF_VERSION)
 
 .PHONY: install
 install: ## Install the CLI binary to $GOPATH/bin
