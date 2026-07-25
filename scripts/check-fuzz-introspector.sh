@@ -18,8 +18,23 @@ functions="$report_dir/all-fuzz-introspector-functions.json"
 	exit 1
 }
 
-rg --no-config --no-heading --with-filename --line-number \
-	'^func Fuzz[A-Za-z0-9_]+' --glob '*.go' "$repo_root" |
+find_fuzz_targets() {
+	if command -v rg >/dev/null 2>&1; then
+		rg --no-config --no-heading --with-filename --line-number \
+			'^func Fuzz[A-Za-z0-9_]+' --glob '*.go' "$repo_root"
+	else
+		find "$repo_root" -type f -name '*.go' \
+			-exec grep -HnE '^func Fuzz[A-Za-z0-9_]+' {} +
+	fi
+}
+
+matches=$(find_fuzz_targets)
+[ -n "$matches" ] || {
+	echo "no native Go fuzz targets found" >&2
+	exit 1
+}
+
+printf '%s\n' "$matches" |
 while IFS=: read -r file _ declaration; do
 	fn=$(printf '%s\n' "$declaration" | sed -E 's/^func (Fuzz[A-Za-z0-9_]+).*/\1/')
 	relative=${file#"$repo_root"/}
@@ -40,10 +55,6 @@ while IFS=: read -r file _ declaration; do
 	}
 done
 
-target_count=$(rg --no-config -c '^func Fuzz[A-Za-z0-9_]+' --glob '*.go' "$repo_root" | awk -F: '{ total += $2 } END { print total + 0 }')
-[ "$target_count" -gt 0 ] || {
-	echo "no native Go fuzz targets found" >&2
-	exit 1
-}
+target_count=$(printf '%s\n' "$matches" | awk 'NF { count++ } END { print count + 0 }')
 
 echo "Fuzz Introspector indexed all $target_count native Go fuzz targets"
