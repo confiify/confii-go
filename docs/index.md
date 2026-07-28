@@ -49,6 +49,9 @@ CRUD, LocalStack, and Vault/OpenBao companion repository.
 
 ## Install
 
+Run `go get` from an existing Go module. The CLI installation is independent
+and may run from any directory:
+
 ```bash
 go get github.com/confiify/confii-go@latest
 go install github.com/confiify/confii-go/confii@latest
@@ -61,9 +64,12 @@ Start with an empty Go module, then let the CLI scaffold the project-wide
 self-configuration and environment files:
 
 ```bash
-mkdir my-service && cd my-service
+mkdir my-service
+cd my-service
 go mod init example.com/my-service
 go get github.com/confiify/confii-go@latest
+go install github.com/confiify/confii-go/confii@latest
+confii --version
 confii init
 ```
 

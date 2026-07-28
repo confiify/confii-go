@@ -132,11 +132,22 @@ for boundaries and verification details.
 
 ## Installation
 
+The library and CLI have different scopes. Run `go get` from the root of an
+existing Go module; it updates that project's `go.mod` and `go.sum`. Run
+`go install` from any directory; it installs the standalone CLI without
+changing the current project.
+
 ```bash
+# From the root of an existing Go module
 go get github.com/confiify/confii-go@latest
+
+# From any directory
 go install github.com/confiify/confii-go/confii@latest
 confii --version
 ```
+
+Starting from an empty directory? Follow the complete sequence below; creating
+the module before `go get` is required.
 
 Cloud providers are opt-in through separate modules and build tags, so the
 core install stays small. Add the cloud module you use; it owns compatible
@@ -166,10 +177,12 @@ From an empty directory, initialize a Go module and let Confii create the
 recommended separate-file environment layout:
 
 ```bash
-mkdir my-service && cd my-service
+mkdir my-service
+cd my-service
 go mod init example.com/my-service
 go get github.com/confiify/confii-go@latest
 go install github.com/confiify/confii-go/confii@latest
+confii --version
 confii init
 ```
 

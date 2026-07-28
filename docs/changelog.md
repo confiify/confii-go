@@ -5,8 +5,10 @@ The canonical, release-by-release changelog is maintained in
 
 ## Upcoming release
 
-No changes are currently assigned beyond v1.3.0. Consult the Unreleased section
-of the canonical changelog as post-release work begins.
+The next patch release corrects version reporting for CLIs installed with
+`go install package@version` and aligns every from-scratch onboarding path on
+the same module, library, CLI, verification, and initialization sequence.
+Consult the Unreleased section of the canonical changelog for details.
 
 ## v1.3.0
 

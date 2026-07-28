@@ -7,6 +7,9 @@ loading, inspecting, validating, exporting, and comparing configurations.
 
 ## Installation
 
+This installs the standalone CLI and may run from any directory. It does not
+add the Confii library to an application's `go.mod`:
+
 ```bash
 go install github.com/confiify/confii-go/confii@latest
 ```

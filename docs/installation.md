@@ -2,11 +2,25 @@
 
 ## Core Library
 
+`go get` must run inside a Go module because it records Confii in that
+project's `go.mod` and `go.sum`. From the root of an existing module:
+
 ```bash
 go get github.com/confiify/confii-go@latest
 ```
 
 Requires **Go 1.25+**.
+
+From an empty directory, create the module first:
+
+```bash
+mkdir my-service
+cd my-service
+go mod init example.com/my-service
+go get github.com/confiify/confii-go@latest
+```
+
+Use the repository's real module path instead of `example.com/my-service`.
 
 This adds Confii to the current project's `go.mod`. For reproducible builds,
 commit `go.mod` and `go.sum`; production projects may replace `@latest` with the
@@ -77,6 +91,10 @@ command completes.
 
 ## CLI Tool
 
+The CLI is a separate executable. Unlike `go get`, this version-qualified
+`go install` command may run from any directory and does not modify an
+application's `go.mod`:
+
 ```bash
 go install github.com/confiify/confii-go/confii@latest
 ```
@@ -86,6 +104,9 @@ Verify the installation:
 ```bash
 confii --version
 ```
+
+A version-qualified install reports that module version. `dev` is reserved for
+an unversioned local build from a working tree.
 
 `go install` writes the executable to `GOBIN`, or to `$(go env GOPATH)/bin`
 when `GOBIN` is unset. Add that directory to `PATH` if your shell cannot find

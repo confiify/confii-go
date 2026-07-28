@@ -39,6 +39,10 @@ Confii provides:
 
 ## Installation
 
+`go get` must run from the root of an existing Go module and updates that
+project's `go.mod` and `go.sum`. The version-qualified `go install` command may
+run from any directory and installs only the standalone CLI.
+
 ```bash
 go get github.com/confiify/confii-go@latest
 go install github.com/confiify/confii-go/confii@latest
@@ -62,10 +66,22 @@ go build -tags "aws,azure,gcp,vault,ibm"  # all
 
 ### Initialize a new project
 
-From the root of a Go module, run `confii init`. It interactively selects one
-of three layouts: separate named environment files (recommended), one file
-with environment sections, or self-configuration only. For deterministic
-automation:
+From an empty directory, create the Go module, add the library, install and
+verify the CLI, then initialize Confii:
+
+```bash
+mkdir my-service
+cd my-service
+go mod init example.com/my-service
+go get github.com/confiify/confii-go@latest
+go install github.com/confiify/confii-go/confii@latest
+confii --version
+confii init
+```
+
+`confii init` interactively selects one of three layouts: separate named
+environment files (recommended), one file with environment sections, or
+self-configuration only. For deterministic automation:
 
 ```bash
 confii init --non-interactive --strategy named-files \
