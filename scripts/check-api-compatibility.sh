@@ -90,10 +90,20 @@ check_module() {
   fi
 
   if [ "$relative_dir" != "." ]; then
-    # v1.2.0 was published before its nested-module sums included the root
-    # module. Populate only the temporary archive; never rewrite a release or
-    # the current worktree.
-    (cd "$old_dir" && GOWORK=off go mod download github.com/confiify/confii-go)
+    # Resolve the baseline nested module against the root source extracted
+    # from the same signed tag. This keeps compatibility checks independent of
+    # module-proxy propagation and changes only the disposable archive copy.
+    old_root_version=$(awk '$1 == "github.com/confiify/confii-go" { print $2; exit }' \
+      "$old_dir/go.mod")
+    if [ -z "$old_root_version" ]; then
+      echo "Baseline cloud module does not require the root module: $old_dir" >&2
+      exit 1
+    fi
+    (
+      cd "$old_dir"
+      GOWORK=off go mod edit \
+        -replace="github.com/confiify/confii-go@$old_root_version=$tmp/old"
+    )
   fi
 
   for build_tags in $build_sets; do

@@ -270,6 +270,8 @@
   "OSPS-DO-05.01_justification": "The security policy publishes security-support end dates, advance EOL notice, exceptional early-EOL handling, and the effect of EOL at https://github.com/confiify/confii-go/security/policy.",
   "OSPS-GV-04.01_status": "Met",
   "OSPS-GV-04.01_justification": "Sensitive access requires named identity, cryptographic 2FA, least privilege, independent review, and documented role approval under https://github.com/confiify/confii-go/blob/main/docs/CREDENTIALS.md and https://github.com/confiify/confii-go/blob/main/MAINTAINERS.md.",
+  "OSPS-QA-02.02_status": "Met",
+  "OSPS-QA-02.02_justification": "The published v1.2.1 release at https://github.com/confiify/confii-go/releases/tag/v1.2.1 provides a checksummed SPDX 2.3 JSON SBOM for each of its five compiled archives. The protected release run at https://github.com/confiify/confii-go/actions/runs/30172392339 validated every SBOM with bomctl and attached GitHub/Sigstore provenance; the assets were independently downloaded and verified on 2026-07-26.",
   "OSPS-QA-04.02_status": "N/A",
   "OSPS-QA-04.02_justification": "All released modules are subdirectories of this repository and use the same protected workflow. The separately inventoried examples repository is a companion consumer, not a release subproject; see https://github.com/confiify/confii-go/blob/main/docs/OSPS_BASELINE.md.",
   "OSPS-QA-07.01_status": "Met",
