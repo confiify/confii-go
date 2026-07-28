@@ -1,6 +1,6 @@
 # CLI Tool
 
-Confii includes a command-line tool with 12 commands for initializing,
+Confii includes a command-line tool with 13 commands for initializing,
 loading, inspecting, validating, exporting, and comparing configurations.
 
 ---
@@ -121,6 +121,58 @@ instead tells you to declare sources in `.confii.yaml` before running
 | `--non-interactive` | Suppress layout prompting | `false` |
 | `--dry-run` | Print the plan without filesystem changes | `false` |
 | `-f, --force` | Replace every file in the selected plan | `false` |
+
+---
+
+### env
+
+Inspect the project environment without opening `.confii.yaml` manually:
+
+```bash
+confii env
+# Environment: development
+# Selected by: default_environment
+# Configured default: development
+# Switcher: APP_ENV (unset)
+# Strategy: named_files
+# Self-config: .confii.yaml
+```
+
+`confii env current` is the explicit equivalent. List every environment
+discoverable from configured named files or sectioned sources:
+
+```bash
+confii env list
+# development (current, default)
+# production
+
+confii env list --json
+```
+
+Persist a different fallback in the project self-config:
+
+```bash
+confii env set production
+confii env reset
+```
+
+`set` accepts only a currently discoverable environment by default. Use
+`--allow-unknown` only when the matching file or section is being created in a
+separate step. Writes reject non-regular self-config files, preserve file
+permissions, use a same-directory atomic replacement where the platform
+allows it, and leave comments and unrelated YAML/TOML settings intact.
+
+Setting the default does not and cannot change the parent shell. If `APP_ENV`
+or the configured `env_switcher` is set, that value remains effective and the
+command reports the override. Use a command-scoped override when appropriate:
+
+```bash
+APP_ENV=production confii plan
+APP_ENV=production go run .
+```
+
+All inspection commands support `--json`. The aliases `confii environment`
+and `confii environments` resolve to the same command family.
 
 ---
 

@@ -42,6 +42,7 @@ func newRootCommand(out, errOut io.Writer) *cobra.Command {
 
 	root.AddCommand(
 		cmd.NewInitCmd(),
+		cmd.NewEnvCmd(),
 		cmd.NewLoadCmd(),
 		cmd.NewGetCmd(),
 		cmd.NewValidateCmd(),

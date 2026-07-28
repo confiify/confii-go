@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Add `confii env` environment management with current/default/switcher
+  introspection, named-file and sectioned environment listing, JSON output,
+  validated `set`, and safe `reset`. Default updates preserve unrelated
+  YAML/TOML content and file permissions, while an active `env_switcher`
+  override is reported instead of being misrepresented as changed.
+- Add `Config.AvailableEnvironments()` so applications can obtain the same
+  sorted, deduplicated environment inventory as the CLI.
+
 ## [1.3.1] - 2026-07-28
 
 ### Fixed

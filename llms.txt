@@ -33,7 +33,7 @@ Confii provides:
 - File watching with incremental reload (mtime + SHA256 change detection)
 - Observability: access metrics, event emission, top-accessed keys
 - Documentation generation (markdown, JSON) from live config
-- 12-command CLI tool: init, load, get, validate, export, diff, debug, explain, plan, lint, docs, migrate. `confii init` is an idempotent project bootstrapper with interactive or flag-selected named-file/sectioned layouts, full preflight, dry-run, and rollback safety.
+- 13-command CLI tool: init, env, load, get, validate, export, diff, debug, explain, plan, lint, docs, migrate. `confii init` is an idempotent project bootstrapper with interactive or flag-selected named-file/sectioned layouts, full preflight, dry-run, and rollback safety. `confii env` reports the effective/default selection, lists discoverable environments, and safely persists or resets the project default.
 - Self-configuration via .confii.yaml auto-discovery with 3-tier priority
 - Builder pattern with fluent API
 
@@ -90,8 +90,9 @@ confii init --non-interactive --strategy named-files \
 
 This creates a complete documented `.confii.yaml`, `config/default.yaml`, and
 one override file per environment. It is idempotent, preflights every target,
-and will not change an already initialized project. Inspect the runtime plan
-with `confii plan` or `APP_ENV=production confii plan`.
+and will not change an already initialized project. Inspect environment state
+with `confii env` and `confii env list`, then inspect the runtime plan with
+`confii plan` or `APP_ENV=production confii plan`.
 
 ### Self-configured usage
 
@@ -290,7 +291,7 @@ github.com/confiify/confii-go/
   export/                JSON, YAML, TOML exporters
   selfconfig/            Self-configuration reader (.confii.yaml)
   examples/              19 focused runnable examples
-  confii/                CLI tool (12 commands)
+  confii/                CLI tool (13 commands)
 ```
 
 ## CLI Tool
@@ -299,6 +300,8 @@ github.com/confiify/confii-go/
 go install github.com/confiify/confii-go/confii@latest
 
 confii init
+confii env
+confii env list
 confii plan
 APP_ENV=production confii load
 confii get database.host
