@@ -3,6 +3,9 @@
 This page covers the three ways to configure a Confii instance, every available
 option, and how priority resolution works between them.
 
+For a complete empty-directory setup before using this reference, follow the
+[Quick Start](quickstart.md).
+
 ---
 
 ## Three Ways to Configure Confii

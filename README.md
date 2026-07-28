@@ -133,7 +133,9 @@ for boundaries and verification details.
 ## Installation
 
 ```bash
-go get github.com/confiify/confii-go@v1.2.1
+go get github.com/confiify/confii-go@latest
+go install github.com/confiify/confii-go/confii@latest
+confii --version
 ```
 
 Cloud providers are opt-in through separate modules and build tags, so the
@@ -160,21 +162,71 @@ details.
 
 ## Quick Start
 
-```go
-cfg, err := confii.New[any](context.Background(),
-    confii.WithLoaders(
-        loader.NewYAML("config.yaml"),
-        loader.NewEnvironment("APP"),
-    ),
-    confii.WithEnv("production"),
-)
+From an empty directory, initialize a Go module and let Confii create the
+recommended separate-file environment layout:
 
-host, _ := cfg.Get("database.host")
-port := cfg.GetIntOr("database.port", 5432)
-debug := cfg.GetBoolOr("debug", false)
+```bash
+mkdir my-service && cd my-service
+go mod init example.com/my-service
+go get github.com/confiify/confii-go@latest
+go install github.com/confiify/confii-go/confii@latest
+confii init
 ```
 
-> **Full example:** [`examples/basic/`](examples/basic/main.go)
+Choose **Separate files**. Confii generates a complete, documented
+`.confii.yaml`, shared defaults in `config/default.yaml`, and development and
+production override files. Load them without hard-coded paths:
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+
+    confii "github.com/confiify/confii-go"
+)
+
+type AppConfig struct {
+    App struct {
+        Name string `mapstructure:"name"`
+    } `mapstructure:"app"`
+    Server struct {
+        Host string `mapstructure:"host"`
+        Port int    `mapstructure:"port"`
+    } `mapstructure:"server"`
+    Log struct {
+        Level string `mapstructure:"level"`
+    } `mapstructure:"log"`
+}
+
+func main() {
+    cfg, err := confii.New[AppConfig](context.Background())
+    if err != nil {
+        log.Fatal(err)
+    }
+    values, err := cfg.Typed()
+    if err != nil {
+        log.Fatal(err)
+    }
+    fmt.Printf("%s listening on %s:%d (%s)\n",
+        values.App.Name, values.Server.Host, values.Server.Port, values.Log.Level)
+}
+```
+
+```bash
+# Preview the exact layers before starting the application
+confii plan
+APP_ENV=production confii plan
+
+# Run with the generated development default, then production
+go run .
+APP_ENV=production go run .
+```
+
+See the [from-scratch Quick Start](docs/quickstart.md) for the generated files,
+runtime overrides, the single-file alternative, and expected output.
 
 ---
 
@@ -731,7 +783,7 @@ jsonDocs, _ := cfg.GenerateDocs("json")
 ## CLI Tool
 
 ```bash
-go install github.com/confiify/confii-go/confii@v1.2.1
+go install github.com/confiify/confii-go/confii@latest
 ```
 
 | Command | Description |
@@ -751,6 +803,10 @@ go install github.com/confiify/confii-go/confii@v1.2.1
 
 ```bash
 confii init
+confii plan
+APP_ENV=production confii load
+
+# Explicit loaders remain available for ad hoc files and automation
 confii load production -l yaml:config.yaml
 confii get production database.host -l yaml:config.yaml
 confii export production -l yaml:config.yaml -f json -o config.json

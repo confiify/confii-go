@@ -2,6 +2,11 @@
 
 Confii includes 19 runnable examples covering every major feature. All examples are in the [`examples/`](https://github.com/confiify/confii-go/tree/main/examples) directory.
 
+If you are creating an application rather than exploring one isolated feature,
+start with the [Quick Start](quickstart.md). It installs the CLI, runs
+`confii init`, explains the generated project structure, and uses the same
+self-configured runtime path recommended for new projects.
+
 ---
 
 ## Running Examples

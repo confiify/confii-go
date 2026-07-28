@@ -3,10 +3,14 @@
 ## Core Library
 
 ```bash
-go get github.com/confiify/confii-go@v1.2.1
+go get github.com/confiify/confii-go@latest
 ```
 
 Requires **Go 1.25+**.
+
+This adds Confii to the current project's `go.mod`. For reproducible builds,
+commit `go.mod` and `go.sum`; production projects may replace `@latest` with an
+explicit release such as `@v1.2.1`.
 
 The core module pulls in only the dependencies needed for file, environment,
 HTTP, and Git loaders, plus validation and secret-resolution machinery. It
@@ -72,36 +76,27 @@ command completes.
 ## CLI Tool
 
 ```bash
-go install github.com/confiify/confii-go/confii@v1.2.1
+go install github.com/confiify/confii-go/confii@latest
 ```
 
 Verify the installation:
 
 ```bash
-confii --help
+confii --version
 ```
+
+`go install` writes the executable to `GOBIN`, or to `$(go env GOPATH)/bin`
+when `GOBIN` is unset. Add that directory to `PATH` if your shell cannot find
+`confii`.
 
 ## Verify
 
-```go
-package main
+Preview initialization without writing anything:
 
-import (
-    "context"
-    "fmt"
-    "log"
-
-    confii "github.com/confiify/confii-go"
-    "github.com/confiify/confii-go/loader"
-)
-
-func main() {
-    cfg, err := confii.New[any](context.Background(),
-        confii.WithLoaders(loader.NewYAML("config.yaml")),
-    )
-    if err != nil {
-        log.Fatal(err)
-    }
-    fmt.Println("Keys:", cfg.Keys())
-}
+```bash
+confii init --dry-run --non-interactive
 ```
+
+Continue with the [Quick Start](quickstart.md) to initialize an empty Go
+project, inspect the generated load plan, and run a typed application in
+development and production.

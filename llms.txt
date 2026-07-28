@@ -38,7 +38,9 @@ Confii provides:
 ## Installation
 
 ```bash
-go get github.com/confiify/confii-go
+go get github.com/confiify/confii-go@latest
+go install github.com/confiify/confii-go/confii@latest
+confii --version
 ```
 
 Cloud providers are opt-in via build tags:
@@ -54,21 +56,36 @@ go build -tags "aws,azure,gcp,vault,ibm"  # all
 
 ## Quick Start
 
-### Basic usage
+### Initialize a new project
+
+From the root of a Go module, run `confii init`. It interactively selects one
+of three layouts: separate named environment files (recommended), one file
+with environment sections, or self-configuration only. For deterministic
+automation:
+
+```bash
+confii init --non-interactive --strategy named-files \
+  --environments development,staging,production
+```
+
+This creates a complete documented `.confii.yaml`, `config/default.yaml`, and
+one override file per environment. It is idempotent, preflights every target,
+and will not change an already initialized project. Inspect the runtime plan
+with `confii plan` or `APP_ENV=production confii plan`.
+
+### Self-configured usage
 
 ```go
-cfg, err := confii.New[any](context.Background(),
-    confii.WithLoaders(
-        loader.NewYAML("config.yaml"),
-        loader.NewEnvironment("APP"),
-    ),
-    confii.WithEnv("production"),
-)
+cfg, err := confii.New[any](context.Background())
 
-host, _ := cfg.Get("database.host")
-port := cfg.GetIntOr("database.port", 5432)
-debug := cfg.GetBoolOr("debug", false)
+name, _ := cfg.Get("app.name")
+port := cfg.GetIntOr("server.port", 8080)
+level := cfg.GetStringOr("log.level", "info")
 ```
+
+`confii.New` auto-discovers `.confii.yaml`; `APP_ENV` selects the environment
+in the generated project. Explicit constructor options still override
+self-config when code-level control is intentional.
 
 ### Type-safe access with generics
 
@@ -261,6 +278,11 @@ github.com/confiify/confii-go/
 ```bash
 go install github.com/confiify/confii-go/confii@latest
 
+confii init
+confii plan
+APP_ENV=production confii load
+
+# Commands may also receive explicit loaders
 confii load production -l yaml:config.yaml
 confii get production database.host -l yaml:config.yaml
 confii export production -l yaml:config.yaml -f json -o config.json

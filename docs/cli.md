@@ -8,14 +8,17 @@ loading, inspecting, validating, exporting, and comparing configurations.
 ## Installation
 
 ```bash
-go install github.com/confiify/confii-go/confii@v1.2.1
+go install github.com/confiify/confii-go/confii@latest
 ```
 
 Verify:
 
 ```bash
-confii --help
+confii --version
 ```
+
+New project? Follow the [from-scratch Quick Start](quickstart.md) first. This
+page is the command reference.
 
 ---
 
