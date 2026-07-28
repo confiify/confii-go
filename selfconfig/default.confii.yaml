@@ -103,3 +103,23 @@ secrets: {}
 # secrets:
 #   provider: env
 #   prefix: SECRET_
+# Named providers support mixed backends and environment-specific defaults.
+# Unqualified ${secret:key} references use the active default; an explicit
+# ${secret@shared:key} reference always uses that named provider.
+# secrets:
+#   default_provider: vault
+#   environment_defaults:
+#     production: aws-production
+#   providers:
+#     vault:
+#       type: vault
+#       mount_point: secret
+#       kv_version: 2
+#       auth:
+#         method: token
+#     aws-production:
+#       type: aws
+#       region: us-east-1
+#     shared:
+#       type: gcp
+#       project_id: shared-platform

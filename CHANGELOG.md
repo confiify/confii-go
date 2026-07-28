@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Add declarative named secret providers, environment-specific defaults, and
+  explicit `${secret@provider:key[:json_path][:version]}` routing for mixed
+  Vault, AWS, Azure, GCP, file, environment, and custom-provider strategies.
+  Existing single-provider configurations and `${secret:key}` references stay
+  compatible. Provider factories initialize lazily, introspection reports only
+  safe aliases, and declarative resolution now correctly honors JSON paths and
+  versions.
+
 - Add `confii env` environment management with current/default/switcher
   introspection, named-file and sectioned environment listing, JSON output,
   validated `set`, and safe `reset`. Default updates preserve unrelated

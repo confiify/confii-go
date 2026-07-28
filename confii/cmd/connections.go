@@ -27,6 +27,8 @@ type connectionReport struct {
 	Environment      string                   `json:"environment,omitempty"`
 	Sources          []connectionSourceReport `json:"sources"`
 	SecretProvider   string                   `json:"secret_provider,omitempty"`
+	SecretProviders  []string                 `json:"secret_providers,omitempty"`
+	ProvidersChecked []string                 `json:"secret_providers_checked,omitempty"`
 	SecretReferences int                      `json:"secret_references"`
 	KeysChecked      int                      `json:"keys_checked"`
 	DurationMS       int64                    `json:"duration_ms"`
@@ -88,14 +90,18 @@ func newConnectionsTestCmd() *cobra.Command {
 
 			referenceKeys := cfg.SecretReferenceKeys()
 			provider := cfg.SecretProvider()
-			if provider != "" && countSelectedReferences(referenceKeys, checkKeys) == 0 {
-				return fmt.Errorf("connection test could not verify secret provider %q: no selected configuration value contains a secret reference", provider)
+			providers := cfg.SecretProviders()
+			providersChecked := cfg.SecretReferenceProvidersFor(checkKeys...)
+			if len(providers) > 0 && countSelectedReferences(referenceKeys, checkKeys) == 0 {
+				return fmt.Errorf("connection test could not verify secret provider configuration: no selected configuration value contains a secret reference")
 			}
 
 			report := connectionReport{
 				Status:           "ok",
 				Environment:      cfg.SourcePlan().Environment,
 				SecretProvider:   provider,
+				SecretProviders:  providers,
+				ProvidersChecked: providersChecked,
 				SecretReferences: countSelectedReferences(referenceKeys, checkKeys),
 				KeysChecked:      len(checkKeys),
 				DurationMS:       time.Since(started).Milliseconds(),
@@ -169,8 +175,19 @@ func printConnectionReport(c *cobra.Command, report connectionReport) error {
 	for _, source := range report.Sources {
 		fmt.Fprintf(&output, "  %d. %s (%d keys)\n", source.Order, source.LoaderType, source.KeyCount)
 	}
-	if report.SecretProvider != "" {
-		fmt.Fprintf(&output, "Secret provider: %s (%d references resolved)\n", report.SecretProvider, report.SecretReferences)
+	if len(report.SecretProviders) > 0 {
+		if len(report.SecretProviders) == 1 && report.SecretProvider == report.SecretProviders[0] {
+			fmt.Fprintf(&output, "Secret provider: %s", report.SecretProvider)
+		} else {
+			fmt.Fprintf(&output, "Secret providers configured: %s", strings.Join(report.SecretProviders, ", "))
+		}
+		if len(report.SecretProviders) > 1 && report.SecretProvider != "" {
+			fmt.Fprintf(&output, " (default: %s)", report.SecretProvider)
+		}
+		fmt.Fprintf(&output, " (%d references resolved)\n", report.SecretReferences)
+		if len(report.SecretProviders) > 1 {
+			fmt.Fprintf(&output, "Secret providers exercised: %s\n", strings.Join(report.ProvidersChecked, ", "))
+		}
 	}
 	fmt.Fprintf(&output, "Values checked: %d (contents withheld)\nDuration: %dms\n", report.KeysChecked, report.DurationMS)
 	_, err := fmt.Fprint(c.OutOrStdout(), output.String())

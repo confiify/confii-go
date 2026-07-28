@@ -65,8 +65,8 @@ func newSelfConfigVault(cfg map[string]any) (confii.SelfConfigSecretStore, error
 	if err != nil {
 		return nil, err
 	}
-	return selfConfigStoreAdapter{get: func(ctx context.Context, key string) (any, error) {
-		return store.GetSecret(ctx, key)
+	return selfConfigStoreAdapter{get: func(ctx context.Context, key string, secretOpts ...confii.SecretOption) (any, error) {
+		return store.GetSecret(ctx, key, secretOpts...)
 	}}, nil
 }
 

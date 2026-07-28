@@ -609,7 +609,13 @@ cfg.HookProcessor().RegisterGlobalHook(resolver.Hook())
 // ${secret:db/password} in values → "s3cret"
 ```
 
-**Placeholder formats:** `${secret:key}`, `${secret:key:json_path}`, `${secret:key:json_path:version}`
+**Placeholder formats:** `${secret:key}`, `${secret:key:json_path}`,
+`${secret:key:json_path:version}`, and the declarative named-provider form
+`${secret@provider:key[:json_path][:version]}`. Named providers support an
+environment-specific default plus explicit per-reference routing, so one
+application can use Vault for shared secrets and AWS/GCP/Azure for selected
+environments without ambiguous fallback behavior. See
+[Secret Management](docs/secrets.md#declarative-self-config-providers).
 
 **Cloud secret stores** (build-tag gated):
 
@@ -882,6 +888,7 @@ repository.
 | [`hooks`](examples/hooks/main.go) | Key, value, condition, and global hooks |
 | [`validation`](examples/validation/main.go) | Struct tags + JSON Schema validation |
 | [`secrets`](examples/secrets/main.go) | Secret resolution with `${secret:key}` |
+| [`mixed-secrets`](examples/mixed-secrets/main.go) | Environment defaults and explicit `${secret@provider:key}` routing |
 
 #### Runtime & Debugging
 

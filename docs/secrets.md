@@ -27,7 +27,7 @@ url, _ := cfg.Get("database.url")
 
 ## Placeholder Formats
 
-Three formats with increasing specificity:
+The default-provider forms have increasing specificity:
 
 ### Basic: `${secret:key}`
 
@@ -68,6 +68,22 @@ old_key: ${secret:api/key::AWSPREVIOUS}
 
 !!! note "Empty JSON path"
     Use an empty JSON path segment to skip it when you only need versioning: `${secret:key::version}`.
+
+### With an explicit provider: `${secret@provider:key}`
+
+Declarative named-provider configurations can route each reference to a
+specific backend. The provider qualifier works with JSON paths and versions:
+
+```yaml
+shared_key: ${secret@vault:platform/signing:key}
+payment_key: ${secret@aws-production:payments/api-key::AWSCURRENT}
+analytics_token: ${secret@gcp:analytics-token}
+```
+
+An unqualified `${secret:key}` uses the default provider selected for the
+active environment. `secret@provider` is intentionally distinct from the
+colon-delimited key/path/version grammar, so existing references remain
+unambiguous and backward compatible.
 
 ---
 
@@ -392,6 +408,57 @@ secrets:
     role: confii-production
     token_path: /var/run/secrets/kubernetes.io/serviceaccount/token
 ```
+
+The single-provider form remains supported. For mixed backends, configure
+named providers and choose environment-specific defaults:
+
+```yaml
+secrets:
+  default_provider: vault
+  environment_defaults:
+    production: aws-production
+    analytics: gcp-analytics
+
+  providers:
+    vault:
+      type: vault
+      mount_point: secret
+      kv_version: 2
+      auth:
+        method: token
+
+    aws-production:
+      type: aws
+      region: us-east-1
+
+    gcp-analytics:
+      type: gcp
+      project_id: analytics-production
+
+    shared:
+      type: vault
+      mount_point: shared
+      kv_version: 2
+      auth:
+        method: token
+```
+
+With `production` selected, `${secret:database/password}` uses
+`aws-production`. `${secret@shared:services/signing:key}` uses `shared` in
+every environment. Provider aliases are application-defined; `type` selects
+the registered implementation. Factories initialize lazily on the first
+reference, so selecting production does not require credentials for an unused
+development provider.
+
+The effective order is:
+
+1. An explicit `secret@provider` qualifier.
+2. `environment_defaults[active_environment]`.
+3. `default_provider`.
+
+An unqualified reference with no effective default fails closed. An unknown
+provider alias, unsupported build-tagged provider type, unavailable backend,
+missing field, or unsupported versioned read also fails closed.
 
 Provider-specific fields:
 

@@ -156,6 +156,15 @@ func New[T any](ctx context.Context, cfgOpts ...Option) (*Config[T], error) {
 	if err := resolveEnvironmentStrategy(&opts); err != nil {
 		return nil, err
 	}
+	if !opts.isSet("secret_hook") && opts.SecretHook == nil && len(opts.selfConfigSecrets) > 0 {
+		h, defaultProvider, providers, err := buildSelfConfigSecretHookForEnvironment(opts.selfConfigSecrets, opts.Env)
+		if err != nil {
+			return nil, err
+		}
+		opts.SecretHook = h
+		opts.selfConfigSecretProvider = defaultProvider
+		opts.selfConfigSecretProviders = providers
+	}
 
 	// Declarative sources are materialized only after environment selection.
 	// This is observable only for the opt-in `environment_files` source;

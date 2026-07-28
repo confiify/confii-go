@@ -5,26 +5,33 @@ package confii
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
 	"os"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 
 	"github.com/confiify/confii-go/hook"
 )
 
-// selfConfigSecretPattern matches the placeholder grammar accepted by
-// the in-root self-config secret hook: ${secret:key[:json_path][:version]}.
-// The grammar intentionally matches the public [secret.Resolver] so a
-// user can switch between imperative resolver wiring and a declarative
-// `secrets:` self-config block without changing placeholder syntax.
-var selfConfigSecretPattern = regexp.MustCompile(`\$\{secret:([^}:]+)(?::([^}:]*))?(?::([^}:]+))?\}`)
+// selfConfigSecretPattern matches both the backward-compatible default
+// provider form and an explicitly routed named-provider form:
+//
+//	${secret:key[:json_path][:version]}
+//	${secret@provider:key[:json_path][:version]}
+//
+// The unqualified grammar intentionally matches the public [secret.Resolver]
+// so a user can switch from imperative resolver wiring without changing
+// placeholders. The @provider qualifier is the declarative routing extension.
+var selfConfigSecretPattern = regexp.MustCompile(`\$\{secret(?:@([A-Za-z0-9][A-Za-z0-9_.-]*))?:([^}:]+)(?::([^}:]*))?(?::([^}:]+))?\}`)
 
 // SelfConfigSecretProviderFactory builds a [SelfConfigSecretStore]
-// from the self-config `secrets:` block.
+// from the legacy self-config `secrets:` block or one entry under the named
+// `secrets.providers` map.
 //
 // Built-in providers ("env", "dict", "file") register at init time.
 // External providers — typically the build-tag-gated cloud secret
@@ -78,17 +85,30 @@ func init() {
 // The hook fails fast on a missing or store-erroring secret, matching
 // the public secret.Resolver's FailOnMissing(true) default.
 func buildSelfConfigSecretHook(secrets map[string]any) (hook.FuncCtx, error) {
+	h, _, _, err := buildSelfConfigSecretHookForEnvironment(secrets, "")
+	return h, err
+}
+
+// buildSelfConfigSecretHookForEnvironment supports both the legacy
+// single-provider shape and named providers with an environment-selected
+// default. Provider factories are validated at startup but initialized lazily
+// on first use, so an environment does not need credentials for unrelated
+// providers.
+func buildSelfConfigSecretHookForEnvironment(secrets map[string]any, environment string) (hook.FuncCtx, string, []string, error) {
+	if _, named := secrets["providers"]; named {
+		return buildNamedSelfConfigSecretHook(secrets, environment)
+	}
 	rawProvider, _ := secrets["provider"].(string)
 	provider := strings.ToLower(strings.TrimSpace(rawProvider))
 	if provider == "" {
-		return nil, &ConfigError{
+		return nil, "", nil, &ConfigError{
 			Op:  "ApplySelfConfig",
 			Err: fmt.Errorf("%w: self-config `secrets:` block is missing a `provider` field", ErrConfigLoad),
 		}
 	}
 	factory, ok := LookupSelfConfigSecretProvider(provider)
 	if !ok {
-		return nil, &ConfigError{
+		return nil, "", nil, &ConfigError{
 			Op: "ApplySelfConfig",
 			Err: fmt.Errorf(
 				"%w: unsupported self-config secrets provider %q (registered: %s); cloud providers must be opted in via a build-tagged blank import of secret/cloud",
@@ -98,12 +118,160 @@ func buildSelfConfigSecretHook(secrets map[string]any) (hook.FuncCtx, error) {
 	}
 	store, err := factory(secrets)
 	if err != nil {
-		return nil, &ConfigError{
+		return nil, "", nil, &ConfigError{
 			Op:  "ApplySelfConfig",
 			Err: fmt.Errorf("%w: self-config secrets provider %q failed to build: %w", ErrConfigLoad, rawProvider, err),
 		}
 	}
-	return makeSelfConfigSecretHook(store), nil
+	return makeSelfConfigSecretHook(store), provider, []string{provider}, nil
+}
+
+type selfConfigProviderSpec struct {
+	providerType string
+	config       map[string]any
+	factory      SelfConfigSecretProviderFactory
+	once         sync.Once
+	store        SelfConfigSecretStore
+	err          error
+}
+
+type selfConfigSecretRouter struct {
+	defaultProvider string
+	providers       map[string]*selfConfigProviderSpec
+}
+
+func buildNamedSelfConfigSecretHook(secrets map[string]any, environment string) (hook.FuncCtx, string, []string, error) {
+	if _, legacy := secrets["provider"]; legacy {
+		return nil, "", nil, selfConfigSecretConfigError("`provider` and `providers` cannot be combined")
+	}
+	rawProviders, ok := secrets["providers"].(map[string]any)
+	if !ok || len(rawProviders) == 0 {
+		return nil, "", nil, selfConfigSecretConfigError("`providers` must be a non-empty map")
+	}
+	router := &selfConfigSecretRouter{providers: make(map[string]*selfConfigProviderSpec, len(rawProviders))}
+	names := make([]string, 0, len(rawProviders))
+	for rawName, rawSpec := range rawProviders {
+		name := normalizeSelfConfigProviderAlias(rawName)
+		if name == "" {
+			return nil, "", nil, selfConfigSecretConfigError(fmt.Sprintf("invalid provider alias %q", rawName))
+		}
+		if _, duplicate := router.providers[name]; duplicate {
+			return nil, "", nil, selfConfigSecretConfigError(fmt.Sprintf("provider alias %q is duplicated after case normalization", rawName))
+		}
+		cfg, ok := rawSpec.(map[string]any)
+		if !ok {
+			return nil, "", nil, selfConfigSecretConfigError(fmt.Sprintf("provider %q must be a map", rawName))
+		}
+		for _, field := range []string{"type", "provider"} {
+			if rawType, exists := cfg[field]; exists {
+				if value, ok := rawType.(string); !ok || strings.TrimSpace(value) == "" {
+					return nil, "", nil, selfConfigSecretConfigError(fmt.Sprintf("provider %q `%s` must be a non-empty string", rawName, field))
+				}
+			}
+		}
+		providerType := strings.ToLower(strings.TrimSpace(firstString(cfg, "type", "provider")))
+		if providerType == "" {
+			providerType = name
+		}
+		factory, ok := LookupSelfConfigSecretProvider(providerType)
+		if !ok {
+			return nil, "", nil, selfConfigSecretConfigError(fmt.Sprintf("provider %q uses unsupported type %q (registered: %s)", rawName, providerType, registeredSelfConfigProviderNames()))
+		}
+		router.providers[name] = &selfConfigProviderSpec{providerType: providerType, config: maps.Clone(cfg), factory: factory}
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	if rawDefault, exists := secrets["default_provider"]; exists {
+		if value, ok := rawDefault.(string); !ok || strings.TrimSpace(value) == "" {
+			return nil, "", nil, selfConfigSecretConfigError("`default_provider` must be a non-empty provider alias")
+		}
+	}
+	rawDefaultProvider := firstString(secrets, "default_provider")
+	defaultProvider := normalizeSelfConfigProviderAlias(rawDefaultProvider)
+	if rawDefaultProvider != "" && defaultProvider == "" {
+		return nil, "", nil, selfConfigSecretConfigError(fmt.Sprintf("invalid default_provider alias %q", rawDefaultProvider))
+	}
+	if rawDefaults, exists := secrets["environment_defaults"]; exists {
+		defaults, ok := rawDefaults.(map[string]any)
+		if !ok {
+			return nil, "", nil, selfConfigSecretConfigError("`environment_defaults` must be a map")
+		}
+		for envName, rawValue := range defaults {
+			value, ok := rawValue.(string)
+			if !ok || strings.TrimSpace(value) == "" {
+				return nil, "", nil, selfConfigSecretConfigError(fmt.Sprintf("environment default for %q must be a non-empty provider alias", envName))
+			}
+			alias := normalizeSelfConfigProviderAlias(value)
+			if alias == "" {
+				return nil, "", nil, selfConfigSecretConfigError(fmt.Sprintf("invalid provider alias %q for environment %q", value, envName))
+			}
+			if _, declared := router.providers[alias]; !declared {
+				return nil, "", nil, selfConfigSecretConfigError(fmt.Sprintf("environment default %q for %q is not declared under `providers`", alias, envName))
+			}
+		}
+		if rawValue, exists := defaults[environment]; exists {
+			value := rawValue.(string) // validated above
+			defaultProvider = normalizeSelfConfigProviderAlias(value)
+		}
+	}
+	if defaultProvider != "" {
+		if _, ok := router.providers[defaultProvider]; !ok {
+			return nil, "", nil, selfConfigSecretConfigError(fmt.Sprintf("default provider %q is not declared under `providers`", defaultProvider))
+		}
+	}
+	router.defaultProvider = defaultProvider
+	return makeSelfConfigRoutedSecretHook(router), defaultProvider, names, nil
+}
+
+func normalizeSelfConfigProviderAlias(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" {
+		return ""
+	}
+	for i, r := range value {
+		valid := (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || (i > 0 && (r == '_' || r == '-' || r == '.'))
+		if !valid {
+			return ""
+		}
+	}
+	return value
+}
+
+func firstString(cfg map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if value, ok := cfg[key].(string); ok && strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func selfConfigSecretConfigError(message string) error {
+	return &ConfigError{Op: "ApplySelfConfig", Err: fmt.Errorf("%w: self-config secrets: %s", ErrConfigLoad, message)}
+}
+
+func (r *selfConfigSecretRouter) get(ctx context.Context, provider, key, version string) (any, error) {
+	if provider == "" {
+		provider = r.defaultProvider
+	}
+	if provider == "" {
+		return nil, fmt.Errorf("%w: unqualified secret reference %q has no default_provider", ErrSecretAccess, key)
+	}
+	spec, ok := r.providers[provider]
+	if !ok {
+		return nil, fmt.Errorf("%w: secret provider alias %q is not configured", ErrSecretAccess, provider)
+	}
+	spec.once.Do(func() {
+		spec.store, spec.err = spec.factory(spec.config)
+		if spec.err == nil && spec.store == nil {
+			spec.err = errors.New("provider factory returned a nil store")
+		}
+	})
+	if spec.err != nil {
+		return nil, fmt.Errorf("%w: secret provider %q (%s) failed to initialize: %v", ErrSecretAccess, provider, spec.providerType, spec.err)
+	}
+	return getSelfConfigSecret(ctx, spec.store, key, version)
 }
 
 // registeredSelfConfigProviderNames returns a comma-separated list of
@@ -122,12 +290,7 @@ func registeredSelfConfigProviderNames() string {
 	if len(names) == 0 {
 		return "(none)"
 	}
-	// Insertion-sort: tiny set, avoids importing sort just for this.
-	for i := 1; i < len(names); i++ {
-		for j := i; j > 0 && names[j-1] > names[j]; j-- {
-			names[j-1], names[j] = names[j], names[j-1]
-		}
-	}
+	sort.Strings(names)
 	return strings.Join(names, ", ")
 }
 
@@ -139,6 +302,21 @@ func registeredSelfConfigProviderNames() string {
 // satisfy this interface directly.
 type SelfConfigSecretStore interface {
 	GetSecret(ctx context.Context, key string) (any, error)
+}
+
+// SelfConfigSecretRequest carries the complete declarative placeholder
+// request. Version-capable providers may implement
+// SelfConfigSecretRequestStore; legacy providers remain source compatible and
+// continue to satisfy SelfConfigSecretStore.
+type SelfConfigSecretRequest struct {
+	Key     string
+	Version string
+}
+
+// SelfConfigSecretRequestStore is the optional version-aware extension used
+// by declarative secret resolution.
+type SelfConfigSecretRequestStore interface {
+	GetSecretRequest(ctx context.Context, request SelfConfigSecretRequest) (any, error)
 }
 
 // selfConfigEnvStore is the OS-environment-variable backed built-in
@@ -293,12 +471,34 @@ func (s *selfConfigFileStore) GetSecret(_ context.Context, key string) (any, err
 // to the caller of [Config.GetCtx]. Strings without any placeholder
 // are returned unchanged with no store traffic.
 func makeSelfConfigSecretHook(store SelfConfigSecretStore) hook.FuncCtx {
+	return makeSelfConfigSecretValueHook(func(ctx context.Context, _ string, key, version string) (any, error) {
+		return getSelfConfigSecret(ctx, store, key, version)
+	})
+}
+
+func makeSelfConfigRoutedSecretHook(router *selfConfigSecretRouter) hook.FuncCtx {
+	return makeSelfConfigSecretValueHook(router.get)
+}
+
+func getSelfConfigSecret(ctx context.Context, store SelfConfigSecretStore, key, version string) (any, error) {
+	if requestStore, ok := store.(SelfConfigSecretRequestStore); ok {
+		return requestStore.GetSecretRequest(ctx, SelfConfigSecretRequest{Key: key, Version: version})
+	}
+	if version != "" {
+		return nil, fmt.Errorf("%w: provider does not support versioned declarative reads", ErrSecretValidation)
+	}
+	return store.GetSecret(ctx, key)
+}
+
+type selfConfigSecretGetter func(context.Context, string, string, string) (any, error)
+
+func makeSelfConfigSecretValueHook(get selfConfigSecretGetter) hook.FuncCtx {
 	return func(ctx context.Context, _ string, value any) (any, error) {
 		s, ok := value.(string)
 		if !ok {
 			return value, nil
 		}
-		if !strings.Contains(s, "${secret:") {
+		if !strings.Contains(s, "${secret") {
 			return value, nil
 		}
 
@@ -308,8 +508,16 @@ func makeSelfConfigSecretHook(store SelfConfigSecretStore) hook.FuncCtx {
 				return match
 			}
 			groups := selfConfigSecretPattern.FindStringSubmatch(match)
-			key := groups[1]
-			val, err := store.GetSecret(ctx, key)
+			provider := strings.ToLower(groups[1])
+			key := groups[2]
+			jsonPath := groups[3]
+			version := groups[4]
+			val, err := get(ctx, provider, key, version)
+			if err != nil {
+				firstErr = err
+				return match
+			}
+			val, err = extractSelfConfigSecretPath(val, jsonPath)
 			if err != nil {
 				firstErr = err
 				return match
@@ -323,4 +531,22 @@ func makeSelfConfigSecretHook(store SelfConfigSecretStore) hook.FuncCtx {
 		}
 		return result, nil
 	}
+}
+
+func extractSelfConfigSecretPath(value any, path string) (any, error) {
+	if path == "" {
+		return value, nil
+	}
+	current := value
+	for _, part := range strings.Split(path, ".") {
+		mapping, ok := current.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("%w: cannot traverse path %q in non-map secret value", ErrSecretValidation, path)
+		}
+		current, ok = mapping[part]
+		if !ok {
+			return nil, fmt.Errorf("%w: path %q not found in secret", ErrSecretValidation, path)
+		}
+	}
+	return current, nil
 }

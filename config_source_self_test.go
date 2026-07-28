@@ -94,5 +94,58 @@ plain: value
 	cfg, err := New[any](context.Background(), WithWorkingDir(dir))
 	require.NoError(t, err)
 	assert.Equal(t, "dict", cfg.SecretProvider())
+	assert.Equal(t, []string{"dict"}, cfg.SecretProviders())
+	assert.Equal(t, []string{"dict"}, cfg.SecretReferenceProviders())
 	assert.Equal(t, []string{"database.password", "tokens"}, cfg.SecretReferenceKeys())
+}
+
+func TestNamedSecretProvidersUseEnvironmentDefaultAndExplicitRouting(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".confii.yaml"), []byte(`
+default_environment: development
+sources:
+  - type: yaml
+    path: `+filepath.Join(dir, "app.yaml")+`
+secrets:
+  default_provider: development
+  environment_defaults:
+    production: production
+  providers:
+    development:
+      type: dict
+      entries:
+        database-password: development-password
+    production:
+      type: dict
+      entries:
+        database-password: production-password
+    shared:
+      type: dict
+      entries:
+        signing-key: shared-signing-key
+`), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "app.yaml"), []byte(`
+database:
+  password: ${secret:database-password}
+security:
+  signing_key: ${secret@shared:signing-key}
+`), 0o600))
+
+	cfg, err := New[any](context.Background(), WithWorkingDir(dir), WithEnv("production"))
+	require.NoError(t, err)
+	assert.Equal(t, "production", cfg.SecretProvider())
+	assert.Equal(t, []string{"development", "production", "shared"}, cfg.SecretProviders())
+	assert.Equal(t, []string{"production", "shared"}, cfg.SecretReferenceProviders())
+	assert.Equal(t, []string{"production"}, cfg.SecretReferenceProvidersFor("database"))
+	assert.Equal(t, []string{"shared"}, cfg.SecretReferenceProvidersFor("security.signing_key"))
+	assert.Empty(t, cfg.SecretReferenceProvidersFor("missing"))
+	assert.Equal(t, "production-password", mustGet(t, cfg, "database.password"))
+	assert.Equal(t, "shared-signing-key", mustGet(t, cfg, "security.signing_key"))
+}
+
+func mustGet(t *testing.T, cfg *Config[any], key string) any {
+	t.Helper()
+	value, err := cfg.GetCtx(context.Background(), key)
+	require.NoError(t, err)
+	return value
 }

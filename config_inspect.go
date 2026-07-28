@@ -154,9 +154,19 @@ func (c *Config[T]) SecretProvider() string {
 	return c.opts.selfConfigSecretProvider
 }
 
+// SecretProviders returns the configured declarative provider aliases in
+// deterministic order. It exposes no credentials or backend options. For a
+// legacy single-provider configuration the result contains that provider.
+func (c *Config[T]) SecretProviders() []string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return append([]string(nil), c.opts.selfConfigSecretProviders...)
+}
+
 // SecretReferenceKeys returns configuration key paths whose raw values
-// contain at least one ${secret:...} placeholder. The referenced provider key
-// itself is never returned, which makes this suitable for health reporting.
+// contain at least one ${secret:...} or ${secret@provider:...} placeholder.
+// The referenced provider alias and secret key are never returned, which makes
+// this suitable for health reporting.
 func (c *Config[T]) SecretReferenceKeys() []string {
 	c.mu.RLock()
 	snapshot := dictutil.DeepCopy(c.envConfig)
@@ -170,6 +180,45 @@ func (c *Config[T]) SecretReferenceKeys() []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+// SecretReferenceProviders returns the provider aliases selected by raw
+// secret references in the active merged configuration. Unqualified
+// references contribute the effective default provider; explicitly qualified
+// references contribute their alias. Secret keys and resolved values are
+// never exposed.
+func (c *Config[T]) SecretReferenceProviders() []string {
+	return c.SecretReferenceProvidersFor()
+}
+
+// SecretReferenceProvidersFor is the key-scoped form of
+// [Config.SecretReferenceProviders]. A selected parent path includes every
+// reference in its subtree. With no paths it inspects the complete active
+// configuration.
+func (c *Config[T]) SecretReferenceProvidersFor(keyPaths ...string) []string {
+	c.mu.RLock()
+	snapshot := dictutil.DeepCopy(c.envConfig)
+	defaultProvider := c.opts.selfConfigSecretProvider
+	c.mu.RUnlock()
+
+	seen := make(map[string]struct{})
+	if len(keyPaths) == 0 {
+		collectSecretReferenceProviders(snapshot, defaultProvider, seen)
+	} else {
+		for _, keyPath := range keyPaths {
+			if value, ok := dictutil.GetNested(snapshot, keyPath); ok {
+				collectSecretReferenceProviders(value, defaultProvider, seen)
+			}
+		}
+	}
+	providers := make([]string, 0, len(seen))
+	for provider := range seen {
+		if provider != "" {
+			providers = append(providers, provider)
+		}
+	}
+	sort.Strings(providers)
+	return providers
 }
 
 func collectSecretReferenceKeys(path string, value any, found map[string]struct{}) {
@@ -189,6 +238,29 @@ func collectSecretReferenceKeys(path string, value any, found map[string]struct{
 	case string:
 		if path != "" && selfConfigSecretPattern.MatchString(typed) {
 			found[path] = struct{}{}
+		}
+	}
+}
+
+func collectSecretReferenceProviders(value any, defaultProvider string, found map[string]struct{}) {
+	switch typed := value.(type) {
+	case map[string]any:
+		for _, child := range typed {
+			collectSecretReferenceProviders(child, defaultProvider, found)
+		}
+	case []any:
+		for _, child := range typed {
+			collectSecretReferenceProviders(child, defaultProvider, found)
+		}
+	case string:
+		for _, groups := range selfConfigSecretPattern.FindAllStringSubmatch(typed, -1) {
+			provider := strings.ToLower(groups[1])
+			if provider == "" {
+				provider = defaultProvider
+			}
+			if provider != "" {
+				found[provider] = struct{}{}
+			}
 		}
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"maps"
 	"os"
 	"strings"
 
@@ -176,17 +177,11 @@ func applySelfConfig(opts *options) error {
 		opts.selfConfigSources = append([]map[string]any(nil), settings.Sources...)
 	}
 
-	// `secrets` installs a built-in secret-resolution hook from a
-	// declarative {provider: env|...} map. Explicit [WithSecretHook]
-	// wins. Unrecognised providers surface as typed *ConfigError.
+	// Preserve declarative secret configuration until New has selected the
+	// active environment. The named-provider form can choose an
+	// environment-specific default; explicit WithSecretHook still wins.
 	if !opts.isSet("secret_hook") && opts.SecretHook == nil && len(settings.Secrets) > 0 {
-		h, err := buildSelfConfigSecretHook(settings.Secrets)
-		if err != nil {
-			return err
-		}
-		opts.SecretHook = h
-		provider, _ := settings.Secrets["provider"].(string)
-		opts.selfConfigSecretProvider = strings.ToLower(strings.TrimSpace(provider))
+		opts.selfConfigSecrets = maps.Clone(settings.Secrets)
 	}
 	return nil
 }

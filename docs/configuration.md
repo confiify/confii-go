@@ -178,7 +178,7 @@ decision.
 | `environment_strategy` | `string` | `"auto"` | Environment model: `auto`, `sectioned`, `named_files`, or explicit `hybrid` |
 | `environment_conflict_policy` | `string` | `"last_wins"` | In hybrid mode: `error`, `warn`, or `last_wins`; it must be explicitly configured |
 | `sources` | `[]map` | `[]` | Ordered declarative source definitions, including `environment_files` and registered opt-in cloud loaders |
-| `secrets` | `map` | `{}` | Declarative secret store configuration |
+| `secrets` | `map` | `{}` | Declarative single-provider or named multi-provider configuration; named providers support `default_provider`, `environment_defaults`, and explicit `${secret@provider:key}` routing |
 
 !!! tip "When to use self-config"
     Self-configuration files are ideal for team-wide defaults that you commit to

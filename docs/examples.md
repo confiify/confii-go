@@ -65,6 +65,7 @@ cd examples/basic && go run .
 | [`hooks`](https://github.com/confiify/confii-go/tree/main/examples/hooks) | Key, value, condition, and global hooks | `HookProcessor`, 4 hook types |
 | [`validation`](https://github.com/confiify/confii-go/tree/main/examples/validation) | Struct tags + JSON Schema validation | `WithValidateOnLoad`, JSON Schema |
 | [`secrets`](https://github.com/confiify/confii-go/tree/main/examples/secrets) | Secret resolution with `${secret:key}` | `SecretResolver`, `DictStore`, caching |
+| [`mixed-secrets`](https://github.com/confiify/confii-go/tree/main/examples/mixed-secrets) | Mixed secret backends with environment defaults and explicit routing | `default_provider`, `environment_defaults`, `${secret@provider:key}` |
 
 ---
 

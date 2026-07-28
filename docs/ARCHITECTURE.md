@@ -352,10 +352,11 @@ loader is rejected before loading begins.
 
 **Source:** [`config_secret_self.go`](https://github.com/confiify/confii-go/blob/main/config_secret_self.go).
 
-The library supports a declarative `secrets:` block in self-config
-that wires a hook resolving `${secret:key}` placeholders against a
-named provider. The set of available providers is open-ended and
-varies with build configuration.
+The library supports a declarative `secrets:` block in self-config. The legacy
+shape wires `${secret:key}` to one provider. The named shape configures several
+provider aliases, selects a default globally or by active environment, and
+routes `${secret@provider:key}` explicitly. The set of available provider
+types is open-ended and varies with build configuration.
 
 ### The constraint
 
@@ -386,7 +387,20 @@ func LookupSelfConfigSecretProvider(name string) (SelfConfigSecretProviderFactor
 type SelfConfigSecretStore interface {
     GetSecret(ctx context.Context, key string) (any, error)
 }
+
+// Optional extension for version-aware declarative reads.
+type SelfConfigSecretRequestStore interface {
+    GetSecretRequest(context.Context, SelfConfigSecretRequest) (any, error)
+}
 ```
+
+Named provider factories are validated at construction but initialized lazily
+and exactly once. This prevents an environment from requiring credentials for
+unreferenced backends while remaining concurrency-safe. JSON-path extraction
+is performed uniformly after the store read; version-capable adapters receive
+the requested version through `SelfConfigSecretRequestStore`. Legacy custom
+providers remain source compatible and fail clearly if asked for a versioned
+read they cannot support.
 
 Three providers are pre-registered by root's own `init()`:
 
@@ -448,7 +462,8 @@ and the path to opt in.
 Three contracts must hold:
 
 1. **Factory signature.** `func(map[string]any) (SelfConfigSecretStore, error)`.
-   The map is the `secrets:` sub-map. Validate required fields
+   In the legacy shape the map is the `secrets:` sub-map. In the named shape it
+   is one entry under `secrets.providers`. Validate required fields
    (e.g. `base_dir`) and return a typed error from the factory if
    they are missing — `buildSelfConfigSecretHook` wraps that error
    into a `*ConfigError`.

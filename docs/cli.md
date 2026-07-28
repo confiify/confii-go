@@ -189,9 +189,12 @@ confii connections test production --key database.password --json
 The command overrides `on_error` to `raise`, loads every selected source, and
 then resolves all leaf values (or repeatable `--key` selections). This proves a
 real read instead of merely parsing provider settings. The report contains
-only environment, loader type, key counts, provider name, and timing. It never
+only environment, loader type, key counts, configured provider aliases,
+provider aliases actually exercised by selected references, effective default,
+and timing. It never
 prints source addresses, secret identifiers, credentials, or resolved values.
-A declared secret provider with no selected `${secret:...}` reference fails as
+A declared secret-provider configuration with no selected `${secret:...}` or
+`${secret@provider:...}` reference fails as
 unverified rather than producing a misleading success.
 Failure messages are category-only (timeout, authentication, missing secret,
 source read, and similar); the provider cause remains available through Go

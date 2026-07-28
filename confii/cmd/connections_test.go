@@ -104,6 +104,53 @@ secrets:
 	assert.NotContains(t, err.Error(), "sensitive")
 }
 
+func TestConnectionsTestNamedProvidersReportsAliasesWithoutValues(t *testing.T) {
+	dir := t.TempDir()
+	writeConnectionFixture(t, dir, `.confii.yaml`, `
+default_files: [app.yaml]
+secrets:
+  default_provider: production
+  providers:
+    production:
+      type: dict
+      entries:
+        database-password: production-sensitive-value
+    shared:
+      type: dict
+      entries:
+        signing-key: shared-sensitive-value
+`)
+	writeConnectionFixture(t, dir, `app.yaml`, `
+database_password: ${secret:database-password}
+signing_key: ${secret@shared:signing-key}
+`)
+	withWorkingDirectory(t, dir)
+	selfconfig.ClearCache()
+	t.Cleanup(selfconfig.ClearCache)
+
+	cmd := NewConnectionsCmd()
+	var output bytes.Buffer
+	cmd.SetOut(&output)
+	cmd.SetArgs([]string{"test"})
+	require.NoError(t, cmd.Execute())
+
+	text := output.String()
+	assert.Contains(t, text, "Secret providers configured: production, shared (default: production) (2 references resolved)")
+	assert.Contains(t, text, "Secret providers exercised: production, shared")
+	assert.NotContains(t, text, "production-sensitive-value")
+	assert.NotContains(t, text, "shared-sensitive-value")
+	assert.NotContains(t, text, "database-password")
+	assert.NotContains(t, text, "signing-key")
+
+	output.Reset()
+	cmd = NewConnectionsCmd()
+	cmd.SetOut(&output)
+	cmd.SetArgs([]string{"test", "--key", "database_password"})
+	require.NoError(t, cmd.Execute())
+	assert.Contains(t, output.String(), "Secret providers exercised: production")
+	assert.NotContains(t, output.String(), "Secret providers exercised: production, shared")
+}
+
 func TestConnectionsTestSelectedParentVerifiesNestedSecret(t *testing.T) {
 	dir := t.TempDir()
 	writeConnectionFixture(t, dir, `.confii.yaml`, `

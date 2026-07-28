@@ -115,10 +115,17 @@ type options struct {
 	// on the environment, but `environment_files` does; deferring the entire
 	// ordered list preserves source precedence when the two kinds are mixed.
 	selfConfigSources []map[string]any
+	// selfConfigSecrets is deferred until the active environment has been
+	// selected. Named secret-provider configurations may choose a different
+	// default provider for each environment.
+	selfConfigSecrets map[string]any
 	// selfConfigSecretProvider records only the normalized provider name for
 	// value-safe runtime introspection. Credentials and provider options stay
 	// inside the hook/store and are never exposed through Config.
 	selfConfigSecretProvider string
+	// selfConfigSecretProviders records every configured provider alias for
+	// value-safe introspection. It never contains provider credentials.
+	selfConfigSecretProviders []string
 	// SecretHook is a context-aware hook registered on the Config's hook
 	// processor at construction time so secret placeholders (for example
 	// ${secret:db/password}) are resolved during value access. It is the
