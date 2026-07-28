@@ -25,6 +25,7 @@ func newRootCommand(out, errOut io.Writer) *cobra.Command {
 	root.SetErr(errOut)
 
 	root.AddCommand(
+		cmd.NewInitCmd(),
 		cmd.NewLoadCmd(),
 		cmd.NewGetCmd(),
 		cmd.NewValidateCmd(),

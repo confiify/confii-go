@@ -25,24 +25,26 @@ import (
 
 // Settings holds Confii self-configuration values.
 type Settings struct {
-	DefaultEnvironment        string   `yaml:"default_environment" json:"default_environment" toml:"default_environment"`
-	EnvSwitcher               string   `yaml:"env_switcher" json:"env_switcher" toml:"env_switcher"`
-	DefaultFiles              []string `yaml:"default_files" json:"default_files" toml:"default_files"`
-	DefaultPrefix             string   `yaml:"default_prefix" json:"default_prefix" toml:"default_prefix"`
-	EnvPrefix                 string   `yaml:"env_prefix" json:"env_prefix" toml:"env_prefix"`
-	SysenvFallback            *bool    `yaml:"sysenv_fallback" json:"sysenv_fallback" toml:"sysenv_fallback"`
-	DeepMerge                 *bool    `yaml:"deep_merge" json:"deep_merge" toml:"deep_merge"`
-	ValidateOnLoad            *bool    `yaml:"validate_on_load" json:"validate_on_load" toml:"validate_on_load"`
-	StrictValidation          *bool    `yaml:"strict_validation" json:"strict_validation" toml:"strict_validation"`
-	UseEnvExpander            *bool    `yaml:"use_env_expander" json:"use_env_expander" toml:"use_env_expander"`
-	UseTypeCasting            *bool    `yaml:"use_type_casting" json:"use_type_casting" toml:"use_type_casting"`
-	DynamicReloading          *bool    `yaml:"dynamic_reloading" json:"dynamic_reloading" toml:"dynamic_reloading"`
-	FreezeOnLoad              *bool    `yaml:"freeze_on_load" json:"freeze_on_load" toml:"freeze_on_load"`
-	DebugMode                 *bool    `yaml:"debug_mode" json:"debug_mode" toml:"debug_mode"`
-	LogLevel                  string   `yaml:"log_level" json:"log_level" toml:"log_level"`
-	SchemaPath                string   `yaml:"schema_path" json:"schema_path" toml:"schema_path"`
-	EnvironmentStrategy       string   `yaml:"environment_strategy" json:"environment_strategy" toml:"environment_strategy"`
-	EnvironmentConflictPolicy string   `yaml:"environment_conflict_policy" json:"environment_conflict_policy" toml:"environment_conflict_policy"`
+	DefaultEnvironment        string            `yaml:"default_environment" json:"default_environment" toml:"default_environment"`
+	EnvSwitcher               string            `yaml:"env_switcher" json:"env_switcher" toml:"env_switcher"`
+	DefaultFiles              []string          `yaml:"default_files" json:"default_files" toml:"default_files"`
+	DefaultPrefix             string            `yaml:"default_prefix" json:"default_prefix" toml:"default_prefix"`
+	EnvPrefix                 string            `yaml:"env_prefix" json:"env_prefix" toml:"env_prefix"`
+	SysenvFallback            *bool             `yaml:"sysenv_fallback" json:"sysenv_fallback" toml:"sysenv_fallback"`
+	DeepMerge                 *bool             `yaml:"deep_merge" json:"deep_merge" toml:"deep_merge"`
+	MergeStrategy             string            `yaml:"merge_strategy" json:"merge_strategy" toml:"merge_strategy"`
+	MergeStrategyMap          map[string]string `yaml:"merge_strategy_map" json:"merge_strategy_map" toml:"merge_strategy_map"`
+	ValidateOnLoad            *bool             `yaml:"validate_on_load" json:"validate_on_load" toml:"validate_on_load"`
+	StrictValidation          *bool             `yaml:"strict_validation" json:"strict_validation" toml:"strict_validation"`
+	UseEnvExpander            *bool             `yaml:"use_env_expander" json:"use_env_expander" toml:"use_env_expander"`
+	UseTypeCasting            *bool             `yaml:"use_type_casting" json:"use_type_casting" toml:"use_type_casting"`
+	DynamicReloading          *bool             `yaml:"dynamic_reloading" json:"dynamic_reloading" toml:"dynamic_reloading"`
+	FreezeOnLoad              *bool             `yaml:"freeze_on_load" json:"freeze_on_load" toml:"freeze_on_load"`
+	DebugMode                 *bool             `yaml:"debug_mode" json:"debug_mode" toml:"debug_mode"`
+	LogLevel                  string            `yaml:"log_level" json:"log_level" toml:"log_level"`
+	SchemaPath                string            `yaml:"schema_path" json:"schema_path" toml:"schema_path"`
+	EnvironmentStrategy       string            `yaml:"environment_strategy" json:"environment_strategy" toml:"environment_strategy"`
+	EnvironmentConflictPolicy string            `yaml:"environment_conflict_policy" json:"environment_conflict_policy" toml:"environment_conflict_policy"`
 	// OnError is the error-handling policy applied to loader and
 	// composition failures. Valid values are "raise", "warn", and
 	// "ignore" (case-insensitive); any other string is rejected by the

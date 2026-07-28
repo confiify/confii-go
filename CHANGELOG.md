@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Add `confii init [directory]` with overwrite protection and an embedded,
+  schema-covered `.confii.yaml` template containing every supported
+  self-configuration decision and its safe default.
+- Add declarative `merge_strategy` and `merge_strategy_map` settings so the
+  advanced global and per-path merge controls are available through
+  `.confii.yaml`, while explicit Go options retain priority.
+
 ## [1.2.1] - 2026-07-25
 
 ### Security

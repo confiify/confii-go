@@ -47,6 +47,30 @@ func applySelfConfig(opts *options) error {
 	if !opts.isSet("deep_merge") && settings.DeepMerge != nil {
 		opts.DeepMerge = *settings.DeepMerge
 	}
+	if !opts.isSet("merge_strategy") && settings.MergeStrategy != "" {
+		strategy, err := parseSelfConfigMergeStrategy(settings.MergeStrategy)
+		if err != nil {
+			return err
+		}
+		opts.MergeStrategy = &strategy
+	}
+	if !opts.isSet("merge_strategy_map") && len(settings.MergeStrategyMap) > 0 {
+		strategyMap := make(map[string]MergeStrategy, len(settings.MergeStrategyMap))
+		for path, value := range settings.MergeStrategyMap {
+			strategy, err := parseSelfConfigMergeStrategy(value)
+			if err != nil {
+				return &ConfigError{
+					Op: "ApplySelfConfig",
+					Err: fmt.Errorf(
+						"%w: invalid merge_strategy_map value for path %q: %w",
+						ErrConfigLoad, path, err,
+					),
+				}
+			}
+			strategyMap[path] = strategy
+		}
+		opts.MergeStrategyMap = strategyMap
+	}
 	if !opts.isSet("use_env_expander") && settings.UseEnvExpander != nil {
 		opts.UseEnvExpander = *settings.UseEnvExpander
 	}
@@ -187,6 +211,35 @@ func parseSelfConfigLogLevel(s string) (slog.Level, error) {
 			Err: fmt.Errorf(
 				"%w: invalid log_level %q (valid values: %q, %q, %q, %q)",
 				ErrConfigLoad, s, "debug", "info", "warn", "error",
+			),
+		}
+	}
+}
+
+// parseSelfConfigMergeStrategy translates the human-readable names accepted
+// by .confii.yaml into the public MergeStrategy constants. "merge" is the
+// canonical spelling; deep_merge and deep-merge are accepted aliases because
+// the standard boolean option uses the deep_merge name.
+func parseSelfConfigMergeStrategy(s string) (MergeStrategy, error) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "replace":
+		return StrategyReplace, nil
+	case "merge", "deep_merge", "deep-merge":
+		return StrategyMerge, nil
+	case "append":
+		return StrategyAppend, nil
+	case "prepend":
+		return StrategyPrepend, nil
+	case "intersection":
+		return StrategyIntersection, nil
+	case "union":
+		return StrategyUnion, nil
+	default:
+		return 0, &ConfigError{
+			Op: "ApplySelfConfig",
+			Err: fmt.Errorf(
+				"%w: invalid merge strategy %q (valid values: %q, %q, %q, %q, %q, %q)",
+				ErrConfigLoad, s, "replace", "merge", "append", "prepend", "intersection", "union",
 			),
 		}
 	}

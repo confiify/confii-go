@@ -31,7 +31,7 @@ Confii provides:
 - File watching with incremental reload (mtime + SHA256 change detection)
 - Observability: access metrics, event emission, top-accessed keys
 - Documentation generation (markdown, JSON) from live config
-- 10-command CLI tool: load, get, validate, export, diff, debug, explain, lint, docs, migrate
+- 12-command CLI tool: init, load, get, validate, export, diff, debug, explain, plan, lint, docs, migrate
 - Self-configuration via .confii.yaml auto-discovery with 3-tier priority
 - Builder pattern with fluent API
 
@@ -253,7 +253,7 @@ github.com/confiify/confii-go/
   export/                JSON, YAML, TOML exporters
   selfconfig/            Self-configuration reader (.confii.yaml)
   examples/              19 runnable examples
-  confii/                CLI tool (10 commands)
+  confii/                CLI tool (12 commands)
 ```
 
 ## CLI Tool

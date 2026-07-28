@@ -84,7 +84,7 @@ Go has several configuration libraries, but none provides a complete configurati
 | Hook/middleware system (4 types) | Yes | No | No | No |
 | File watching + incremental reload | Yes | Yes | Yes | Partial |
 | JSON Schema validation | Yes | No | No | No |
-| CLI tool (11 commands) | Yes | No | No | No |
+| CLI tool (12 commands) | Yes | No | No | No |
 | Thread-safe (RWMutex) | Yes | [No](https://github.com/spf13/viper/issues/268) | Partial | Varies |
 
 <!-- markdownlint-disable MD033 -->
@@ -187,6 +187,13 @@ Before diving into features, it's important to understand the three ways to conf
 There are three ways to create a `Config[T]` instance, listed from simplest to most flexible:
 
 **1. Self-configuration file** (zero-code defaults) — Confii auto-discovers a `.confii.yaml` (or `.json`/`.toml`) file and applies settings *before* any code runs. This is the best place for project-wide defaults that every developer shares.
+
+Generate a complete, commented, safe-by-default file containing every
+self-configurable startup decision:
+
+```bash
+confii init
+```
 
 ```yaml
 # .confii.yaml — auto-discovered from CWD or ~/.config/confii/
@@ -711,6 +718,7 @@ go install github.com/confiify/confii-go/confii@v1.2.1
 
 | Command | Description |
 | --- | --- |
+| `confii init` | Create a complete `.confii.yaml` without overwriting existing configuration |
 | `confii load` | Load and display configuration |
 | `confii get` | Retrieve a single value |
 | `confii export` | Export to a different format |
@@ -724,6 +732,7 @@ go install github.com/confiify/confii-go/confii@v1.2.1
 | `confii migrate` | Migrate from other config formats |
 
 ```bash
+confii init
 confii load production -l yaml:config.yaml
 confii get production database.host -l yaml:config.yaml
 confii export production -l yaml:config.yaml -f json -o config.json
@@ -813,7 +822,7 @@ github.com/confiify/confii-go/
   ├── internal/              # Internal utilities (dictutil, typecoerce, formatparse)
   ├── integration/           # End-to-end integration tests
   ├── examples/              # Runnable examples
-  └── confii/                # CLI tool (11 commands)
+  └── confii/                # CLI tool (12 commands)
 ```
 
 ## Requirements

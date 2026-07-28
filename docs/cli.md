@@ -1,6 +1,7 @@
 # CLI Tool
 
-Confii includes a command-line tool with 11 commands for loading, inspecting, validating, exporting, and comparing configurations.
+Confii includes a command-line tool with 12 commands for initializing,
+loading, inspecting, validating, exporting, and comparing configurations.
 
 ---
 
@@ -37,6 +38,38 @@ You can pass multiple loaders. Later loaders override earlier ones with deep mer
 ---
 
 ## Commands
+
+### init
+
+Create a complete, safe-by-default `.confii.yaml` in the project root:
+
+```bash
+confii init
+```
+
+Every supported self-configuration setting is included, with its built-in or
+recommended default and comments explaining the available choices. The file is
+safe to commit and safe to use unchanged. Explicit Go options continue to take
+priority over values in this file.
+
+Initialize another directory, creating it when necessary:
+
+```bash
+confii init ./my-service
+```
+
+Confii never overwrites an existing `.confii.yaml` by default. Replace it only
+after reviewing the consequences:
+
+```bash
+confii init --force
+```
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `-f, --force` | Replace an existing `.confii.yaml` | `false` |
+
+---
 
 ### load
 

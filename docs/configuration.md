@@ -23,6 +23,17 @@ in `.confii.yaml`, which itself wins over the built-in default of `true`.
 Confii auto-discovers a self-configuration file **before** any loaders run.
 This is the best place for project-wide defaults shared by every developer.
 
+Generate the authoritative, complete YAML template in a project root with:
+
+```bash
+confii init
+```
+
+The generated file contains every self-configurable startup decision and is
+safe to use unchanged. Confii refuses to overwrite an existing file unless
+`confii init --force` is explicitly requested. The maintained source template
+is [`selfconfig/default.confii.yaml`](https://github.com/confiify/confii-go/blob/main/selfconfig/default.confii.yaml).
+
 #### Search Order
 
 The first file found wins:
@@ -41,6 +52,8 @@ The first file found wins:
 
     # Loading behavior
     deep_merge: true
+    merge_strategy: ""          # replace | merge | append | prepend | intersection | union
+    merge_strategy_map: {}       # dotted path -> strategy
     use_env_expander: true
     use_type_casting: true
     sysenv_fallback: false
@@ -83,7 +96,7 @@ The first file found wins:
 
     # Secret store configuration
     secrets:
-      provider: env               # env | dict | aws | azure | gcp | vault
+      provider: env               # env | dict | file | aws | azure | gcp | vault
     ```
 
 === "JSON"
@@ -137,6 +150,8 @@ The first file found wins:
 | `default_prefix` | `string` | `""` | Default prefix for configuration lookups |
 | `default_files` | `[]string` | `[]` | Ordered list of config files to load |
 | `deep_merge` | `bool` | `true` | Enable recursive merge of nested maps |
+| `merge_strategy` | `string` | `""` | Activate the advanced merger: `replace`, `merge`, `append`, `prepend`, `intersection`, or `union` |
+| `merge_strategy_map` | `map[string]string` | `{}` | Per-dotted-path advanced merge strategy overrides |
 | `use_env_expander` | `bool` | `true` | Enable `${VAR}` expansion in string values |
 | `use_type_casting` | `bool` | `true` | Auto-convert strings to bool/int/float |
 | `sysenv_fallback` | `bool` | `false` | Fall back to OS env vars on missing keys |
@@ -157,6 +172,12 @@ The first file found wins:
     Self-configuration files are ideal for team-wide defaults that you commit to
     version control. Individual developers or CI pipelines can override specific
     settings via constructor options in code.
+
+`WithWorkingDir` is intentionally code-level: it determines where Confii looks
+for `.confii.yaml`, so the discovered file cannot relocate its own discovery
+root. Inline Go schemas, custom loggers, custom hooks, and explicit loader
+objects likewise remain code-level extension points; their declarative
+counterparts are `schema_path`, `log_level`, `secrets`, and `sources`.
 
 #### Named Environment Files
 

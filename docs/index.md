@@ -92,7 +92,15 @@ go get github.com/confiify/confii-go@v1.2.1
 
 === "Self-Config"
 
-    Drop a `.confii.yaml` in your project root — zero Go code to configure Confii itself:
+    Generate the complete self-configuration template, then tailor only the
+    decisions your project needs:
+
+    ```bash
+    confii init
+    ```
+
+    The generated `.confii.yaml` is safe to use unchanged and explicit Go
+    options remain authoritative:
 
     ```yaml title=".confii.yaml"
     # Confii finds this file automatically
