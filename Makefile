@@ -84,6 +84,19 @@ install-dev: ## Install current CLI checkout with commit-aware dev version
 	@echo "Installed $(INSTALL_DIR)/$(CLI_BIN)"
 	@"$(INSTALL_DIR)/$(CLI_BIN)" --version
 
+.PHONY: uninstall
+uninstall: ## Remove CLI from INSTALL_DIR, GOBIN, or GOPATH/bin
+	@if [ -d "$(INSTALL_DIR)/$(CLI_BIN)" ]; then \
+		echo "Refusing to remove directory $(INSTALL_DIR)/$(CLI_BIN)" >&2; \
+		exit 1; \
+	fi
+	@if [ -e "$(INSTALL_DIR)/$(CLI_BIN)" ] || [ -L "$(INSTALL_DIR)/$(CLI_BIN)" ]; then \
+		rm -f -- "$(INSTALL_DIR)/$(CLI_BIN)"; \
+		echo "Removed $(INSTALL_DIR)/$(CLI_BIN)"; \
+	else \
+		echo "No Confii CLI installed at $(INSTALL_DIR)/$(CLI_BIN)"; \
+	fi
+
 .PHONY: consumer-link-dev consumer-link-dev-cloud consumer-unlink-dev
 consumer-link-dev: ## Link current root module into CONSUMER_DIR
 	@sh scripts/dev-consumer.sh link "$(CONSUMER_DIR)" "$(CURDIR)" core

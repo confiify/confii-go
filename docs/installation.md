@@ -116,6 +116,17 @@ an unversioned local build from a working tree.
 when `GOBIN` is unset. Add that directory to `PATH` if your shell cannot find
 `confii`.
 
+Remove the CLI from that same Go installation directory with:
+
+```bash
+make uninstall
+```
+
+The goal removes only the resolved `confii` executable. It refuses to remove a
+directory and succeeds without changing anything when the executable is
+already absent. A normal released installation can be restored at any time
+with the version-qualified `go install` command above.
+
 ### Install a development checkout
 
 Contributors and prerelease testers should install from the checked-out source
@@ -140,6 +151,12 @@ your `PATH`, select an isolated directory:
 ```bash
 make install-dev INSTALL_DIR="$PWD/bin/dev-install"
 ./bin/dev-install/confii --version
+```
+
+Remove an isolated installation by supplying the same directory:
+
+```bash
+make uninstall INSTALL_DIR="$PWD/bin/dev-install"
 ```
 
 Re-run `make install-dev` after changing branches or commits. The Go tool does

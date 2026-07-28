@@ -11,7 +11,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Add `make install-dev` for installing the current CLI checkout with
   commit-aware `dev-<commit>` metadata and a `-dirty` marker for tracked local
   changes. `INSTALL_DIR` supports isolated prerelease testing, and the existing
-  `make install` target remains a compatibility alias. Add reversible
+  `make install` target remains a compatibility alias. Add a guarded
+  `make uninstall` goal for the same resolved installation directory and reversible
   `consumer-link-dev` and `consumer-link-dev-cloud` workflows for exercising a
   local checkout from another Go module without conflating CLI installation
   with library dependency selection.

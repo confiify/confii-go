@@ -158,6 +158,10 @@ Use `make install-dev INSTALL_DIR="$PWD/bin/dev-install"` to avoid replacing an
 existing released CLI. See the [installation guide](docs/installation.md#install-a-development-checkout)
 for the complete workflow.
 
+```bash
+make uninstall  # removes confii from the resolved Go installation directory
+```
+
 To test the unreleased library from another Go project, use a commit-pinned
 `go get` for pushed changes or `make consumer-link-dev
 CONSUMER_DIR=/absolute/path/to/project` for the local working tree. Cloud
