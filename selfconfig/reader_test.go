@@ -4,6 +4,7 @@
 package selfconfig
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -197,4 +198,191 @@ func TestCandidateFilenamesReturnsIndependentDiscoveryOrder(t *testing.T) {
 	assert.Equal(t, "confii.yaml", first[0])
 	first[0] = "mutated"
 	assert.Equal(t, "confii.yaml", CandidateFilenames()[0])
+}
+
+func TestReadRejectsUnknownTopLevelFieldsInEveryFormat(t *testing.T) {
+	tests := []struct {
+		name    string
+		file    string
+		content string
+	}{
+		{name: "yaml", file: "confii.yaml", content: "env_swticher: APP_ENV\n"},
+		{name: "json", file: "confii.json", content: `{"env_swticher":"APP_ENV"}`},
+		{name: "toml", file: "confii.toml", content: `env_swticher = "APP_ENV"`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(dir, tt.file), []byte(tt.content), 0644))
+			ClearCache()
+			t.Cleanup(ClearCache)
+
+			settings, err := Read(dir)
+			require.Error(t, err)
+			assert.Nil(t, settings)
+			assert.Contains(t, err.Error(), "env_swticher")
+		})
+	}
+}
+
+func TestReadRejectsTrailingDocumentsAndValues(t *testing.T) {
+	tests := []struct {
+		file    string
+		content string
+	}{
+		{file: "confii.yaml", content: "default_environment: development\n---\ndefault_environment: production\n"},
+		{file: "confii.json", content: `{"default_environment":"development"} {"default_environment":"production"}`},
+	}
+	for i, tt := range tests {
+		t.Run(fmt.Sprintf("case-%d", i), func(t *testing.T) {
+			dir := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(dir, tt.file), []byte(tt.content), 0644))
+			ClearCache()
+			t.Cleanup(ClearCache)
+			_, err := Read(dir)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "exactly one")
+		})
+	}
+}
+
+func TestReadRejectsMalformedInputInEveryFormat(t *testing.T) {
+	tests := []struct {
+		file    string
+		content string
+	}{
+		{file: "confii.yaml", content: "sources: [\n"},
+		{file: "confii.json", content: `{"default_environment":`},
+		{file: "confii.toml", content: `default_environment = [`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.file, func(t *testing.T) {
+			dir := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(dir, tt.file), []byte(tt.content), 0644))
+			ClearCache()
+			t.Cleanup(ClearCache)
+			_, err := Read(dir)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "parse self-config")
+		})
+	}
+}
+
+func TestStrictDecodersReturnTrailingSyntaxErrors(t *testing.T) {
+	var settings Settings
+	err := decodeYAML([]byte("default_environment: development\n---\n["), &settings)
+	require.Error(t, err)
+	err = decodeJSON([]byte(`{"default_environment":"development"} {`), &settings)
+	require.Error(t, err)
+}
+
+func TestReadStrictSchemaPreservesProviderSpecificMaps(t *testing.T) {
+	tests := []struct {
+		name    string
+		file    string
+		content string
+	}{
+		{name: "yaml", file: "confii.yaml", content: `
+sources:
+  - type: custom_provider
+    provider_specific_option: preserved
+secrets:
+  provider: custom_provider
+  provider_specific_option: preserved
+`},
+		{name: "json", file: "confii.json", content: `{"sources":[{"type":"custom_provider","provider_specific_option":"preserved"}],"secrets":{"provider":"custom_provider","provider_specific_option":"preserved"}}`},
+		{name: "toml", file: "confii.toml", content: `
+[[sources]]
+type = "custom_provider"
+provider_specific_option = "preserved"
+
+[secrets]
+provider = "custom_provider"
+provider_specific_option = "preserved"
+`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(dir, tt.file), []byte(tt.content), 0644))
+			ClearCache()
+			t.Cleanup(ClearCache)
+
+			settings, err := Read(dir)
+			require.NoError(t, err)
+			require.Len(t, settings.Sources, 1)
+			assert.Equal(t, "preserved", settings.Sources[0]["provider_specific_option"])
+			assert.Equal(t, "preserved", settings.Secrets["provider_specific_option"])
+		})
+	}
+}
+
+func TestReadAllowsCommentOnlyYAMLTemplate(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".confii.yaml"), []byte("# configure Confii here\n"), 0644))
+	ClearCache()
+	t.Cleanup(ClearCache)
+
+	settings, err := Read(dir)
+	require.NoError(t, err)
+	require.NotNil(t, settings)
+	assert.Empty(t, settings.DefaultEnvironment)
+}
+
+func TestReadReportsSelfConfigInspectionFailure(t *testing.T) {
+	if testing.Short() || os.PathSeparator == '\\' {
+		t.Skip("self-referential symlink behavior is platform-specific")
+	}
+	dir := t.TempDir()
+	require.NoError(t, os.Symlink("confii.yaml", filepath.Join(dir, "confii.yaml")))
+	ClearCache()
+	t.Cleanup(ClearCache)
+
+	settings, err := Read(dir)
+	require.Error(t, err)
+	assert.Nil(t, settings)
+	assert.Contains(t, err.Error(), "inspect self-config")
+}
+
+func TestReadFirstFromDirReportsNotFound(t *testing.T) {
+	settings, found, err := readFirstFromDir(t.TempDir())
+	require.NoError(t, err)
+	assert.False(t, found)
+	assert.Nil(t, settings)
+}
+
+func TestReadUsesXDGStyleHomeFallback(t *testing.T) {
+	home := t.TempDir()
+	xdg := filepath.Join(home, ".config", "confii")
+	require.NoError(t, os.MkdirAll(xdg, 0750))
+	require.NoError(t, os.WriteFile(filepath.Join(xdg, "confii.yaml"), []byte("default_environment: fallback\n"), 0644))
+	t.Setenv("HOME", home)
+	ClearCache()
+	t.Cleanup(ClearCache)
+
+	settings, err := Read(t.TempDir())
+	require.NoError(t, err)
+	require.NotNil(t, settings)
+	assert.Equal(t, "fallback", settings.DefaultEnvironment)
+}
+
+func TestReadWithoutHomeStillTreatsAbsenceAsValid(t *testing.T) {
+	t.Setenv("HOME", "")
+	ClearCache()
+	t.Cleanup(ClearCache)
+
+	settings, err := Read(t.TempDir())
+	require.NoError(t, err)
+	assert.Nil(t, settings)
+}
+
+func TestReadFileReportsReadAndExtensionErrors(t *testing.T) {
+	_, err := readFile(filepath.Join(t.TempDir(), "confii.yaml"))
+	require.Error(t, err)
+
+	path := filepath.Join(t.TempDir(), "confii.txt")
+	require.NoError(t, os.WriteFile(path, []byte("default_environment: development\n"), 0644))
+	_, err = readFile(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported self-config extension")
 }

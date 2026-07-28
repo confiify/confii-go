@@ -120,7 +120,9 @@ log:
     `confii init` detects an existing project and changes nothing. Use
     `--dry-run` to preview a plan. Use `--force` only when you intentionally
     want to replace every file in that plan; the command preflights targets and
-    rolls back a failed multi-file write.
+    rolls back a failed multi-file write. It never deletes files from an older
+    layout, so review obsolete configuration files manually after changing
+    strategies.
 
 ## 4. Inspect the load plan
 
@@ -259,3 +261,4 @@ default project structure.
 | Trace where a value came from | [Introspection](introspection.md) |
 | Use every CLI command | [CLI Tool](cli.md) |
 | Run focused feature samples | [Examples](examples.md) |
+| Explore a realistic CRUD, LocalStack, and Vault/OpenBao application | [Companion examples repository](https://github.com/confiify/confii-go-examples) |

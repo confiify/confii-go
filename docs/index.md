@@ -27,20 +27,24 @@ hide:
 
 Confii loads, merges, validates, and manages configuration from **any source** — YAML, JSON, TOML, INI, .env files, environment variables, HTTP endpoints, and cloud stores — with type-safe generics, secret resolution, source tracking, drift detection, and versioning.
 
+For an application-sized walkthrough, see the
+[`confiify/confii-go-examples`](https://github.com/confiify/confii-go-examples)
+CRUD, LocalStack, and Vault/OpenBao companion repository.
+
 ## Features
 
 - **Multi-source loading** — YAML, JSON, TOML, INI, .env, env vars, HTTP, S3, SSM, Azure Blob, GCS, IBM COS, Git
 - **Type-safe generics** — `Config[T]` with `cfg.Typed()` returning `*T` and full IDE autocomplete
 - **6 merge strategies** — replace, merge, append, prepend, intersection, union — with per-path overrides
-- **Secret resolution** — `${secret:key}` placeholders from AWS Secrets Manager, Azure Key Vault, GCP Secret Manager, HashiCorp Vault (9 auth methods)
+- **Secret resolution** — `${secret:key}` placeholders from AWS Secrets Manager, Azure Key Vault, GCP Secret Manager, HashiCorp Vault, and OpenBao. The Vault-compatible layer implements nine authentication flows; CI live-tests Token and AppRole against OpenBao, while the other flows have protocol-level tests and require provider-side identity configuration.
 - **Config composition** — Hydra-style `_include` and `_defaults` directives with cycle detection
-- **Environment resolution** — Automatic `default` + `production`/`staging` merging
+- **Environment resolution** — Recommended named files or a single file with `default` + environment sections, with explicit hybrid mode for migrations
 - **Hook system** — 4 types (key, value, condition, global) for value transformation on access
 - **Introspection** — `Explain()`, `Layers()`, `Schema()`, source tracking, override history
 - **Drift detection** — Diff configs, detect unintended changes, version with rollback
 - **Dynamic reloading** — File watching via fsnotify, incremental reload (mtime + SHA256)
 - **Observability** — Access metrics, event emission, change callbacks
-- **CLI tool** — 11 commands: load, get, validate, export, diff, debug, explain, plan, lint, docs, migrate
+- **CLI tool** — 12 commands: init, load, get, validate, export, diff, debug, explain, plan, lint, docs, migrate
 - **Thread-safe** — synchronized Config instances, callback-safe lifecycle events, and concurrency-safe process registries/caches
 
 ## Install

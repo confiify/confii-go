@@ -44,6 +44,19 @@ func TestInitCommandScaffoldsNamedFilesThatLoad(t *testing.T) {
 	assert.Equal(t, "todo-service", getTestString(t, cfg, "app.name"))
 	assert.Equal(t, "0.0.0.0", getTestString(t, cfg, "server.host"))
 	assert.Equal(t, "info", getTestString(t, cfg, "log.level"))
+
+	// The generated control plane must also support its advertised final
+	// environment-variable override layer once a project chooses a prefix.
+	updatedSelfConfig := strings.Replace(selfConfig, `env_prefix: ""`, "env_prefix: APP", 1)
+	require.NotEqual(t, selfConfig, updatedSelfConfig)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, selfConfigFilename), []byte(updatedSelfConfig), 0644))
+	t.Setenv("APP_SERVER__PORT", "9090")
+	selfconfig.ClearCache()
+	cfg, err = confii.New[any](context.Background())
+	require.NoError(t, err)
+	port, err := cfg.Get("server.port")
+	require.NoError(t, err)
+	assert.Equal(t, 9090, port)
 }
 
 func TestInitCommandScaffoldsSectionedFileThatLoads(t *testing.T) {
@@ -94,6 +107,16 @@ func TestInitCommandRejectsInvalidExistingProject(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "appears initialized")
 	assert.Contains(t, err.Error(), "invalid")
+}
+
+func TestInitCommandRejectsMisspelledExistingSetting(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, selfConfigFilename), []byte("env_swticher: APP_ENV\n"), 0o600))
+
+	selfconfig.ClearCache()
+	_, err := execCobra(NewInitCmd(), []string{dir})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "env_swticher")
 }
 
 func TestInitCommandRejectsAmbiguousSelfConfiguration(t *testing.T) {
@@ -436,8 +459,46 @@ func TestWriteInitPlanReportsBackupFailures(t *testing.T) {
 func TestInitOutputHelpersReturnWriterErrors(t *testing.T) {
 	err := printInitPlan(errorWriter{}, "Created", initLayoutMinimal, []initFile{{path: "x"}})
 	require.Error(t, err)
-	err = printInitNextSteps(errorWriter{}, "development", "APP_ENV")
+	err = printInitNextSteps(errorWriter{}, initLayoutNamedFiles, ".", "development", "APP_ENV", false)
 	require.Error(t, err)
+}
+
+func TestInitNextStepsMatchLayoutAndTarget(t *testing.T) {
+	var named bytes.Buffer
+	require.NoError(t, printInitNextSteps(&named, initLayoutNamedFiles, "path with spaces", "development", "APP_ENV", true))
+	assert.Contains(t, named.String(), `cd "path with spaces"`)
+	assert.Contains(t, named.String(), "APP_ENV=development confii plan")
+	assert.Contains(t, named.String(), "never removes files")
+
+	var minimal bytes.Buffer
+	require.NoError(t, printInitNextSteps(&minimal, initLayoutMinimal, ".", "development", "APP_ENV", false))
+	assert.Contains(t, minimal.String(), "Edit .confii.yaml")
+	assert.NotContains(t, minimal.String(), "APP_ENV=development")
+}
+
+func TestInitNextStepsReportsEveryWriterFailure(t *testing.T) {
+	for writes := 0; writes <= 6; writes++ {
+		err := printInitNextSteps(
+			&failAfterWriter{writesBeforeFailure: writes},
+			initLayoutNamedFiles,
+			"another project",
+			"development",
+			"APP_ENV",
+			true,
+		)
+		require.Error(t, err, "named layout write %d", writes)
+	}
+	for writes := 0; writes <= 4; writes++ {
+		err := printInitNextSteps(
+			&failAfterWriter{writesBeforeFailure: writes},
+			initLayoutMinimal,
+			".",
+			"development",
+			"APP_ENV",
+			false,
+		)
+		require.Error(t, err, "minimal layout write %d", writes)
+	}
 }
 
 func TestPrintInitPlanReportsLaterWriterError(t *testing.T) {

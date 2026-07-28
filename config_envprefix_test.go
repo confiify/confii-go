@@ -24,11 +24,10 @@ import (
 // variables matching the prefix to participate in the standard load+merge
 // pipeline alongside YAML/JSON/etc loaders, and to surface in cfg.Layers().
 //
-// The fix appends loader.NewEnvironment(prefix)-equivalent logic (an
-// internal envPrefixAutoLoader matching the canonical "__" separator
-// convention) to opts.Loaders inside the WithEnvPrefix closure, with
-// dedup against an already-supplied loader.NewEnvironment(prefix) to
-// avoid double-application.
+// The fix installs loader.NewEnvironment(prefix)-equivalent logic (an internal
+// envPrefixAutoLoader matching the canonical "__" separator convention),
+// finalizes its precedence after declarative sources, and deduplicates against
+// an already-supplied loader.NewEnvironment(prefix).
 // =============================================================================
 
 // TestWithEnvPrefix_AppendsEnvironmentLoader pins the core post-fix
@@ -125,9 +124,6 @@ func TestWithEnvPrefix_LayersIncludesEnvironmentLoader(t *testing.T) {
 func TestWithEnvPrefix_NoDoubleApplyWithExplicitLoader(t *testing.T) {
 	t.Setenv("APP_HOST", "example.com")
 
-	// Order matters: WithLoaders must come BEFORE WithEnvPrefix because
-	// WithLoaders replaces o.Loaders. With this order, the user-supplied
-	// env loader is in place when WithEnvPrefix's dedup check runs.
 	cfg, err := confii.New[any](context.Background(),
 		confii.WithLoaders(loader.NewEnvironment("APP")),
 		confii.WithEnvPrefix("APP"),
@@ -150,6 +146,23 @@ func TestWithEnvPrefix_NoDoubleApplyWithExplicitLoader(t *testing.T) {
 	host, err := cfg.Get("host")
 	require.NoError(t, err)
 	assert.Equal(t, "example.com", host)
+}
+
+func TestWithEnvPrefixOptionOrderDoesNotLoseAutoLoader(t *testing.T) {
+	t.Setenv("APP_HOST", "from-environment")
+
+	cfg, err := confii.New[any](context.Background(),
+		confii.WithEnvPrefix("APP"),
+		confii.WithLoaders(valueLoader{source: "file", data: map[string]any{"host": "from-file"}}),
+	)
+	require.NoError(t, err)
+	host, err := cfg.Get("host")
+	require.NoError(t, err)
+	assert.Equal(t, "from-environment", host)
+
+	layers := cfg.Layers()
+	require.Len(t, layers, 2)
+	assert.Equal(t, "environment:APP", layers[1]["source"])
 }
 
 // TestRegressionBaseline_WithoutFix_FallbackOnly is the regression

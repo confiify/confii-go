@@ -89,7 +89,7 @@ func NewInitCmd() *cobra.Command {
 			if err := printInitPlan(c.OutOrStdout(), "Created", layout, plan); err != nil {
 				return err
 			}
-			return printInitNextSteps(c.OutOrStdout(), opts.defaultEnvironment, opts.envSwitcher)
+			return printInitNextSteps(c.OutOrStdout(), layout, dir, opts.defaultEnvironment, opts.envSwitcher, opts.force)
 		},
 	}
 

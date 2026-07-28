@@ -252,8 +252,10 @@ l := loader.NewHTTP("https://config.example.com/api/v1/config")
 
 ## Cloud Loaders
 
-Cloud loaders are **opt-in via build tags** to avoid pulling in heavy SDKs when
-you don't need them.
+Cloud loaders live in the opt-in `loader/cloud` module, keeping the core module
+small. Provider SDK loaders are additionally selected by build tags. The Git
+loader is the exception: it belongs to `loader/cloud` but requires no build
+tag.
 
 ### Build Tags Overview
 
@@ -274,14 +276,16 @@ go build -tags "aws,azure,gcp,ibm"
 ```
 
 !!! warning "Build tags are required"
-    Without the appropriate build tag, the cloud loader constructors will not be
-    available at compile time. You will get a build error if you try to import
-    a cloud loader without its tag.
+    Without the appropriate provider build tag, the S3, SSM, Azure, GCS, and
+    IBM constructors are not available at compile time. The Git constructor is
+    available whenever the `loader/cloud` module is installed.
 
 ### Git Loader (No Build Tag Required)
 
 The Git loader fetches configuration from a file in a GitHub or GitLab
-repository via raw content URLs. It does **not** require any build tag.
+repository via raw content URLs. Install
+`github.com/confiify/confii-go/loader/cloud` first; it does **not** require any
+build tag.
 
 ```go
 import "github.com/confiify/confii-go/loader/cloud"

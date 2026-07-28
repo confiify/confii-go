@@ -148,11 +148,11 @@ func applySelfConfig(opts *options) error {
 	// `env_prefix` (which already wins above) has populated EnvPrefix —
 	// otherwise it would silently override more-specific configuration.
 	if !opts.isSet("env_prefix") && opts.EnvPrefix == "" && settings.DefaultPrefix != "" {
-		// Drive through WithEnvPrefix so the canonical
-		// envPrefixAutoLoader is appended (G03) AND the explicitlySet
-		// flag is stamped — preventing a later self-config layer from
-		// double-applying the prefix.
-		WithEnvPrefix(settings.DefaultPrefix)(opts)
+		// This is a compatibility alias, not an explicit constructor
+		// option. New installs the corresponding environment loader only
+		// after all declarative sources have been materialized, ensuring
+		// environment variables retain highest precedence.
+		opts.EnvPrefix = settings.DefaultPrefix
 	}
 
 	// `log_level` constructs a *slog.Logger and assigns it to opts.Logger.

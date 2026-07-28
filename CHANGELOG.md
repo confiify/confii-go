@@ -16,6 +16,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   advanced global and per-path merge controls are available through
   `.confii.yaml`, while explicit Go options retain priority.
 
+### Changed
+
+- Decode discovered YAML, JSON, and TOML self-configuration strictly. Unknown
+  top-level settings, malformed input, unreadable candidates, and trailing
+  YAML/JSON documents now fail startup with a typed configuration error;
+  provider-specific fields nested under `sources` and `secrets` remain
+  extensible.
+- Allow `confii get <key>` to use the environment resolved by `.confii.yaml`,
+  while retaining `confii get <environment> <key>` compatibility. Allow
+  `confii validate` to use self-config `schema_path`, with `--schema` as the
+  explicit override.
+- Make initializer next steps layout- and target-aware, including new-module
+  guidance, a required `cd` for another target directory, correct minimal-mode
+  instructions, and a warning that `--force` never deletes obsolete files.
+
+### Fixed
+
+- Install a declarative `env_prefix` loader after declarative file sources so
+  nested variables such as `APP_SERVER__PORT=9090` are a real final override
+  layer. Constructor option order no longer loses the auto-loader, while an
+  explicitly supplied equivalent environment loader keeps its chosen order.
+- Align the self-config example, quick start, CLI reference, installation
+  module boundaries, Vault/OpenBao qualification, and example discoverability
+  with the tested runtime behavior.
+
 ## [1.2.1] - 2026-07-25
 
 ### Security
@@ -238,7 +263,7 @@ public functions extend the self-config secret provider story.
 - Multi-source loading: YAML, JSON, TOML, INI, .env, environment variables, HTTP
 - Cloud loaders: AWS S3, SSM, Azure Blob, GCS, IBM COS, Git repositories
 - Secret management with `${secret:key}` placeholder resolution
-- Cloud secret stores: AWS Secrets Manager, Azure Key Vault, GCP Secret Manager, HashiCorp Vault (9 auth methods)
+- Cloud secret stores: AWS Secrets Manager, Azure Key Vault, GCP Secret Manager, and a Vault-compatible layer with nine implemented auth flows (Token and AppRole live-tested against OpenBao; other flows protocol-tested and provider-configured)
 - 6 merge strategies (replace, merge, append, prepend, intersection, union) with per-path overrides
 - Hydra-style config composition via `_include` and `_defaults` directives
 - Environment resolution with automatic default + environment-specific merging
@@ -252,6 +277,6 @@ public functions extend the self-config secret provider story.
 - Export to JSON, YAML, TOML
 - Self-configuration via `.confii.yaml` auto-discovery
 - CLI tool with 10 commands: load, get, validate, export, diff, debug, explain, lint, docs, migrate
-- 19 runnable examples
+- 19 focused runnable examples
 - GitHub Actions CI/CD: test matrix, CodeQL, govulncheck, OSSF Scorecard
 - Broad unit, integration, race, fuzz, and cross-platform test coverage

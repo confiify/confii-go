@@ -9,12 +9,13 @@ go get github.com/confiify/confii-go@latest
 Requires **Go 1.25+**.
 
 This adds Confii to the current project's `go.mod`. For reproducible builds,
-commit `go.mod` and `go.sum`; production projects may replace `@latest` with an
-explicit release such as `@v1.2.1`.
+commit `go.mod` and `go.sum`; production projects may replace `@latest` with the
+explicit `@vX.Y.Z` release selected by their dependency policy.
 
 The core module pulls in only the dependencies needed for file, environment,
-HTTP, and Git loaders, plus validation and secret-resolution machinery. It
-does **not** pull in any cloud provider SDKs.
+and HTTP loaders, plus validation and secret-resolution machinery. The Git
+loader lives in the separate `loader/cloud` module but does not require a
+build tag. The core module does **not** pull in any cloud provider SDKs.
 
 ## Cloud Providers (separate modules + build tags)
 
@@ -26,8 +27,8 @@ Install one or both cloud modules, depending on which APIs your application
 uses:
 
 ```bash
-go get github.com/confiify/confii-go/loader/cloud@v1.2.1
-go get github.com/confiify/confii-go/secret/cloud@v1.2.1
+go get github.com/confiify/confii-go/loader/cloud@latest
+go get github.com/confiify/confii-go/secret/cloud@latest
 ```
 
 The cloud modules declare and checksum their supported SDK versions. You do
@@ -41,6 +42,7 @@ files that are compiled:
 | GCP | `gcp` | Cloud Storage, Secret Manager |
 | HashiCorp Vault | `vault` | Vault secret store and auth backends |
 | IBM Cloud | `ibm` | Cloud Object Storage |
+| GitHub/GitLab raw content | none | Git loader (always available after adding `loader/cloud`) |
 
 For example:
 

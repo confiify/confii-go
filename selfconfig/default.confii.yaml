@@ -18,9 +18,11 @@
 default_environment: ""
 env_switcher: ""
 
-# Environment variable integration. env_prefix installs an OS-environment
-# source using PREFIX_KEY / PREFIX_NESTED__KEY names. default_prefix is the
-# fallback alias retained for compatibility; prefer env_prefix in new projects.
+# Environment variable integration. env_prefix installs the final
+# OS-environment source after declarative sources, using PREFIX_KEY /
+# PREFIX_NESTED__KEY names. An explicitly supplied equivalent loader keeps its
+# caller-selected position. default_prefix is the fallback alias retained for
+# compatibility; prefer env_prefix in new projects.
 env_prefix: ""
 default_prefix: ""
 sysenv_fallback: false

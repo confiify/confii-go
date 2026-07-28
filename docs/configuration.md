@@ -44,6 +44,10 @@ in the discovery order below, validates an existing initialization, detects
 ambiguous duplicates, and preflights all generated paths. It therefore does
 not create a second self-config or partially overwrite a user's configuration.
 Use `confii init --dry-run` before an intentional `--force` replacement. The
+force path replaces only the selected plan and never deletes obsolete files
+from a previous layout. A discovered self-config that is malformed or contains
+an unknown top-level setting fails startup; provider-specific fields inside
+`sources` and `secrets` remain extensible. The
 maintained source template is
 [`selfconfig/default.confii.yaml`](https://github.com/confiify/confii-go/blob/main/selfconfig/default.confii.yaml).
 
@@ -63,53 +67,30 @@ The first file found wins:
     env_switcher: APP_ENV          # read env name from this OS variable
     env_prefix: APP                # auto-add an EnvironmentLoader with this prefix
 
-    # Loading behavior
+    # Select one primary environment model
+    environment_strategy: named_files
+
+    # Ordered sources: shared defaults, then selected environment
+    sources:
+      - type: environment_files
+        search_paths: [config]
+        default_file: default.yaml
+        environment_file: "{environment}.yaml"
+        default_required: true
+        environment_required: true
+
+    # Loading behavior (representative controls)
     deep_merge: true
-    merge_strategy: ""          # replace | merge | append | prepend | intersection | union
-    merge_strategy_map: {}       # dotted path -> strategy
     use_env_expander: true
     use_type_casting: true
-    sysenv_fallback: false
 
     # Validation
     validate_on_load: false
     strict_validation: false
     schema_path: schema.json
 
-    # Runtime
-    dynamic_reloading: false
-    freeze_on_load: false
-    debug_mode: false
-
     # Error handling
     on_error: raise                # raise | warn | ignore
-
-    # Logging
-    log_level: info
-
-    # Default files to load (in order)
-    default_files:
-      - config/base.yaml
-      - config/dev.yaml
-
-    # Declarative sources (alternative to default_files)
-    sources:
-      - type: environment_files
-        search_paths: [config, .]
-        default_file: default.yaml
-        environment_file: "{environment}.yaml"
-        default_required: false
-        environment_required: true
-      - type: yaml
-        path: config/base.yaml
-      - type: json
-        path: config/overrides.json
-      - type: env
-        prefix: APP
-
-    # Secret store configuration
-    secrets:
-      provider: env               # env | dict | file | aws | azure | gcp | vault
     ```
 
 === "JSON"
@@ -128,9 +109,14 @@ The first file found wins:
       "freeze_on_load": false,
       "debug_mode": false,
       "on_error": "raise",
-      "default_files": [
-        "config/base.yaml",
-        "config/dev.yaml"
+      "environment_strategy": "named_files",
+      "sources": [
+        {
+          "type": "environment_files",
+          "search_paths": ["config"],
+          "default_file": "default.yaml",
+          "environment_file": "{environment}.yaml"
+        }
       ]
     }
     ```
@@ -150,8 +136,21 @@ The first file found wins:
     freeze_on_load = false
     debug_mode = false
     on_error = "raise"
-    default_files = ["config/base.yaml", "config/dev.yaml"]
+    environment_strategy = "named_files"
+
+    [[sources]]
+    type = "environment_files"
+    search_paths = ["config"]
+    default_file = "default.yaml"
+    environment_file = "{environment}.yaml"
     ```
+
+These are intentionally single-model examples. `default_files` remains
+supported for legacy ordered files, and arbitrary flat sources can be declared
+in `sources`, but normal projects should not combine named and sectioned
+environment models. Use explicit `hybrid` only for a controlled migration. The
+generated YAML template is the exhaustive inventory of every available
+decision.
 
 #### Full Self-Config Settings Reference
 
@@ -159,8 +158,8 @@ The first file found wins:
 | --- | --- | --- | --- |
 | `default_environment` | `string` | `""` | Default active environment name |
 | `env_switcher` | `string` | `""` | OS variable to read environment name from |
-| `env_prefix` | `string` | `""` | Auto-add an `EnvironmentLoader` with this prefix |
-| `default_prefix` | `string` | `""` | Default prefix for configuration lookups |
+| `env_prefix` | `string` | `""` | Auto-add a final `EnvironmentLoader` with this prefix after declarative sources |
+| `default_prefix` | `string` | `""` | Compatibility alias used only when `env_prefix` is unset; prefer `env_prefix` |
 | `default_files` | `[]string` | `[]` | Ordered list of config files to load |
 | `deep_merge` | `bool` | `true` | Enable recursive merge of nested maps |
 | `merge_strategy` | `string` | `""` | Activate the advanced merger: `replace`, `merge`, `append`, `prepend`, `intersection`, or `union` |

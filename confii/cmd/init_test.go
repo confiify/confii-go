@@ -26,6 +26,8 @@ func TestInitCommandCreatesCompleteSelfConfig(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, selfconfig.DefaultYAML(), data)
 	assert.Contains(t, out, path)
+	assert.Contains(t, out, "Edit .confii.yaml")
+	assert.NotContains(t, out, "APP_ENV=development")
 }
 
 func TestInitCommandCreatesTargetDirectory(t *testing.T) {
@@ -59,7 +61,7 @@ func TestInitCommandReportsDirectoryCreationFailure(t *testing.T) {
 func TestInitCommandPreservesExistingFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, selfConfigFilename)
-	require.NoError(t, os.WriteFile(path, []byte("custom: true\n"), 0o600))
+	require.NoError(t, os.WriteFile(path, []byte("deep_merge: false\n"), 0o600))
 
 	out, err := execCobra(NewInitCmd(), []string{dir})
 	require.NoError(t, err)
@@ -68,7 +70,7 @@ func TestInitCommandPreservesExistingFile(t *testing.T) {
 
 	data, readErr := os.ReadFile(path)
 	require.NoError(t, readErr)
-	assert.Equal(t, "custom: true\n", string(data))
+	assert.Equal(t, "deep_merge: false\n", string(data))
 }
 
 func TestInitCommandForceReplacesExistingFile(t *testing.T) {

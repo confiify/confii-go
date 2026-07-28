@@ -83,8 +83,9 @@ confii init --non-interactive \
 Confii checks all eight supported project self-config names before prompting.
 If one valid self-config already exists, `init` succeeds without changing any
 file. Multiple self-configs are rejected because discovery would be ambiguous;
-an invalid existing self-config is reported rather than hidden. Before a new
-project is written, every planned target is checked so a collision leaves no
+an invalid existing self-config is reported rather than hidden (unless
+`--force` is deliberately being used to recover the canonical
+`.confii.yaml`). Before a new project is written, every planned target is checked so a collision leaves no
 partial initialization. A failed multi-file write is rolled back.
 
 Preview the exact plan without creating even the target directory:
@@ -98,6 +99,13 @@ Replace the files in the selected plan only after reviewing the consequences:
 ```bash
 confii init --force
 ```
+
+`--force` does not delete anything outside the selected plan. If you switch
+between named files and a sectioned file, inspect and remove obsolete files
+yourself after verifying they are no longer used. When initializing another
+directory, the success output includes the required `cd` step. Minimal mode
+instead tells you to declare sources in `.confii.yaml` before running
+`confii plan`.
 
 | Flag | Description | Default |
 |------|-------------|---------|
@@ -141,12 +149,15 @@ confii load -l yaml:config.yaml -l env:APP
 Retrieve a single configuration value by key path.
 
 ```bash
-confii get <env> <key> -l type:source [...]
+confii get [env] <key> -l type:source [...]
 ```
 
 **Examples:**
 
 ```bash
+# Use .confii.yaml's default_environment / env_switcher
+confii get database.host
+
 # Get a scalar value
 confii get production database.host -l yaml:config.yaml
 # Output: prod-db.example.com
@@ -174,13 +185,16 @@ confii validate [env] -l type:source --schema schema.json
 
 | Flag | Description | Required |
 |------|-------------|----------|
-| `--schema` | Path to JSON Schema file | Yes |
+| `--schema` | Path to JSON Schema file; overrides `.confii.yaml` `schema_path` | Only when `schema_path` is unset |
 
 **Examples:**
 
 ```bash
 confii validate production -l yaml:config.yaml --schema schema.json
 # Output: Configuration is valid.
+
+# Fully self-configured source, environment, and schema
+confii validate
 
 # Fails with non-zero exit code if invalid
 confii validate production -l yaml:config.yaml --schema strict-schema.json

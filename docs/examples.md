@@ -1,11 +1,20 @@
 # Examples
 
-Confii includes 19 runnable examples covering every major feature. All examples are in the [`examples/`](https://github.com/confiify/confii-go/tree/main/examples) directory.
+Confii includes 19 focused runnable examples. They exercise individual APIs
+and workflows and live in the
+[`examples/`](https://github.com/confiify/confii-go/tree/main/examples)
+directory.
 
 If you are creating an application rather than exploring one isolated feature,
 start with the [Quick Start](quickstart.md). It installs the CLI, runs
 `confii init`, explains the generated project structure, and uses the same
 self-configured runtime path recommended for new projects.
+
+For a realistic CRUD application that combines multiple environments,
+LocalStack-backed cloud configuration, Vault/OpenBao, introspection, Docker,
+and CLI usage, use the companion
+[`confiify/confii-go-examples`](https://github.com/confiify/confii-go-examples)
+repository.
 
 ---
 

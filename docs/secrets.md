@@ -153,7 +153,8 @@ GetSecret("db/password"):
 
 ## Cloud Stores
 
-Cloud stores require build tags to compile. This keeps the binary small when you don't need them.
+Cloud stores live in the separate `secret/cloud` module and require provider
+build tags to compile. This keeps the binary small when you don't need them.
 
 ### AWS Secrets Manager
 
@@ -257,9 +258,12 @@ val, _ := store.GetSecret(ctx, "db/credentials:password")
 
 ## Vault Auth Methods
 
-The Vault-compatible integration provides 9 authentication implementations.
-Pass them via `WithVaultAuth`; availability and server-side configuration of a
-method still depend on the selected HashiCorp Vault or OpenBao deployment:
+The Vault-compatible integration implements nine authentication flows. Pass
+them via `WithVaultAuth`; availability and server-side configuration of a
+method still depend on the selected HashiCorp Vault or OpenBao deployment.
+CI live-tests Token and AppRole against OpenBao. The remaining flows have
+protocol-level tests and require a real provider-side identity setup before
+they can be certified in your deployment:
 
 === "Token"
 
@@ -398,7 +402,15 @@ Provider-specific fields:
 | `gcp` | `project_id`; optional `credentials_file` (otherwise Application Default Credentials are used) |
 | `vault` | `address` or `VAULT_ADDR`; optional `namespace`, `mount_point`, `kv_version`, `verify`, and `auth` |
 
-Vault self-config accepts all nine auth methods: `token`, `approle`, `ldap`, `jwt`, `kubernetes`, `aws_iam`, `azure`, `gcp`, and interactive `oidc`. `auth` may be a method string with fields alongside it or a nested map with `method`. A root `token` or `VAULT_TOKEN` is used for token auth. The same build can register multiple providers by enabling multiple tags, for example `-tags="aws,vault"`.
+Vault self-config can declare all nine implemented auth flows: `token`,
+`approle`, `ldap`, `jwt`, `kubernetes`, `aws_iam`, `azure`, `gcp`, and
+interactive `oidc`. This is configuration support, not a claim that every
+method is turnkey or live-certified: Token and AppRole are the CI-tested
+OpenBao paths; the others require provider-side identity configuration. `auth`
+may be a method string with fields alongside it or a nested map with `method`.
+A root `token` or `VAULT_TOKEN` is used for token auth. The same build can
+register multiple providers by enabling multiple tags, for example
+`-tags="aws,vault"`.
 
 ---
 

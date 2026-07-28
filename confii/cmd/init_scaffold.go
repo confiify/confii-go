@@ -379,7 +379,33 @@ func printInitPlan(output io.Writer, verb string, layout initLayout, plan []init
 	return nil
 }
 
-func printInitNextSteps(output io.Writer, environment, envSwitcher string) error {
-	_, err := fmt.Fprintf(output, "\nNext steps:\n  go get github.com/confiify/confii-go@latest\n  %s=%s confii plan\n  In Go: cfg, err := confii.New[YourConfig](ctx)\n", envSwitcher, environment)
+func printInitNextSteps(output io.Writer, layout initLayout, root, environment, envSwitcher string, forced bool) error {
+	if forced {
+		if _, err := fmt.Fprintln(output, "\nWarning: --force replaced only the files listed above; it never removes files from a previous layout. Review obsolete configuration files manually."); err != nil {
+			return err
+		}
+	}
+	if _, err := fmt.Fprintln(output, "\nNext steps:"); err != nil {
+		return err
+	}
+	if cleaned := filepath.Clean(root); cleaned != "." {
+		if _, err := fmt.Fprintf(output, "  cd %s\n", strconv.Quote(cleaned)); err != nil {
+			return err
+		}
+	}
+	if _, err := fmt.Fprintln(output, "  If this is a new Go module: go mod init <module-path>"); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintln(output, "  go get github.com/confiify/confii-go@latest"); err != nil {
+		return err
+	}
+	if layout == initLayoutMinimal {
+		if _, err := fmt.Fprintln(output, "  Edit .confii.yaml and declare at least one source, then run: confii plan"); err != nil {
+			return err
+		}
+	} else if _, err := fmt.Fprintf(output, "  %s=%s confii plan\n", envSwitcher, environment); err != nil {
+		return err
+	}
+	_, err := fmt.Fprintln(output, "  In Go: cfg, err := confii.New[YourConfig](ctx)")
 	return err
 }

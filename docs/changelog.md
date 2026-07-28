@@ -3,6 +3,16 @@
 The canonical, release-by-release changelog is maintained in
 [CHANGELOG.md](https://github.com/confiify/confii-go/blob/main/CHANGELOG.md).
 
+## Upcoming release
+
+The next release adds the safe `confii init` bootstrapper and makes the full
+self-configuration template operational. It also enforces strict self-config
+decoding, fixes declarative environment-variable override precedence, lets
+`confii get` and `confii validate` use project defaults directly, and aligns
+the built-in example and onboarding documentation with the generated named-file
+layout. Consult the Unreleased section of the canonical changelog for the exact
+scope until the release PR assigns a version.
+
 ## v1.2.1
 
 Version 1.2.1 is a security and supply-chain assurance release. It adds

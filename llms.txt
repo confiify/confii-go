@@ -11,9 +11,11 @@ Confii loads, merges, validates, and manages configuration from YAML, JSON, TOML
 - License: MIT
 - Minimum Go version: 1.25+
 - Thread-safe: Yes (sync.RWMutex, concurrent reads, serialized writes)
-- Global state: None (all state lives in Config[T] instances)
+- Runtime configuration state: per Config[T] instance; small synchronized process-level self-config caches and secret-provider registries also exist
 - Repository: https://github.com/confiify/confii-go
-- Documentation: https://pkg.go.dev/github.com/confiify/confii-go
+- Documentation: https://confii-go-docs.pages.dev/
+- Go API reference: https://pkg.go.dev/github.com/confiify/confii-go
+- Application-sized examples: https://github.com/confiify/confii-go-examples
 
 ## What Makes Confii Different
 
@@ -21,9 +23,9 @@ Confii provides:
 
 - Type-safe generics: Config[T] with cfg.Typed() returning *T with IDE autocomplete
 - 6 merge strategies (replace, merge, append, prepend, intersection, union) with per-path overrides
-- ${secret:key} placeholder resolution from AWS Secrets Manager, Azure Key Vault, GCP Secret Manager, HashiCorp Vault (9 auth methods) — with caching, TTL, and multi-store fallback
+- ${secret:key} placeholder resolution from AWS Secrets Manager, Azure Key Vault, GCP Secret Manager, HashiCorp Vault, and OpenBao — with caching, TTL, and multi-store fallback. The Vault-compatible layer implements nine auth flows; CI live-tests Token and AppRole against OpenBao, while other flows have protocol-level tests and require provider-side identity configuration.
 - Hydra-style config composition via _include and _defaults directives with cycle detection
-- Environment resolution: automatic default + production/staging section merging
+- Environment resolution: recommended named files or a single file with default + environment sections; explicit hybrid mode supports controlled migrations
 - 4-type hook system (key, value, condition, global) for value transformation on access
 - Full introspection: Explain(), Layers(), Schema(), source tracking, override history, conflict detection
 - Config diff, drift detection from intended baselines
@@ -43,9 +45,11 @@ go install github.com/confiify/confii-go/confii@latest
 confii --version
 ```
 
-Cloud providers are opt-in via build tags:
+Cloud integrations use separate modules; provider SDK implementations are opt-in via build tags (the Git loader in loader/cloud needs no tag):
 
 ```bash
+go get github.com/confiify/confii-go/loader/cloud@latest
+go get github.com/confiify/confii-go/secret/cloud@latest
 go build -tags aws          # S3, SSM, Secrets Manager
 go build -tags azure        # Blob Storage, Key Vault
 go build -tags gcp          # Cloud Storage, Secret Manager
@@ -237,7 +241,7 @@ secret.NewMultiStore([]SecretStore{...})   // fallback chain
 
 // Cloud stores (build-tag gated)
 cloud.NewAWSSecretsManager(ctx, opts...)   // aws
-cloud.NewHashiCorpVault(opts...)           // vault (9 auth methods)
+cloud.NewHashiCorpVault(opts...)           // vault-compatible; 9 implemented auth flows (Token/AppRole live-tested)
 cloud.NewAzureKeyVault(url, cred)          // azure
 cloud.NewGCPSecretManager(ctx, project)    // gcp
 
@@ -255,12 +259,12 @@ github.com/confiify/confii-go/
   builder.go             Fluent builder API
   errors.go              Sentinel errors + ConfigError
   loader/                File & env loaders (YAML, JSON, TOML, INI, .env, HTTP)
-    cloud/               Cloud loaders (S3, SSM, Azure Blob, GCS, IBM COS, Git)
+    cloud/               Separate module: S3, SSM, Azure Blob, GCS, IBM COS; Git needs no build tag
   secret/                Secret stores (env, dict, multi) + resolver
     cloud/               Cloud secret stores (AWS, Azure, GCP, Vault)
   merge/                 Merge strategies (default + advanced with per-path overrides)
   compose/               Configuration composition (_include, _defaults)
-  envhandler/            Environment resolution (default + env sections)
+  envhandler/            Environment resolution (named files or default + env sections)
   hook/                  Hook processor (4 types: key, value, condition, global)
   validate/              Struct tag + JSON Schema validation
   observe/               Metrics, events, versioning with rollback
@@ -269,7 +273,7 @@ github.com/confiify/confii-go/
   watch/                 File watching (fsnotify)
   export/                JSON, YAML, TOML exporters
   selfconfig/            Self-configuration reader (.confii.yaml)
-  examples/              19 runnable examples
+  examples/              19 focused runnable examples
   confii/                CLI tool (12 commands)
 ```
 
@@ -281,6 +285,7 @@ go install github.com/confiify/confii-go/confii@latest
 confii init
 confii plan
 APP_ENV=production confii load
+confii get database.host
 
 # Commands may also receive explicit loaders
 confii load production -l yaml:config.yaml
