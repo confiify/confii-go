@@ -2,7 +2,8 @@
 
 **Assessment date:** 2026-07-25  
 **Baseline version:** [2026.02.19](https://baseline.openssf.org/versions/2026-02-19.html)  
-**Target:** Level 3, including every inherited Level 1 and Level 2 control
+**Status:** [Level 3 achieved](https://www.bestpractices.dev/projects/12279) on
+2026-07-28, including every inherited Level 1 and Level 2 control
 
 This is the project's control-to-evidence record for the Open Source Project
 Security (OSPS) Baseline. It is a self-assessment backed by public source,

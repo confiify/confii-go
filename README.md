@@ -14,6 +14,7 @@
   <a href="https://github.com/confiify/confii-go/actions/workflows/ci.yaml"><img src="https://github.com/confiify/confii-go/actions/workflows/ci.yaml/badge.svg" alt="CI"></a>
   <a href="https://codecov.io/gh/confiify/confii-go"><img src="https://codecov.io/gh/confiify/confii-go/branch/main/graph/badge.svg" alt="Coverage"></a>
   <a href="https://www.bestpractices.dev/projects/12279"><img src="https://www.bestpractices.dev/projects/12279/badge" alt="OpenSSF Best Practices"></a>
+  <a href="https://www.bestpractices.dev/projects/12279"><img src="https://www.bestpractices.dev/projects/12279/baseline" alt="OpenSSF Baseline Level 3"></a>
   <a href="https://securityscorecards.dev/viewer/?uri=github.com/confiify/confii-go"><img src="https://api.securityscorecards.dev/projects/github.com/confiify/confii-go/badge" alt="OpenSSF Scorecard"></a>
   <a href="https://api.reuse.software/info/github.com/confiify/confii-go"><img src="https://api.reuse.software/badge/github.com/confiify/confii-go" alt="REUSE status"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
