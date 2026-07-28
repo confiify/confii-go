@@ -41,16 +41,24 @@ You can pass multiple loaders. Later loaders override earlier ones with deep mer
 
 ### init
 
-Create a complete, safe-by-default `.confii.yaml` in the project root:
+Safely bootstrap Confii in the project root:
 
 ```bash
 confii init
 ```
 
-Every supported self-configuration setting is included, with its built-in or
-recommended default and comments explaining the available choices. The file is
-safe to commit and safe to use unchanged. Explicit Go options continue to take
-priority over values in this file.
+By default, Confii asks you to select one of three layouts:
+
+1. Separate files (recommended): `config/default.yaml` plus one
+   `config/{environment}.yaml` override per environment.
+2. One sectioned file: `config/application.yaml` containing `default` and
+   named environment sections.
+3. Self-configuration only: the complete `.confii.yaml` without starter data.
+
+The generated `.confii.yaml` still includes every supported setting, with
+comments explaining its default and available choices. The generated starter
+configuration is immediately loadable with `confii.New[YourConfig](ctx)`;
+Confii does not edit `go.mod` or invent application source files.
 
 Initialize another directory, creating it when necessary:
 
@@ -58,8 +66,31 @@ Initialize another directory, creating it when necessary:
 confii init ./my-service
 ```
 
-Confii never overwrites an existing `.confii.yaml` by default. Replace it only
-after reviewing the consequences:
+Make initialization deterministic in scripts or CI:
+
+```bash
+confii init --non-interactive \
+  --strategy named-files \
+  --default-environment development \
+  --environments development,staging,production \
+  --env-switcher APP_ENV \
+  --config-dir config
+```
+
+Confii checks all eight supported project self-config names before prompting.
+If one valid self-config already exists, `init` succeeds without changing any
+file. Multiple self-configs are rejected because discovery would be ambiguous;
+an invalid existing self-config is reported rather than hidden. Before a new
+project is written, every planned target is checked so a collision leaves no
+partial initialization. A failed multi-file write is rolled back.
+
+Preview the exact plan without creating even the target directory:
+
+```bash
+confii init --dry-run --strategy sectioned ./my-service
+```
+
+Replace the files in the selected plan only after reviewing the consequences:
 
 ```bash
 confii init --force
@@ -67,7 +98,15 @@ confii init --force
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `-f, --force` | Replace an existing `.confii.yaml` | `false` |
+| `--strategy` | `named-files` or `sectioned`; otherwise prompt in a terminal | `named-files` when non-interactive |
+| `--environments` | Environment override files/sections to scaffold | `development,production` |
+| `--default-environment` | Fallback environment | `development` |
+| `--env-switcher` | OS variable selecting the environment | `APP_ENV` |
+| `--config-dir` | Project-relative starter configuration directory | `config` |
+| `--minimal` | Create only the complete `.confii.yaml` | `false` |
+| `--non-interactive` | Suppress layout prompting | `false` |
+| `--dry-run` | Print the plan without filesystem changes | `false` |
+| `-f, --force` | Replace every file in the selected plan | `false` |
 
 ---
 

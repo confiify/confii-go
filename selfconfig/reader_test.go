@@ -190,3 +190,11 @@ func TestClearCache(t *testing.T) {
 	// Should not panic.
 	ClearCache()
 }
+
+func TestCandidateFilenamesReturnsIndependentDiscoveryOrder(t *testing.T) {
+	first := CandidateFilenames()
+	require.NotEmpty(t, first)
+	assert.Equal(t, "confii.yaml", first[0])
+	first[0] = "mutated"
+	assert.Equal(t, "confii.yaml", CandidateFilenames()[0])
+}

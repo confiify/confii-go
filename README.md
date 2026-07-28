@@ -188,12 +188,30 @@ There are three ways to create a `Config[T]` instance, listed from simplest to m
 
 **1. Self-configuration file** (zero-code defaults) — Confii auto-discovers a `.confii.yaml` (or `.json`/`.toml`) file and applies settings *before* any code runs. This is the best place for project-wide defaults that every developer shares.
 
-Generate a complete, commented, safe-by-default file containing every
-self-configurable startup decision:
+Bootstrap a project interactively. Confii asks whether to use separate
+environment files or one sectioned file, then creates the complete,
+commented self-configuration and a loadable starter layout:
 
 ```bash
 confii init
 ```
+
+For automation, make the decision explicit:
+
+```bash
+# Recommended: config/default.yaml + config/{environment}.yaml
+confii init --non-interactive --strategy named-files
+
+# Alternative: config/application.yaml with environment sections
+confii init --non-interactive --strategy sectioned
+```
+
+Initialization is idempotent. Confii detects every supported self-config
+filename, reports an already initialized project without changing it, rejects
+ambiguous or malformed initialization, and preflights every planned output
+before writing. Use `--dry-run` to inspect the plan and `--force` only for an
+intentional replacement. Application source is not generated or edited; the
+runtime integration remains `confii.New[YourConfig](ctx)`.
 
 ```yaml
 # .confii.yaml — auto-discovered from CWD or ~/.config/confii/
@@ -718,7 +736,7 @@ go install github.com/confiify/confii-go/confii@v1.2.1
 
 | Command | Description |
 | --- | --- |
-| `confii init` | Create a complete `.confii.yaml` without overwriting existing configuration |
+| `confii init` | Safely scaffold `.confii.yaml` and the selected environment layout |
 | `confii load` | Load and display configuration |
 | `confii get` | Retrieve a single value |
 | `confii export` | Export to a different format |

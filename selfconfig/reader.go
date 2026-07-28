@@ -66,6 +66,14 @@ var searchFiles = []string{
 	".confii.yaml", ".confii.yml", ".confii.json", ".confii.toml",
 }
 
+// CandidateFilenames returns the self-configuration filenames in discovery
+// order. The returned slice is an independent copy so project-management
+// tools such as `confii init` can inspect local initialization state without
+// mutating the reader's authoritative search order.
+func CandidateFilenames() []string {
+	return append([]string(nil), searchFiles...)
+}
+
 // cacheEntry holds the resolved Settings for a specific working directory.
 type cacheEntry struct {
 	settings *Settings

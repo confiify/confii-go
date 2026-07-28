@@ -8,7 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
+	"runtime"
 	"testing"
 
 	"github.com/confiify/confii-go/selfconfig"
@@ -18,7 +18,7 @@ import (
 
 func TestInitCommandCreatesCompleteSelfConfig(t *testing.T) {
 	dir := t.TempDir()
-	out, err := execCobra(NewInitCmd(), []string{dir})
+	out, err := execCobra(NewInitCmd(), []string{"--minimal", dir})
 	require.NoError(t, err)
 
 	path := filepath.Join(dir, selfConfigFilename)
@@ -53,7 +53,7 @@ func TestInitCommandReportsDirectoryCreationFailure(t *testing.T) {
 
 	_, err := execCobra(NewInitCmd(), []string{filepath.Join(parent, "project")})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "create project directory")
+	assert.Contains(t, err.Error(), "inspect Confii initialization")
 }
 
 func TestInitCommandPreservesExistingFile(t *testing.T) {
@@ -61,10 +61,10 @@ func TestInitCommandPreservesExistingFile(t *testing.T) {
 	path := filepath.Join(dir, selfConfigFilename)
 	require.NoError(t, os.WriteFile(path, []byte("custom: true\n"), 0o600))
 
-	_, err := execCobra(NewInitCmd(), []string{dir})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "already exists")
-	assert.Contains(t, err.Error(), "--force")
+	out, err := execCobra(NewInitCmd(), []string{dir})
+	require.NoError(t, err)
+	assert.Contains(t, out, "Already initialized")
+	assert.Contains(t, out, "No files changed")
 
 	data, readErr := os.ReadFile(path)
 	require.NoError(t, readErr)
@@ -76,7 +76,7 @@ func TestInitCommandForceReplacesExistingFile(t *testing.T) {
 	path := filepath.Join(dir, selfConfigFilename)
 	require.NoError(t, os.WriteFile(path, []byte("custom: true\n"), 0o600))
 
-	_, err := execCobra(NewInitCmd(), []string{"--force", dir})
+	_, err := execCobra(NewInitCmd(), []string{"--force", "--minimal", dir})
 	require.NoError(t, err)
 
 	data, readErr := os.ReadFile(path)
@@ -96,22 +96,48 @@ func TestInitCommandReportsUnwritableTarget(t *testing.T) {
 
 	_, err := execCobra(NewInitCmd(), []string{"--force", dir})
 	require.Error(t, err)
-	assert.True(t,
-		strings.Contains(err.Error(), "create") || strings.Contains(err.Error(), "write"),
-		"unexpected error: %v", err)
+	assert.Contains(t, err.Error(), "not a regular file")
+}
+
+func TestInitCommandRejectsSelfConfigSymlink(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation requires elevated privileges on some Windows runners")
+	}
+	dir := t.TempDir()
+	external := filepath.Join(t.TempDir(), "external.yaml")
+	require.NoError(t, os.WriteFile(external, []byte("deep_merge: true\n"), 0o600))
+	require.NoError(t, os.Symlink(external, filepath.Join(dir, selfConfigFilename)))
+
+	_, err := execCobra(NewInitCmd(), []string{"--force", dir})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not a regular file")
+	assert.Equal(t, "deep_merge: true\n", readTestFile(t, external))
 }
 
 func TestInitCommandReturnsOutputWriterError(t *testing.T) {
 	dir := t.TempDir()
 	cmd := NewInitCmd()
 	cmd.SetOut(errorWriter{})
-	cmd.SetArgs([]string{dir})
+	cmd.SetArgs([]string{"--non-interactive", "--minimal", dir})
 	cmd.SilenceUsage = true
 	cmd.SilenceErrors = true
 
 	err := cmd.Execute()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "write failed")
+}
+
+func TestInitCommandReturnsWriteErrorAfterPreflight(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not enforce Unix directory write bits")
+	}
+	dir := t.TempDir()
+	require.NoError(t, os.Chmod(dir, 0o500))
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+
+	_, err := execCobra(NewInitCmd(), []string{"--non-interactive", "--minimal", dir})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "create")
 }
 
 func TestWriteAndCloseSelfConfigErrors(t *testing.T) {

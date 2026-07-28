@@ -8,9 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-- Add `confii init [directory]` with overwrite protection and an embedded,
-  schema-covered `.confii.yaml` template containing every supported
-  self-configuration decision and its safe default.
+- Add an idempotent `confii init [directory]` project bootstrapper with an
+  interactive or flag-selected named-file/sectioned layout, complete embedded
+  `.confii.yaml`, loadable starter configuration, existing-project and
+  ambiguity detection, whole-plan preflight, dry-run, and rollback-safe writes.
 - Add declarative `merge_strategy` and `merge_strategy_map` settings so the
   advanced global and per-path merge controls are available through
   `.confii.yaml`, while explicit Go options retain priority.

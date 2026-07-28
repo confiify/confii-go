@@ -23,16 +23,26 @@ in `.confii.yaml`, which itself wins over the built-in default of `true`.
 Confii auto-discovers a self-configuration file **before** any loaders run.
 This is the best place for project-wide defaults shared by every developer.
 
-Generate the authoritative, complete YAML template in a project root with:
+Bootstrap the authoritative YAML template and a starter environment layout
+with:
 
 ```bash
 confii init
 ```
 
-The generated file contains every self-configurable startup decision and is
-safe to use unchanged. Confii refuses to overwrite an existing file unless
-`confii init --force` is explicitly requested. The maintained source template
-is [`selfconfig/default.confii.yaml`](https://github.com/confiify/confii-go/blob/main/selfconfig/default.confii.yaml).
+The command asks whether the project prefers separate environment files, a
+single sectioned file, or self-configuration only. The equivalent
+automation flags are `--strategy named-files`, `--strategy sectioned`, and
+`--minimal`. The generated file contains every self-configurable startup
+decision and is safe to use unchanged.
+
+Initialization is idempotent and project-scoped. Confii checks every filename
+in the discovery order below, validates an existing initialization, detects
+ambiguous duplicates, and preflights all generated paths. It therefore does
+not create a second self-config or partially overwrite a user's configuration.
+Use `confii init --dry-run` before an intentional `--force` replacement. The
+maintained source template is
+[`selfconfig/default.confii.yaml`](https://github.com/confiify/confii-go/blob/main/selfconfig/default.confii.yaml).
 
 #### Search Order
 

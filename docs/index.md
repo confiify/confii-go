@@ -92,15 +92,16 @@ go get github.com/confiify/confii-go@v1.2.1
 
 === "Self-Config"
 
-    Generate the complete self-configuration template, then tailor only the
-    decisions your project needs:
+    Interactively choose separate environment files, one sectioned file, or
+    self-configuration only. Confii safely generates the selected structure:
 
     ```bash
     confii init
     ```
 
-    The generated `.confii.yaml` is safe to use unchanged and explicit Go
-    options remain authoritative:
+    Existing projects are detected and left unchanged; `--dry-run` shows the
+    complete plan. The generated `.confii.yaml` is safe to use unchanged and
+    explicit Go options remain authoritative:
 
     ```yaml title=".confii.yaml"
     # Confii finds this file automatically
