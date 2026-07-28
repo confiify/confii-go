@@ -146,6 +146,18 @@ go install github.com/confiify/confii-go/confii@latest
 confii --version
 ```
 
+Contributors and prerelease testers can install the current checkout with
+traceable development version metadata:
+
+```bash
+make install-dev
+confii --version  # dev-<commit>, with -dirty when applicable
+```
+
+Use `make install-dev INSTALL_DIR="$PWD/bin/dev-install"` to avoid replacing an
+existing released CLI. See the [installation guide](docs/installation.md#install-a-development-checkout)
+for the complete workflow.
+
 Starting from an empty directory? Follow the complete sequence below; creating
 the module before `go get` is required.
 

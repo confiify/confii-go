@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Add `make install-dev` for installing the current CLI checkout with
+  commit-aware `dev-<commit>` metadata and a `-dirty` marker for tracked local
+  changes. `INSTALL_DIR` supports isolated prerelease testing, and the existing
+  `make install` target remains a compatibility alias.
+
 - Add declarative named secret providers, environment-specific defaults, and
   explicit `${secret@provider:key[:json_path][:version]}` routing for mixed
   Vault, AWS, Azure, GCP, file, environment, and custom-provider strategies.

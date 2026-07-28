@@ -116,6 +116,35 @@ an unversioned local build from a working tree.
 when `GOBIN` is unset. Add that directory to `PATH` if your shell cannot find
 `confii`.
 
+### Install a development checkout
+
+Contributors and prerelease testers should install from the checked-out source
+through the repository Makefile rather than using `@latest`:
+
+```bash
+git switch feat/my-change
+make install-dev
+confii --version
+```
+
+The installed version is commit-aware, for example
+`dev-18eba047d69b` or `dev-18eba047d69b-dirty`. The `-dirty` suffix means tracked
+working-tree changes were present, so test reports can identify builds that do
+not correspond exactly to a commit. `make install` remains an alias for
+`make install-dev`.
+
+By default, the goal installs to `GOBIN`, or to `$(go env GOPATH)/bin` when
+`GOBIN` is unset. To test without replacing an existing `confii` executable on
+your `PATH`, select an isolated directory:
+
+```bash
+make install-dev INSTALL_DIR="$PWD/bin/dev-install"
+./bin/dev-install/confii --version
+```
+
+Re-run `make install-dev` after changing branches or commits. The Go tool does
+not automatically refresh an already installed development executable.
+
 ## Verify
 
 Preview initialization without writing anything:
