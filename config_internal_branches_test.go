@@ -250,7 +250,8 @@ func TestConfig_InternalHelperContracts(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".confii.yaml"), []byte("invalid: ["), 0o600))
 	selfconfig.ClearCache()
 	_, err = New[any](context.Background(), WithWorkingDir(dir), WithLoaders())
-	require.NoError(t, err)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrConfigLoad)
 }
 
 func TestFileAutoLoader_ErrorAndFormatBranches(t *testing.T) {

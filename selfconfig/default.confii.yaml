@@ -1,0 +1,103 @@
+# Copyright 2026 The Confii Contributors
+# SPDX-License-Identifier: MIT
+
+# Confii self-configuration
+#
+# This file is safe to use unchanged. Every top-level setting supported by
+# Confii is present so that project behavior is explicit and discoverable.
+# Application code still has final authority:
+#
+#   explicit Go option > this self-config file > built-in default
+#
+# Empty strings, empty lists, and empty maps mean "not configured" and retain
+# the documented built-in behavior. See:
+# https://confii-go-docs.pages.dev/configuration/
+
+# Environment selection. Resolution order is an explicit WithEnv option, the
+# value of env_switcher, default_environment, then no environment.
+default_environment: ""
+env_switcher: ""
+
+# Environment variable integration. env_prefix installs the final
+# OS-environment source after declarative sources, using PREFIX_KEY /
+# PREFIX_NESTED__KEY names. An explicitly supplied equivalent loader keeps its
+# caller-selected position. default_prefix is the fallback alias retained for
+# compatibility; prefer env_prefix in new projects.
+env_prefix: ""
+default_prefix: ""
+sysenv_fallback: false
+
+# Environment models:
+#   auto        - sectioned unless an environment_files source is declared
+#   sectioned   - one source contains default/development/production sections
+#   named_files - default.yaml plus {environment}.yaml
+#   hybrid      - deliberately combine both models
+environment_strategy: auto
+
+# Used only by hybrid mode: error | warn | last_wins.
+environment_conflict_policy: last_wins
+
+# Simple ordered files loaded before any entries in sources. Prefer one style
+# within a project unless the extra precedence layer is deliberate. Supported
+# extensions are .yaml, .yml, .json, .toml, .ini, .cfg, and .env.
+default_files: []
+
+# Ordered declarative sources. Later sources have higher precedence.
+# Supported source types are environment_files, yaml, yml, json, toml, ini,
+# cfg, envfile, env (file path or OS prefix), environment, and env-vars.
+sources: []
+# Example named-file setup:
+# sources:
+#   - type: environment_files
+#     search_paths: [config, .]
+#     default_file: default.yaml
+#     environment_file: "{environment}.yaml"
+#     default_required: false
+#     environment_required: true
+#   - type: env
+#     prefix: APP
+
+# Merge behavior. deep_merge controls the standard merger. Setting
+# merge_strategy activates the advanced merger with one of:
+# replace | merge | append | prepend | intersection | union.
+deep_merge: true
+merge_strategy: ""
+
+# Per-key-path advanced merge overrides. Paths use dotted notation.
+merge_strategy_map: {}
+# Example:
+# merge_strategy_map:
+#   features: union
+#   servers: append
+
+# Value processing.
+use_env_expander: true
+use_type_casting: true
+
+# Validation. schema_path points to a JSON Schema document. Typed Go configs
+# can also use struct validation tags without a schema file.
+validate_on_load: false
+strict_validation: false
+schema_path: ""
+
+# Runtime lifecycle. dynamic_reloading and freeze_on_load are intentionally
+# mutually exclusive.
+dynamic_reloading: false
+freeze_on_load: false
+
+# Diagnostics and error handling.
+debug_mode: false
+on_error: raise # raise | warn | ignore
+
+# Empty preserves the application's logger. Set debug, info, warn, or error to
+# install Confii's JSON logger at that level.
+log_level: ""
+
+# Declarative secret resolution. An empty map disables it. Core providers are
+# env, dict, and file. Build-tagged cloud registration adds aws, azure, gcp,
+# and vault. Never commit literal production secrets.
+secrets: {}
+# Example:
+# secrets:
+#   provider: env
+#   prefix: SECRET_

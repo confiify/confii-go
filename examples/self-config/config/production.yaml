@@ -1,0 +1,7 @@
+# Production-only overrides.
+server:
+  host: 0.0.0.0
+
+database:
+  host: production-db.internal
+  name: appdb_production

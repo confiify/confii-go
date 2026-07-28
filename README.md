@@ -84,7 +84,7 @@ Go has several configuration libraries, but none provides a complete configurati
 | Hook/middleware system (4 types) | Yes | No | No | No |
 | File watching + incremental reload | Yes | Yes | Yes | Partial |
 | JSON Schema validation | Yes | No | No | No |
-| CLI tool (11 commands) | Yes | No | No | No |
+| CLI tool (12 commands) | Yes | No | No | No |
 | Thread-safe (RWMutex) | Yes | [No](https://github.com/spf13/viper/issues/268) | Partial | Varies |
 
 <!-- markdownlint-disable MD033 -->
@@ -96,7 +96,7 @@ Go has several configuration libraries, but none provides a complete configurati
 
 **2. Secret management as a first-class concern.** Confii natively resolves `${secret:db/password}` placeholders from AWS Secrets Manager, Azure Key Vault, GCP Secret Manager, HashiCorp Vault, and OpenBao — with caching, TTL, and a pluggable store interface. The Vault-compatible integration implements nine authentication flows; CI live-tests Token and AppRole against OpenBao, while the remaining flows have protocol-level tests and require provider-side identity configuration.
 
-**3. Environment-aware configuration.** Confii natively understands `default` + `production`/`staging`/`development` sections and merges them automatically — no separate files per environment needed.
+**3. Environment-aware configuration.** Confii supports both recommended named files (`config/default.yaml` + `config/{environment}.yaml`) and a single file with `default` + environment sections. Teams choose one primary model; explicit hybrid mode exists for controlled migrations.
 
 **4. Type safety with Go generics.** `Config[AppConfig]` gives you `cfg.Typed()` returning `*AppConfig` with struct tag validation and full IDE autocomplete.
 
@@ -133,7 +133,9 @@ for boundaries and verification details.
 ## Installation
 
 ```bash
-go get github.com/confiify/confii-go@v1.2.1
+go get github.com/confiify/confii-go@latest
+go install github.com/confiify/confii-go/confii@latest
+confii --version
 ```
 
 Cloud providers are opt-in through separate modules and build tags, so the
@@ -142,8 +144,8 @@ provider SDK versions:
 
 ```bash
 # Example: AWS
-go get github.com/confiify/confii-go/loader/cloud@v1.2.1
-go get github.com/confiify/confii-go/secret/cloud@v1.2.1
+go get github.com/confiify/confii-go/loader/cloud@latest
+go get github.com/confiify/confii-go/secret/cloud@latest
 go build -tags aws ./...
 
 # Other providers
@@ -160,21 +162,71 @@ details.
 
 ## Quick Start
 
-```go
-cfg, err := confii.New[any](context.Background(),
-    confii.WithLoaders(
-        loader.NewYAML("config.yaml"),
-        loader.NewEnvironment("APP"),
-    ),
-    confii.WithEnv("production"),
-)
+From an empty directory, initialize a Go module and let Confii create the
+recommended separate-file environment layout:
 
-host, _ := cfg.Get("database.host")
-port := cfg.GetIntOr("database.port", 5432)
-debug := cfg.GetBoolOr("debug", false)
+```bash
+mkdir my-service && cd my-service
+go mod init example.com/my-service
+go get github.com/confiify/confii-go@latest
+go install github.com/confiify/confii-go/confii@latest
+confii init
 ```
 
-> **Full example:** [`examples/basic/`](examples/basic/main.go)
+Choose **Separate files**. Confii generates a complete, documented
+`.confii.yaml`, shared defaults in `config/default.yaml`, and development and
+production override files. Load them without hard-coded paths:
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+
+    confii "github.com/confiify/confii-go"
+)
+
+type AppConfig struct {
+    App struct {
+        Name string `mapstructure:"name"`
+    } `mapstructure:"app"`
+    Server struct {
+        Host string `mapstructure:"host"`
+        Port int    `mapstructure:"port"`
+    } `mapstructure:"server"`
+    Log struct {
+        Level string `mapstructure:"level"`
+    } `mapstructure:"log"`
+}
+
+func main() {
+    cfg, err := confii.New[AppConfig](context.Background())
+    if err != nil {
+        log.Fatal(err)
+    }
+    values, err := cfg.Typed()
+    if err != nil {
+        log.Fatal(err)
+    }
+    fmt.Printf("%s listening on %s:%d (%s)\n",
+        values.App.Name, values.Server.Host, values.Server.Port, values.Log.Level)
+}
+```
+
+```bash
+# Preview the exact layers before starting the application
+confii plan
+APP_ENV=production confii plan
+
+# Run with the generated development default, then production
+go run .
+APP_ENV=production go run .
+```
+
+See the [from-scratch Quick Start](docs/quickstart.md) for the generated files,
+runtime overrides, the single-file alternative, and expected output.
 
 ---
 
@@ -188,16 +240,47 @@ There are three ways to create a `Config[T]` instance, listed from simplest to m
 
 **1. Self-configuration file** (zero-code defaults) — Confii auto-discovers a `.confii.yaml` (or `.json`/`.toml`) file and applies settings *before* any code runs. This is the best place for project-wide defaults that every developer shares.
 
+Bootstrap a project interactively. Confii asks whether to use separate
+environment files or one sectioned file, then creates the complete,
+commented self-configuration and a loadable starter layout:
+
+```bash
+confii init
+```
+
+For automation, make the decision explicit:
+
+```bash
+# Recommended: config/default.yaml + config/{environment}.yaml
+confii init --non-interactive --strategy named-files
+
+# Alternative: config/application.yaml with environment sections
+confii init --non-interactive --strategy sectioned
+```
+
+Initialization is idempotent. Confii detects every supported self-config
+filename, reports an already initialized project without changing it, rejects
+ambiguous initialization, rejects malformed existing configuration unless
+`--force` is deliberately recovering the canonical `.confii.yaml`, and
+preflights every planned output before writing. Use `--dry-run` to inspect the
+plan and `--force` only for an
+intentional replacement. `--force` replaces only the selected plan and never
+deletes files from an older layout, so review obsolete files manually.
+Application source is not generated or edited; the
+runtime integration remains `confii.New[YourConfig](ctx)`.
+
 ```yaml
 # .confii.yaml — auto-discovered from CWD or ~/.config/confii/
 default_environment: development
+env_switcher: APP_ENV
 env_prefix: APP
+environment_strategy: named_files
 deep_merge: true
-use_env_expander: true
-validate_on_load: false
-default_files:
-  - config/base.yaml
-  - config/dev.yaml
+sources:
+  - type: environment_files
+    search_paths: [config]
+    default_file: default.yaml
+    environment_file: "{environment}.yaml"
 ```
 
 For projects that keep one file per environment, opt in with an
@@ -706,11 +789,12 @@ jsonDocs, _ := cfg.GenerateDocs("json")
 ## CLI Tool
 
 ```bash
-go install github.com/confiify/confii-go/confii@v1.2.1
+go install github.com/confiify/confii-go/confii@latest
 ```
 
 | Command | Description |
 | --- | --- |
+| `confii init` | Safely scaffold `.confii.yaml` and the selected environment layout |
 | `confii load` | Load and display configuration |
 | `confii get` | Retrieve a single value |
 | `confii export` | Export to a different format |
@@ -724,6 +808,12 @@ go install github.com/confiify/confii-go/confii@v1.2.1
 | `confii migrate` | Migrate from other config formats |
 
 ```bash
+confii init
+confii plan
+APP_ENV=production confii load
+confii get database.host
+
+# Explicit loaders remain available for ad hoc files and automation
 confii load production -l yaml:config.yaml
 confii get production database.host -l yaml:config.yaml
 confii export production -l yaml:config.yaml -f json -o config.json
@@ -740,7 +830,11 @@ confii migrate dotenv .env -o config.yaml
 
 ## Examples
 
-All examples are runnable and located in the [`examples/`](examples/) directory:
+The [`examples/`](examples/) directory contains focused, runnable feature
+samples. For a realistic CRUD application with environment, LocalStack cloud,
+Vault/OpenBao, and CLI walkthroughs, use the companion
+[`confiify/confii-go-examples`](https://github.com/confiify/confii-go-examples)
+repository.
 
 #### Getting Started
 
@@ -813,7 +907,7 @@ github.com/confiify/confii-go/
   ├── internal/              # Internal utilities (dictutil, typecoerce, formatparse)
   ├── integration/           # End-to-end integration tests
   ├── examples/              # Runnable examples
-  └── confii/                # CLI tool (11 commands)
+  └── confii/                # CLI tool (12 commands)
 ```
 
 ## Requirements

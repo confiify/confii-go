@@ -1,10 +1,20 @@
 # Environment Resolution
 
-Confii natively understands environment-specific configuration. Instead of maintaining separate files for each environment, you define a single file with `default` and environment-specific sections. Confii merges them automatically at load time.
+Confii supports two deliberate environment models:
+
+- **Named files (recommended for new projects):** load shared values from
+  `config/default.yaml`, then overlay `config/<environment>.yaml`.
+- **Sectioned file:** keep `default`, `development`, `production`, and other
+  environment sections in one file and resolve the selected section at load
+  time.
+
+Run `confii init` to choose either layout and generate matching self-config.
+Do not combine both models in normal operation; Confii rejects accidental
+mixing unless a controlled migration explicitly selects `hybrid`.
 
 ---
 
-## How It Works
+## How Sectioned Files Work
 
 When you set an active environment (e.g., `"production"`), Confii's `envhandler.Handler` performs a three-step resolution:
 
@@ -23,7 +33,7 @@ default:             production:           resolved (env=production):
 
 ---
 
-## Config File Structure
+## Sectioned File Structure
 
 A typical environment-aware config file contains a `default` key and one or more environment keys at the top level:
 
@@ -122,9 +132,14 @@ This applies with the lowest priority -- any explicit code option overrides it.
 
 ### Separate Files Per Environment
 
-Section-based environments are still the default for a normal file loader. If
-you prefer `config/default.yaml` plus `config/<environment>.yaml`, enable the
-separate-file mode explicitly in `.confii.yaml`:
+The initializer's recommended layout configures this model automatically:
+
+```bash
+confii init --non-interactive --strategy named-files
+```
+
+To configure it manually, declare `config/default.yaml` plus
+`config/<environment>.yaml` in `.confii.yaml`:
 
 ```yaml
 default_environment: development
@@ -144,8 +159,8 @@ is absent from `config/`. Set `default_required` or `environment_required` to
 control missing-file failures; their defaults are `false` and `true`,
 respectively.
 
-The mode is intentionally opt-in. Declaring `environment_files` infers the
-`named_files` strategy. Flat sources remain composable, but a source containing
+Declaring `environment_files` infers the `named_files` strategy. Flat sources
+remain composable, but a source containing
 top-level environment sections is rejected so a project cannot accidentally
 activate two environment models. Use `environment_strategy: hybrid` together
 with an explicit `environment_conflict_policy` only for a deliberate migration

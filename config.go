@@ -114,18 +114,16 @@ func New[T any](ctx context.Context, cfgOpts ...Option) (*Config[T], error) {
 
 	// Step 1: Read self-configuration.
 	//
-	// G07: a typed *ConfigError returned by applySelfConfig (for example,
-	// from an invalid on_error string) is surfaced to the caller instead
-	// of being downgraded to a warning, so operators see misconfiguration
-	// loudly. Other failures — file I/O, malformed self-config — remain
-	// best-effort warnings to preserve historical behavior for the
-	// graceful-absence case.
+	// Absence is a supported state, represented by selfconfig.Read returning
+	// nil settings and no error. A discovered but unreadable or malformed
+	// self-config is unsafe to ignore: it may change source precedence,
+	// validation, or secret handling, so fail closed with a typed error.
 	if err := applySelfConfig(&opts); err != nil {
 		var ce *ConfigError
 		if errors.As(err, &ce) {
 			return nil, err
 		}
-		opts.Logger.Warn("failed to read self-config", slog.String("error", err.Error()))
+		return nil, &ConfigError{Op: "New", Err: fmt.Errorf("%w: read self-config: %w", ErrConfigLoad, err)}
 	}
 
 	// Step 1a: Reject mutually exclusive option combinations.
@@ -167,6 +165,7 @@ func New[T any](ctx context.Context, cfgOpts ...Option) (*Config[T], error) {
 			return nil, err
 		}
 	}
+	ensureEnvPrefixLoader(&opts)
 
 	// Step 3: Set up merger.
 	// An AdvancedMerger is required whenever the caller supplies a default

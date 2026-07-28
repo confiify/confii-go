@@ -1,127 +1,158 @@
 # Quick Start
 
-Get up and running with Confii in under 5 minutes. This guide walks you through
-creating a configuration file, loading it into your Go application, and accessing
-values using the full range of Confii's access methods.
+This guide starts with an empty directory and ends with a typed Go application
+whose configuration changes by environment. It uses `confii init`, so the files
+you create here are the same structure Confii recommends for a real project.
 
----
+## Prerequisites
 
-## Install Confii
+- Go 1.25 or newer
+- A shell where `$(go env GOPATH)/bin` is on `PATH`
+
+## 1. Create a Go project
 
 ```bash
-go get github.com/confiify/confii-go@v1.2.1
+mkdir my-service
+cd my-service
+go mod init example.com/my-service
 ```
 
----
+Use your real module path instead of `example.com/my-service` when the project
+already has a repository.
 
-## 1. Create a Configuration File
+## 2. Install the library and CLI
 
-Create a `config.yaml` in your project root:
+Add Confii to this application's module and install the `confii` executable:
 
-=== "YAML"
+```bash
+go get github.com/confiify/confii-go@latest
+go install github.com/confiify/confii-go/confii@latest
+confii --version
+```
 
-    ```yaml title="config.yaml"
-    default:
-      app:
-        name: my-service
-        version: 1.0.0
+`go get` updates this project's `go.mod`; `go install` places the CLI in
+`$(go env GOPATH)/bin`. If `confii` is not found, add that directory to `PATH`.
+For reproducible application builds, commit `go.mod` and `go.sum` and update the
+library version deliberately.
 
-      server:
-        host: localhost
-        port: 8080
-        debug: true
+## 3. Initialize Confii
 
-      database:
-        host: localhost
-        port: 5432
-        name: mydb
-        max_connections: 10
-        ssl: false
+Run the guided initializer:
 
-    production:
-      server:
-        host: 0.0.0.0
-        debug: false
-      database:
-        host: prod-db.example.com
-        ssl: true
-        max_connections: 100
-    ```
+```bash
+confii init
+```
 
-=== "JSON"
+It asks how you want to organize environments:
 
-    ```json title="config.json"
-    {
-      "default": {
-        "app": {
-          "name": "my-service",
-          "version": "1.0.0"
-        },
-        "server": {
-          "host": "localhost",
-          "port": 8080,
-          "debug": true
-        },
-        "database": {
-          "host": "localhost",
-          "port": 5432,
-          "name": "mydb",
-          "max_connections": 10,
-          "ssl": false
-        }
-      },
-      "production": {
-        "server": {
-          "host": "0.0.0.0",
-          "debug": false
-        },
-        "database": {
-          "host": "prod-db.example.com",
-          "ssl": true,
-          "max_connections": 100
-        }
-      }
-    }
-    ```
+1. **Separate files (recommended)** — shared values in `config/default.yaml`,
+   with small overrides such as `config/development.yaml` and
+   `config/production.yaml`.
+2. **One sectioned file** — `config/application.yaml` contains `default`,
+   `development`, and `production` sections.
+3. **Self-configuration only** — create `.confii.yaml` without starter data.
 
-=== "TOML"
+The rest of this guide uses the recommended separate-file layout. To produce it
+without a prompt, including a staging environment, run:
 
-    ```toml title="config.toml"
-    [default.app]
-    name = "my-service"
-    version = "1.0.0"
+```bash
+confii init --non-interactive \
+  --strategy named-files \
+  --environments development,staging,production
+```
 
-    [default.server]
-    host = "localhost"
-    port = 8080
-    debug = true
+Confii creates:
 
-    [default.database]
-    host = "localhost"
-    port = 5432
-    name = "mydb"
-    max_connections = 10
-    ssl = false
+```text
+my-service/
+├── .confii.yaml
+└── config/
+    ├── default.yaml
+    ├── development.yaml
+    ├── staging.yaml
+    └── production.yaml
+```
 
-    [production.server]
-    host = "0.0.0.0"
-    debug = false
+`.confii.yaml` is the project's control plane. It selects the active environment,
+declares the files to load, and exposes every supported startup decision as a
+documented setting. The generated file is ready to use; the active fragment is:
 
-    [production.database]
-    host = "prod-db.example.com"
-    ssl = true
-    max_connections = 100
-    ```
+```yaml title=".confii.yaml"
+default_environment: "development"
+env_switcher: "APP_ENV"
+environment_strategy: named_files
 
-!!! tip "Environment sections"
-    Confii automatically merges `default` with your active environment section.
-    In the example above, setting the environment to `"production"` merges
-    `production` on top of `default` -- so `database.name` stays `"mydb"` while
-    `database.host` becomes `"prod-db.example.com"`.
+sources:
+  - type: environment_files
+    search_paths: ["config"]
+    default_file: default.yaml
+    environment_file: "{environment}.yaml"
+    default_required: true
+    environment_required: true
+```
 
----
+The generated data demonstrates layering. `config/default.yaml` supplies values
+for every environment, and the selected named file overrides only what differs:
 
-## 2. Load Configuration with `confii.New`
+```yaml title="config/default.yaml"
+app:
+  name: "my-service"
+server:
+  host: 127.0.0.1
+  port: 8080
+log:
+  level: info
+```
+
+```yaml title="config/development.yaml"
+log:
+  level: debug
+```
+
+```yaml title="config/production.yaml"
+server:
+  host: 0.0.0.0
+log:
+  level: info
+```
+
+!!! note "Safe to rerun"
+    `confii init` detects an existing project and changes nothing. Use
+    `--dry-run` to preview a plan. Use `--force` only when you intentionally
+    want to replace every file in that plan; the command preflights targets and
+    rolls back a failed multi-file write. It never deletes files from an older
+    layout, so review obsolete configuration files manually after changing
+    strategies.
+
+## 4. Inspect the load plan
+
+Before writing application code, ask the CLI what Confii will load:
+
+```bash
+confii plan
+APP_ENV=production confii plan
+```
+
+The production plan contains two ordered layers:
+
+```text
+1. config/default.yaml
+2. config/production.yaml
+```
+
+You can also inspect the fully merged result:
+
+```bash
+confii load
+APP_ENV=production confii load
+```
+
+These commands use the same `.confii.yaml` discovery and environment selection
+as the Go application.
+
+## 5. Load typed configuration in Go
+
+Create `main.go`:
 
 ```go title="main.go"
 package main
@@ -131,249 +162,103 @@ import (
     "fmt"
     "log"
 
-    "github.com/confiify/confii-go"
-    "github.com/confiify/confii-go/loader"
+    confii "github.com/confiify/confii-go"
 )
 
-func main() {
-    ctx := context.Background()
-
-    cfg, err := confii.New[any](ctx,
-        confii.WithLoaders(
-            loader.NewYAML("config.yaml"),         // (1)!
-            loader.NewEnvironment("APP"),           // (2)!
-        ),
-        confii.WithEnv("production"),               // (3)!
-    )
-    if err != nil {
-        log.Fatal(err)
-    }
-
-    fmt.Println("Config loaded successfully!")
-    _ = cfg
-}
-```
-
-1. Load from a YAML file on disk.
-2. Override with environment variables prefixed `APP_` (e.g. `APP_SERVER__PORT=9090`).
-3. Activate the `production` environment section.
-
-!!! note
-    `confii.New` is generic. Use `confii.New[any]` for untyped access,
-    or `confii.New[AppConfig]` for type-safe struct access (see
-    [step 5](#5-type-safe-access-with-typed) below).
-
----
-
-## 3. Access Values
-
-Confii provides multiple ways to read configuration values. All access methods
-use **dot-separated key paths** to navigate nested structures.
-
-### Basic Get
-
-```go
-// Get returns (any, error) -- error if the key doesn't exist
-host, err := cfg.Get("database.host")
-if err != nil {
-    log.Fatal(err)
-}
-fmt.Println("DB Host:", host) // "prod-db.example.com"
-```
-
-### Get with Default
-
-```go
-// GetOr returns the default value when the key is missing
-region := cfg.GetOr("database.region", "us-east-1")
-fmt.Println("Region:", region) // "us-east-1" (not in config)
-```
-
-### MustGet (for tests)
-
-```go
-// MustGet panics if the key is missing -- use only in tests
-name := cfg.MustGet("app.name")
-fmt.Println("App:", name) // "my-service"
-```
-
----
-
-## 4. Typed Getters with Defaults
-
-Confii provides type-specific getters that return the correct Go type directly.
-Each has a companion `*Or` variant that accepts a fallback value.
-
-```go
-// Strings
-appName, err := cfg.GetString("app.name")          // ("my-service", nil)
-appName = cfg.GetStringOr("app.name", "fallback")  // "my-service"
-
-// Integers
-port, err := cfg.GetInt("server.port")              // (8080, nil)
-port = cfg.GetIntOr("server.port", 3000)            // 8080
-maxConn := cfg.GetIntOr("database.max_connections", 5) // 100
-
-// Booleans
-debug, err := cfg.GetBool("server.debug")           // (false, nil) -- production
-debug = cfg.GetBoolOr("server.debug", true)          // false
-
-// Float64
-threshold := cfg.GetFloat64("threshold")             // (0, error) -- key missing
-```
-
-!!! warning "Type mismatches"
-    If a value cannot be converted to the requested type, typed getters return
-    a `ConfigError`. Use the `*Or` variants to provide safe defaults, or enable
-    `WithTypeCasting(true)` to auto-convert strings like `"8080"` to `int`.
-
----
-
-## 5. Type-Safe Access with `Typed()`
-
-For full IDE autocomplete and compile-time safety, define a Go struct and use
-`Config[T]` with generics:
-
-```go title="main.go"
-package main
-
-import (
-    "context"
-    "fmt"
-    "log"
-
-    "github.com/confiify/confii-go"
-    "github.com/confiify/confii-go/loader"
-)
-
-// Define your configuration struct
 type AppConfig struct {
     App struct {
-        Name    string `mapstructure:"name" validate:"required"`
-        Version string `mapstructure:"version"`
+        Name string `mapstructure:"name"`
     } `mapstructure:"app"`
-
     Server struct {
-        Host  string `mapstructure:"host" validate:"required"`
-        Port  int    `mapstructure:"port" validate:"required,min=1,max=65535"`
-        Debug bool   `mapstructure:"debug"`
+        Host string `mapstructure:"host"`
+        Port int    `mapstructure:"port"`
     } `mapstructure:"server"`
-
-    Database struct {
-        Host           string `mapstructure:"host" validate:"required"`
-        Port           int    `mapstructure:"port" validate:"required"`
-        Name           string `mapstructure:"name" validate:"required"`
-        MaxConnections int    `mapstructure:"max_connections"`
-        SSL            bool   `mapstructure:"ssl"`
-    } `mapstructure:"database"`
+    Log struct {
+        Level string `mapstructure:"level"`
+    } `mapstructure:"log"`
 }
 
 func main() {
-    ctx := context.Background()
-
-    cfg, err := confii.New[AppConfig](ctx,              // (1)!
-        confii.WithLoaders(loader.NewYAML("config.yaml")),
-        confii.WithEnv("production"),
-        confii.WithValidateOnLoad(true),                 // (2)!
-    )
-    if err != nil {
-        log.Fatal(err) // validation errors surface here
-    }
-
-    // Typed() returns *AppConfig with full autocomplete
-    model, err := cfg.Typed()                            // (3)!
+    cfg, err := confii.New[AppConfig](context.Background())
     if err != nil {
         log.Fatal(err)
     }
 
-    fmt.Println("App:", model.App.Name)
-    fmt.Println("DB Host:", model.Database.Host)
-    fmt.Println("DB Port:", model.Database.Port)
-    fmt.Println("SSL:", model.Database.SSL)
+    values, err := cfg.Typed()
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    fmt.Printf("app=%s address=%s:%d log=%s\n",
+        values.App.Name,
+        values.Server.Host,
+        values.Server.Port,
+        values.Log.Level,
+    )
 }
 ```
 
-1. Pass your struct type as the generic parameter.
-2. Validates struct tags (`validate:"required"`) immediately after loading.
-3. Returns `*AppConfig` -- fully typed, cached after first call.
+There are no loader paths or environment names in the Go code. `confii.New`
+discovers `.confii.yaml`, and explicit `confii.With*` options remain available
+when an application must override a project default.
 
-!!! tip "Mixing typed and untyped access"
-    Even with `Config[AppConfig]`, you can still use `Get()`, `GetIntOr()`, and
-    all other untyped access methods. `Typed()` is an additional convenience, not
-    a replacement.
+## 6. Run different environments
 
----
+With no selector, the generated `default_environment` is `development`:
 
-## 6. Builder Pattern
-
-When construction logic is conditional or spans multiple steps, use the fluent
-builder API:
-
-```go
-cfg, err := confii.NewBuilder[AppConfig]().
-    WithEnv("production").
-    AddLoader(loader.NewYAML("config/base.yaml")).
-    AddLoader(loader.NewYAML("config/prod.yaml")).
-    AddLoader(loader.NewEnvironment("APP")).
-    EnableDeepMerge().
-    EnableFreezeOnLoad().                   // (1)!
-    Build(ctx)
+```bash
+go run .
+# app=my-service address=127.0.0.1:8080 log=debug
 ```
 
-1. Freezes the config after loading -- any subsequent `Set()` call returns `ErrConfigFrozen`.
+Select production through the generated `env_switcher`:
 
-The builder supports all the same options as the constructor:
-
-| Builder Method              | Equivalent Constructor Option      |
-| --------------------------- | ---------------------------------- |
-| `WithEnv(name)`             | `confii.WithEnv(name)`             |
-| `AddLoader(l)`              | `confii.WithLoaders(l)`            |
-| `AddLoaders(l...)`          | `confii.WithLoaders(l...)`         |
-| `EnableDeepMerge()`         | `confii.WithDeepMerge(true)`       |
-| `EnableEnvExpander()`       | `confii.WithEnvExpander(true)`     |
-| `EnableTypeCasting()`       | `confii.WithTypeCasting(true)`     |
-| `EnableFreezeOnLoad()`      | `confii.WithFreezeOnLoad(true)`    |
-| `EnableDynamicReloading()`  | `confii.WithDynamicReloading(true)`|
-| `EnableDebug()`             | `confii.WithDebugMode(true)`       |
-| `WithSchemaValidation(s,b)` | `confii.WithSchema(s)` + `confii.WithValidateOnLoad(true)` + `confii.WithStrictValidation(b)` |
-
----
-
-## 7. Other Useful Access Methods
-
-```go
-// Check if a key exists
-if cfg.Has("database.ssl") {
-    fmt.Println("SSL setting found")
-}
-
-// List all leaf keys
-allKeys := cfg.Keys()
-fmt.Println("Total keys:", len(allKeys))
-
-// List keys under a prefix
-dbKeys := cfg.Keys("database")
-// ["database.host", "database.max_connections", "database.name", ...]
-
-// Get the raw map
-raw := cfg.ToDict()
-
-// Set a value at runtime
-err = cfg.Set("feature.new_ui", true)
+```bash
+APP_ENV=production go run .
+# app=my-service address=0.0.0.0:8080 log=info
 ```
 
----
+For runtime value overrides, set a distinct prefix in `.confii.yaml`:
 
-## Next Steps
+```yaml
+env_prefix: MYAPP
+```
 
-You now know the basics. Explore these topics to unlock the full power of Confii:
+Then use double underscores for nested keys:
 
-| Topic | What you'll learn |
+```bash
+MYAPP_SERVER__PORT=9090 go run .
+# app=my-service address=127.0.0.1:9090 log=debug
+```
+
+`APP_ENV` chooses the configuration environment; `MYAPP_*` overrides individual
+values. Keeping those namespaces separate avoids treating the selector itself
+as application configuration.
+
+## Choosing the other layout
+
+If your team prefers one file, initialize with:
+
+```bash
+confii init --non-interactive --strategy sectioned
+```
+
+Confii generates `config/application.yaml` with `default`, `development`, and
+`production` sections. The Go integration remains exactly
+`confii.New[AppConfig](ctx)`. Pick one environment model for normal operation;
+the explicit `hybrid` strategy is intended for controlled migrations, not as a
+default project structure.
+
+## Next steps
+
+| Goal | Continue with |
 | --- | --- |
-| [Configuration](configuration.md) | Self-config files, all constructor options, builder reference, error policies |
-| [Sources](sources.md) | File formats, environment variables, HTTP endpoints, cloud loaders |
-| [Merge Strategies](merging.md) | 6 merge strategies with per-path overrides |
-| [Hooks & Transformation](hooks.md) | Key/value/condition/global hooks, `${VAR}` expansion |
-| [Validation](validation.md) | Struct tags, JSON Schema validation |
-| [Secret Management](secrets.md) | `${secret:key}` placeholders, cloud secret stores |
-| [Introspection](introspection.md) | `Explain()`, `Layers()`, source tracking, debug reports |
+| Understand every `.confii.yaml` setting and precedence | [Configuration](configuration.md) |
+| Learn environment selection and both file layouts | [Environment Resolution](environment.md) |
+| Use YAML, JSON, environment, HTTP, Git, or cloud sources | [Configuration Sources](sources.md) |
+| Validate typed values or JSON Schema | [Validation](validation.md) |
+| Resolve Vault, OpenBao, or cloud secrets | [Secret Management](secrets.md) |
+| Trace where a value came from | [Introspection](introspection.md) |
+| Use every CLI command | [CLI Tool](cli.md) |
+| Run focused feature samples | [Examples](examples.md) |
+| Explore a realistic CRUD, LocalStack, and Vault/OpenBao application | [Companion examples repository](https://github.com/confiify/confii-go-examples) |

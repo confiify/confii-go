@@ -61,6 +61,10 @@ func createLoader(typ, source string) (confii.Loader, error) {
 // so a project's confii.yaml `default_files` are honored as intended
 // (G05).
 func buildConfig(env string, loaderSpecs []string) (*confii.Config[any], error) {
+	return buildConfigWithOptions(env, loaderSpecs)
+}
+
+func buildConfigWithOptions(env string, loaderSpecs []string, extraOptions ...confii.Option) (*confii.Config[any], error) {
 	loaders, err := parseLoaders(loaderSpecs)
 	if err != nil {
 		return nil, err
@@ -73,6 +77,7 @@ func buildConfig(env string, loaderSpecs []string) (*confii.Config[any], error) 
 	if env != "" {
 		opts = append(opts, confii.WithEnv(env))
 	}
+	opts = append(opts, extraOptions...)
 
 	return confii.New[any](context.Background(), opts...)
 }

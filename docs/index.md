@@ -27,119 +27,107 @@ hide:
 
 Confii loads, merges, validates, and manages configuration from **any source** — YAML, JSON, TOML, INI, .env files, environment variables, HTTP endpoints, and cloud stores — with type-safe generics, secret resolution, source tracking, drift detection, and versioning.
 
+For an application-sized walkthrough, see the
+[`confiify/confii-go-examples`](https://github.com/confiify/confii-go-examples)
+CRUD, LocalStack, and Vault/OpenBao companion repository.
+
 ## Features
 
 - **Multi-source loading** — YAML, JSON, TOML, INI, .env, env vars, HTTP, S3, SSM, Azure Blob, GCS, IBM COS, Git
 - **Type-safe generics** — `Config[T]` with `cfg.Typed()` returning `*T` and full IDE autocomplete
 - **6 merge strategies** — replace, merge, append, prepend, intersection, union — with per-path overrides
-- **Secret resolution** — `${secret:key}` placeholders from AWS Secrets Manager, Azure Key Vault, GCP Secret Manager, HashiCorp Vault (9 auth methods)
+- **Secret resolution** — `${secret:key}` placeholders from AWS Secrets Manager, Azure Key Vault, GCP Secret Manager, HashiCorp Vault, and OpenBao. The Vault-compatible layer implements nine authentication flows; CI live-tests Token and AppRole against OpenBao, while the other flows have protocol-level tests and require provider-side identity configuration.
 - **Config composition** — Hydra-style `_include` and `_defaults` directives with cycle detection
-- **Environment resolution** — Automatic `default` + `production`/`staging` merging
+- **Environment resolution** — Recommended named files or a single file with `default` + environment sections, with explicit hybrid mode for migrations
 - **Hook system** — 4 types (key, value, condition, global) for value transformation on access
 - **Introspection** — `Explain()`, `Layers()`, `Schema()`, source tracking, override history
 - **Drift detection** — Diff configs, detect unintended changes, version with rollback
 - **Dynamic reloading** — File watching via fsnotify, incremental reload (mtime + SHA256)
 - **Observability** — Access metrics, event emission, change callbacks
-- **CLI tool** — 11 commands: load, get, validate, export, diff, debug, explain, plan, lint, docs, migrate
+- **CLI tool** — 12 commands: init, load, get, validate, export, diff, debug, explain, plan, lint, docs, migrate
 - **Thread-safe** — synchronized Config instances, callback-safe lifecycle events, and concurrency-safe process registries/caches
 
 ## Install
 
 ```bash
-go get github.com/confiify/confii-go@v1.2.1
+go get github.com/confiify/confii-go@latest
+go install github.com/confiify/confii-go/confii@latest
+confii --version
 ```
 
 ## Quick Start
 
-=== "Basic"
+Start with an empty Go module, then let the CLI scaffold the project-wide
+self-configuration and environment files:
 
-    ```go
-    cfg, err := confii.New[any](context.Background(),
-        confii.WithLoaders(
-            loader.NewYAML("config.yaml"),
-            loader.NewEnvironment("APP"),
-        ),
-        confii.WithEnv("production"),
-    )
+```bash
+mkdir my-service && cd my-service
+go mod init example.com/my-service
+go get github.com/confiify/confii-go@latest
+confii init
+```
+
+Choose **Separate files (recommended)**. The result is immediately loadable:
+
+```text
+my-service/
+├── .confii.yaml
+└── config/
+    ├── default.yaml
+    ├── development.yaml
+    └── production.yaml
+```
+
+```go title="main.go"
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+
+    confii "github.com/confiify/confii-go"
+)
+
+type AppConfig struct {
+    App struct {
+        Name string `mapstructure:"name"`
+    } `mapstructure:"app"`
+    Server struct {
+        Host string `mapstructure:"host"`
+        Port int    `mapstructure:"port"`
+    } `mapstructure:"server"`
+    Log struct {
+        Level string `mapstructure:"level"`
+    } `mapstructure:"log"`
+}
+
+func main() {
+    cfg, err := confii.New[AppConfig](context.Background())
     if err != nil {
         log.Fatal(err)
     }
-
-    host, _ := cfg.Get("database.host")
-    port := cfg.GetIntOr("database.port", 5432)
-    debug := cfg.GetBoolOr("debug", false)
-    ```
-
-=== "Type-Safe"
-
-    ```go
-    type AppConfig struct {
-        Database struct {
-            Host string `mapstructure:"host" validate:"required"`
-            Port int    `mapstructure:"port" validate:"required,min=1,max=65535"`
-        } `mapstructure:"database"`
-        Debug bool `mapstructure:"debug"`
-    }
-
-    cfg, err := confii.New[AppConfig](ctx,
-        confii.WithLoaders(loader.NewYAML("config.yaml")),
-        confii.WithValidateOnLoad(true),
-    )
-
-    model, _ := cfg.Typed()
-    fmt.Println(model.Database.Host) // IDE autocomplete works
-    ```
-
-=== "Self-Config"
-
-    Drop a `.confii.yaml` in your project root — zero Go code to configure Confii itself:
-
-    ```yaml title=".confii.yaml"
-    # Confii finds this file automatically
-    default_environment: production
-    env_switcher: APP_ENV
-    validate_on_load: true
-    use_env_expander: true
-    freeze_on_load: true
-    deep_merge: true
-    log_level: warn
-    schema_path: schema.json
-
-    sources:
-      - type: yaml
-        path: config/base.yaml
-      - type: yaml
-        path: config/prod.yaml
-      - type: env
-        prefix: APP
-
-    secrets:
-      provider: vault
-      address: https://vault.internal:8200
-      auth: kubernetes
-    ```
-
-    ```go title="main.go"
-    // That's it — Confii reads .confii.yaml automatically
-    cfg, err := confii.New[AppConfig](ctx)
+    values, err := cfg.Typed()
     if err != nil {
         log.Fatal(err)
     }
-    model, _ := cfg.Typed()
-    ```
+    fmt.Printf("%s listening on %s:%d (%s)\n",
+        values.App.Name, values.Server.Host, values.Server.Port, values.Log.Level)
+}
+```
 
-    No `WithLoaders()`, no `WithEnv()`, no `WithValidateOnLoad()` — everything is declared in the config file. Constructor arguments still override self-config values when you need them.
+Use the same environment selector in the CLI and the application:
 
-=== "Builder"
+```bash
+confii plan
+go run .
 
-    ```go
-    cfg, err := confii.NewBuilder[AppConfig]().
-        WithEnv("production").
-        AddLoader(loader.NewYAML("base.yaml")).
-        AddLoader(loader.NewYAML("prod.yaml")).
-        EnableFreezeOnLoad().
-        Build(ctx)
-    ```
+APP_ENV=production confii plan
+APP_ENV=production go run .
+```
+
+The full guide explains installation, generated files, safe re-initialization,
+typed access, runtime overrides, and the one-file environment alternative.
 
 [:material-arrow-right: Full Quick Start Guide](quickstart.md){ .md-button }
 [:material-github: View Examples](https://github.com/confiify/confii-go/tree/main/examples){ .md-button .md-button--primary }

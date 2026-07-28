@@ -310,9 +310,10 @@ func WithMergeStrategyMap(m map[string]MergeStrategy) Option {
 // [loader.EnvironmentLoader] semantics.
 //
 // Double-application is avoided. If the user has already supplied their
-// own `loader.NewEnvironment(prefix)` via [WithLoaders] before calling
-// [WithEnvPrefix] (with a matching uppercased prefix), the auto-loader
-// is not appended; the user's loader keeps its position in the chain.
+// own `loader.NewEnvironment(prefix)` via [WithLoaders] (with a matching
+// uppercased prefix), the auto-loader is not appended; the user's loader keeps
+// its position in the chain. Constructor option order does not affect this
+// guarantee because [New] finalizes the auto-loader after self-config sources.
 // Detection uses Loader.Source() identity (`environment:<UPPER_PREFIX>`).
 func WithEnvPrefix(prefix string) Option {
 	return func(o *options) {
@@ -338,6 +339,34 @@ func WithEnvPrefix(prefix string) Option {
 		}
 		o.Loaders = append(o.Loaders, &envPrefixAutoLoader{prefix: upper})
 	}
+}
+
+// ensureEnvPrefixLoader finalizes the EnvPrefix option after declarative
+// self-config sources have been materialized. An auto-loader created while
+// applying constructor options is moved to the end so environment variables
+// override file and remote sources. A caller-supplied equivalent loader keeps
+// its chosen position.
+func ensureEnvPrefixLoader(o *options) {
+	if o.EnvPrefix == "" {
+		return
+	}
+	upper := strings.ToUpper(o.EnvPrefix)
+	wantSource := "environment:" + upper
+	autoIndex := -1
+	for i, existing := range o.Loaders {
+		if existing == nil || existing.Source() != wantSource {
+			continue
+		}
+		if _, auto := existing.(*envPrefixAutoLoader); !auto {
+			return
+		}
+		autoIndex = i
+		break
+	}
+	if autoIndex >= 0 {
+		o.Loaders = append(o.Loaders[:autoIndex], o.Loaders[autoIndex+1:]...)
+	}
+	o.Loaders = append(o.Loaders, &envPrefixAutoLoader{prefix: upper})
 }
 
 // WithSysenvFallback enables fallback to system env vars for missing keys.

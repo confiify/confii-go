@@ -15,11 +15,15 @@ func NewGetCmd() *cobra.Command {
 	var loaders []string
 
 	cmd := &cobra.Command{
-		Use:   "get <env> <key>",
+		Use:   "get [env] <key>",
 		Short: "Get a single configuration value",
-		Args:  cobra.ExactArgs(2),
+		Args:  cobra.RangeArgs(1, 2),
 		RunE: func(c *cobra.Command, args []string) error {
-			env, key := args[0], args[1]
+			env := ""
+			key := args[0]
+			if len(args) == 2 {
+				env, key = args[0], args[1]
+			}
 
 			cfg, err := buildConfig(env, loaders)
 			if err != nil {
@@ -34,11 +38,11 @@ func NewGetCmd() *cobra.Command {
 			// Print maps as indented JSON.
 			if m, ok := val.(map[string]any); ok {
 				data, _ := json.MarshalIndent(m, "", "  ")
-				fmt.Println(string(data))
+				_, err = fmt.Fprintln(c.OutOrStdout(), string(data))
 			} else {
-				fmt.Println(val)
+				_, err = fmt.Fprintln(c.OutOrStdout(), val)
 			}
-			return nil
+			return err
 		},
 	}
 

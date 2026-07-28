@@ -6,6 +6,8 @@ package cmd
 import (
 	"fmt"
 
+	confii "github.com/confiify/confii-go"
+	"github.com/confiify/confii-go/selfconfig"
 	"github.com/confiify/confii-go/validate"
 	"github.com/spf13/cobra"
 )
@@ -35,18 +37,31 @@ func NewValidateCmd() *cobra.Command {
 				env = args[0]
 			}
 
-			if schemaFile == "" {
-				return fmt.Errorf("--schema flag is required")
+			resolvedSchema := schemaFile
+			if resolvedSchema == "" {
+				settings, err := selfconfig.Read(".")
+				if err != nil {
+					return fmt.Errorf("read self-config schema_path: %w", err)
+				}
+				if settings != nil {
+					resolvedSchema = settings.SchemaPath
+				}
+				if resolvedSchema == "" {
+					return fmt.Errorf("--schema flag or self-config schema_path is required")
+				}
 			}
 
-			cfg, err := buildConfig(env, loaders)
-			if err != nil {
-				return err
-			}
-
-			v, err := validate.NewJSONSchemaValidatorFromFile(schemaFile)
+			v, err := validate.NewJSONSchemaValidatorFromFile(resolvedSchema)
 			if err != nil {
 				return fmt.Errorf("load schema: %w", err)
+			}
+
+			// Supplying the resolved path explicitly also prevents a stale or
+			// malformed self-config schema_path from outranking --schema while
+			// the Config itself is constructed.
+			cfg, err := buildConfigWithOptions(env, loaders, confii.WithSchemaPath(resolvedSchema))
+			if err != nil {
+				return err
 			}
 
 			if err := v.Validate(cfg.ToDict()); err != nil {

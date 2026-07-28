@@ -1,20 +1,24 @@
 # CLI Tool
 
-Confii includes a command-line tool with 11 commands for loading, inspecting, validating, exporting, and comparing configurations.
+Confii includes a command-line tool with 12 commands for initializing,
+loading, inspecting, validating, exporting, and comparing configurations.
 
 ---
 
 ## Installation
 
 ```bash
-go install github.com/confiify/confii-go/confii@v1.2.1
+go install github.com/confiify/confii-go/confii@latest
 ```
 
 Verify:
 
 ```bash
-confii --help
+confii --version
 ```
+
+New project? Follow the [from-scratch Quick Start](quickstart.md) first. This
+page is the command reference.
 
 ---
 
@@ -37,6 +41,85 @@ You can pass multiple loaders. Later loaders override earlier ones with deep mer
 ---
 
 ## Commands
+
+### init
+
+Safely bootstrap Confii in the project root:
+
+```bash
+confii init
+```
+
+By default, Confii asks you to select one of three layouts:
+
+1. Separate files (recommended): `config/default.yaml` plus one
+   `config/{environment}.yaml` override per environment.
+2. One sectioned file: `config/application.yaml` containing `default` and
+   named environment sections.
+3. Self-configuration only: the complete `.confii.yaml` without starter data.
+
+The generated `.confii.yaml` still includes every supported setting, with
+comments explaining its default and available choices. The generated starter
+configuration is immediately loadable with `confii.New[YourConfig](ctx)`;
+Confii does not edit `go.mod` or invent application source files.
+
+Initialize another directory, creating it when necessary:
+
+```bash
+confii init ./my-service
+```
+
+Make initialization deterministic in scripts or CI:
+
+```bash
+confii init --non-interactive \
+  --strategy named-files \
+  --default-environment development \
+  --environments development,staging,production \
+  --env-switcher APP_ENV \
+  --config-dir config
+```
+
+Confii checks all eight supported project self-config names before prompting.
+If one valid self-config already exists, `init` succeeds without changing any
+file. Multiple self-configs are rejected because discovery would be ambiguous;
+an invalid existing self-config is reported rather than hidden (unless
+`--force` is deliberately being used to recover the canonical
+`.confii.yaml`). Before a new project is written, every planned target is checked so a collision leaves no
+partial initialization. A failed multi-file write is rolled back.
+
+Preview the exact plan without creating even the target directory:
+
+```bash
+confii init --dry-run --strategy sectioned ./my-service
+```
+
+Replace the files in the selected plan only after reviewing the consequences:
+
+```bash
+confii init --force
+```
+
+`--force` does not delete anything outside the selected plan. If you switch
+between named files and a sectioned file, inspect and remove obsolete files
+yourself after verifying they are no longer used. When initializing another
+directory, the success output includes the required `cd` step. Minimal mode
+instead tells you to declare sources in `.confii.yaml` before running
+`confii plan`.
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--strategy` | `named-files` or `sectioned`; otherwise prompt in a terminal | `named-files` when non-interactive |
+| `--environments` | Environment override files/sections to scaffold | `development,production` |
+| `--default-environment` | Fallback environment | `development` |
+| `--env-switcher` | OS variable selecting the environment | `APP_ENV` |
+| `--config-dir` | Project-relative starter configuration directory | `config` |
+| `--minimal` | Create only the complete `.confii.yaml` | `false` |
+| `--non-interactive` | Suppress layout prompting | `false` |
+| `--dry-run` | Print the plan without filesystem changes | `false` |
+| `-f, --force` | Replace every file in the selected plan | `false` |
+
+---
 
 ### load
 
@@ -66,12 +149,15 @@ confii load -l yaml:config.yaml -l env:APP
 Retrieve a single configuration value by key path.
 
 ```bash
-confii get <env> <key> -l type:source [...]
+confii get [env] <key> -l type:source [...]
 ```
 
 **Examples:**
 
 ```bash
+# Use .confii.yaml's default_environment / env_switcher
+confii get database.host
+
 # Get a scalar value
 confii get production database.host -l yaml:config.yaml
 # Output: prod-db.example.com
@@ -99,13 +185,16 @@ confii validate [env] -l type:source --schema schema.json
 
 | Flag | Description | Required |
 |------|-------------|----------|
-| `--schema` | Path to JSON Schema file | Yes |
+| `--schema` | Path to JSON Schema file; overrides `.confii.yaml` `schema_path` | Only when `schema_path` is unset |
 
 **Examples:**
 
 ```bash
 confii validate production -l yaml:config.yaml --schema schema.json
 # Output: Configuration is valid.
+
+# Fully self-configured source, environment, and schema
+confii validate
 
 # Fails with non-zero exit code if invalid
 confii validate production -l yaml:config.yaml --schema strict-schema.json

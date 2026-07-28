@@ -47,6 +47,30 @@ func applySelfConfig(opts *options) error {
 	if !opts.isSet("deep_merge") && settings.DeepMerge != nil {
 		opts.DeepMerge = *settings.DeepMerge
 	}
+	if !opts.isSet("merge_strategy") && settings.MergeStrategy != "" {
+		strategy, err := parseSelfConfigMergeStrategy(settings.MergeStrategy)
+		if err != nil {
+			return err
+		}
+		opts.MergeStrategy = &strategy
+	}
+	if !opts.isSet("merge_strategy_map") && len(settings.MergeStrategyMap) > 0 {
+		strategyMap := make(map[string]MergeStrategy, len(settings.MergeStrategyMap))
+		for path, value := range settings.MergeStrategyMap {
+			strategy, err := parseSelfConfigMergeStrategy(value)
+			if err != nil {
+				return &ConfigError{
+					Op: "ApplySelfConfig",
+					Err: fmt.Errorf(
+						"%w: invalid merge_strategy_map value for path %q: %w",
+						ErrConfigLoad, path, err,
+					),
+				}
+			}
+			strategyMap[path] = strategy
+		}
+		opts.MergeStrategyMap = strategyMap
+	}
 	if !opts.isSet("use_env_expander") && settings.UseEnvExpander != nil {
 		opts.UseEnvExpander = *settings.UseEnvExpander
 	}
@@ -124,11 +148,11 @@ func applySelfConfig(opts *options) error {
 	// `env_prefix` (which already wins above) has populated EnvPrefix —
 	// otherwise it would silently override more-specific configuration.
 	if !opts.isSet("env_prefix") && opts.EnvPrefix == "" && settings.DefaultPrefix != "" {
-		// Drive through WithEnvPrefix so the canonical
-		// envPrefixAutoLoader is appended (G03) AND the explicitlySet
-		// flag is stamped — preventing a later self-config layer from
-		// double-applying the prefix.
-		WithEnvPrefix(settings.DefaultPrefix)(opts)
+		// This is a compatibility alias, not an explicit constructor
+		// option. New installs the corresponding environment loader only
+		// after all declarative sources have been materialized, ensuring
+		// environment variables retain highest precedence.
+		opts.EnvPrefix = settings.DefaultPrefix
 	}
 
 	// `log_level` constructs a *slog.Logger and assigns it to opts.Logger.
@@ -187,6 +211,35 @@ func parseSelfConfigLogLevel(s string) (slog.Level, error) {
 			Err: fmt.Errorf(
 				"%w: invalid log_level %q (valid values: %q, %q, %q, %q)",
 				ErrConfigLoad, s, "debug", "info", "warn", "error",
+			),
+		}
+	}
+}
+
+// parseSelfConfigMergeStrategy translates the human-readable names accepted
+// by .confii.yaml into the public MergeStrategy constants. "merge" is the
+// canonical spelling; deep_merge and deep-merge are accepted aliases because
+// the standard boolean option uses the deep_merge name.
+func parseSelfConfigMergeStrategy(s string) (MergeStrategy, error) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "replace":
+		return StrategyReplace, nil
+	case "merge", "deep_merge", "deep-merge":
+		return StrategyMerge, nil
+	case "append":
+		return StrategyAppend, nil
+	case "prepend":
+		return StrategyPrepend, nil
+	case "intersection":
+		return StrategyIntersection, nil
+	case "union":
+		return StrategyUnion, nil
+	default:
+		return 0, &ConfigError{
+			Op: "ApplySelfConfig",
+			Err: fmt.Errorf(
+				"%w: invalid merge strategy %q (valid values: %q, %q, %q, %q, %q, %q)",
+				ErrConfigLoad, s, "replace", "merge", "append", "prepend", "intersection", "union",
 			),
 		}
 	}

@@ -14,9 +14,14 @@
 package selfconfig
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/BurntSushi/toml"
@@ -25,24 +30,26 @@ import (
 
 // Settings holds Confii self-configuration values.
 type Settings struct {
-	DefaultEnvironment        string   `yaml:"default_environment" json:"default_environment" toml:"default_environment"`
-	EnvSwitcher               string   `yaml:"env_switcher" json:"env_switcher" toml:"env_switcher"`
-	DefaultFiles              []string `yaml:"default_files" json:"default_files" toml:"default_files"`
-	DefaultPrefix             string   `yaml:"default_prefix" json:"default_prefix" toml:"default_prefix"`
-	EnvPrefix                 string   `yaml:"env_prefix" json:"env_prefix" toml:"env_prefix"`
-	SysenvFallback            *bool    `yaml:"sysenv_fallback" json:"sysenv_fallback" toml:"sysenv_fallback"`
-	DeepMerge                 *bool    `yaml:"deep_merge" json:"deep_merge" toml:"deep_merge"`
-	ValidateOnLoad            *bool    `yaml:"validate_on_load" json:"validate_on_load" toml:"validate_on_load"`
-	StrictValidation          *bool    `yaml:"strict_validation" json:"strict_validation" toml:"strict_validation"`
-	UseEnvExpander            *bool    `yaml:"use_env_expander" json:"use_env_expander" toml:"use_env_expander"`
-	UseTypeCasting            *bool    `yaml:"use_type_casting" json:"use_type_casting" toml:"use_type_casting"`
-	DynamicReloading          *bool    `yaml:"dynamic_reloading" json:"dynamic_reloading" toml:"dynamic_reloading"`
-	FreezeOnLoad              *bool    `yaml:"freeze_on_load" json:"freeze_on_load" toml:"freeze_on_load"`
-	DebugMode                 *bool    `yaml:"debug_mode" json:"debug_mode" toml:"debug_mode"`
-	LogLevel                  string   `yaml:"log_level" json:"log_level" toml:"log_level"`
-	SchemaPath                string   `yaml:"schema_path" json:"schema_path" toml:"schema_path"`
-	EnvironmentStrategy       string   `yaml:"environment_strategy" json:"environment_strategy" toml:"environment_strategy"`
-	EnvironmentConflictPolicy string   `yaml:"environment_conflict_policy" json:"environment_conflict_policy" toml:"environment_conflict_policy"`
+	DefaultEnvironment        string            `yaml:"default_environment" json:"default_environment" toml:"default_environment"`
+	EnvSwitcher               string            `yaml:"env_switcher" json:"env_switcher" toml:"env_switcher"`
+	DefaultFiles              []string          `yaml:"default_files" json:"default_files" toml:"default_files"`
+	DefaultPrefix             string            `yaml:"default_prefix" json:"default_prefix" toml:"default_prefix"`
+	EnvPrefix                 string            `yaml:"env_prefix" json:"env_prefix" toml:"env_prefix"`
+	SysenvFallback            *bool             `yaml:"sysenv_fallback" json:"sysenv_fallback" toml:"sysenv_fallback"`
+	DeepMerge                 *bool             `yaml:"deep_merge" json:"deep_merge" toml:"deep_merge"`
+	MergeStrategy             string            `yaml:"merge_strategy" json:"merge_strategy" toml:"merge_strategy"`
+	MergeStrategyMap          map[string]string `yaml:"merge_strategy_map" json:"merge_strategy_map" toml:"merge_strategy_map"`
+	ValidateOnLoad            *bool             `yaml:"validate_on_load" json:"validate_on_load" toml:"validate_on_load"`
+	StrictValidation          *bool             `yaml:"strict_validation" json:"strict_validation" toml:"strict_validation"`
+	UseEnvExpander            *bool             `yaml:"use_env_expander" json:"use_env_expander" toml:"use_env_expander"`
+	UseTypeCasting            *bool             `yaml:"use_type_casting" json:"use_type_casting" toml:"use_type_casting"`
+	DynamicReloading          *bool             `yaml:"dynamic_reloading" json:"dynamic_reloading" toml:"dynamic_reloading"`
+	FreezeOnLoad              *bool             `yaml:"freeze_on_load" json:"freeze_on_load" toml:"freeze_on_load"`
+	DebugMode                 *bool             `yaml:"debug_mode" json:"debug_mode" toml:"debug_mode"`
+	LogLevel                  string            `yaml:"log_level" json:"log_level" toml:"log_level"`
+	SchemaPath                string            `yaml:"schema_path" json:"schema_path" toml:"schema_path"`
+	EnvironmentStrategy       string            `yaml:"environment_strategy" json:"environment_strategy" toml:"environment_strategy"`
+	EnvironmentConflictPolicy string            `yaml:"environment_conflict_policy" json:"environment_conflict_policy" toml:"environment_conflict_policy"`
 	// OnError is the error-handling policy applied to loader and
 	// composition failures. Valid values are "raise", "warn", and
 	// "ignore" (case-insensitive); any other string is rejected by the
@@ -62,6 +69,14 @@ type Settings struct {
 var searchFiles = []string{
 	"confii.yaml", "confii.yml", "confii.json", "confii.toml",
 	".confii.yaml", ".confii.yml", ".confii.json", ".confii.toml",
+}
+
+// CandidateFilenames returns the self-configuration filenames in discovery
+// order. The returned slice is an independent copy so project-management
+// tools such as `confii init` can inspect local initialization state without
+// mutating the reader's authoritative search order.
+func CandidateFilenames() []string {
+	return append([]string(nil), searchFiles...)
 }
 
 // cacheEntry holds the resolved Settings for a specific working directory.
@@ -98,6 +113,9 @@ func cacheKey(dir string) string {
 // It checks the given directory for confii.* files, then falls back
 // to ~/.config/confii/.
 // Returns nil settings (no error) if no self-config file is found.
+// A discovered file is decoded strictly: unknown top-level fields, malformed
+// input, and trailing YAML/JSON documents return an error. Provider-specific
+// keys nested inside Sources and Secrets remain extensible.
 //
 // Results are cached at module level keyed by the absolute path of dir
 // (G06). Two concurrent New calls with different working directories no
@@ -141,27 +159,32 @@ func ClearCache() {
 
 func readFromDir(dir string) (*Settings, error) {
 	// Try dedicated confii files in the given directory.
-	for _, name := range searchFiles {
-		path := filepath.Join(dir, name)
-		if _, err := os.Stat(path); err != nil {
-			continue
-		}
-		return readFile(path)
+	settings, found, err := readFirstFromDir(dir)
+	if err != nil || found {
+		return settings, err
 	}
 
 	// Fall back to ~/.config/confii/ (XDG-style).
 	if home, err := os.UserHomeDir(); err == nil {
-		xdgDir := filepath.Join(home, ".config", "confii")
-		for _, name := range searchFiles {
-			path := filepath.Join(xdgDir, name)
-			if _, err := os.Stat(path); err != nil {
-				continue
-			}
-			return readFile(path)
-		}
+		settings, _, readErr := readFirstFromDir(filepath.Join(home, ".config", "confii"))
+		return settings, readErr
 	}
 
 	return nil, nil
+}
+
+func readFirstFromDir(dir string) (*Settings, bool, error) {
+	for _, name := range searchFiles {
+		path := filepath.Join(dir, name)
+		if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+			continue
+		} else if err != nil {
+			return nil, false, fmt.Errorf("inspect self-config %s: %w", path, err)
+		}
+		settings, err := readFile(path)
+		return settings, true, err
+	}
+	return nil, false, nil
 }
 
 func readFile(path string) (*Settings, error) {
@@ -175,14 +198,72 @@ func readFile(path string) (*Settings, error) {
 	ext := filepath.Ext(path)
 	switch ext {
 	case ".yaml", ".yml":
-		err = yaml.Unmarshal(data, &settings)
+		err = decodeYAML(data, &settings)
 	case ".json":
-		err = json.Unmarshal(data, &settings)
+		err = decodeJSON(data, &settings)
 	case ".toml":
-		err = toml.Unmarshal(data, &settings)
+		err = decodeTOML(data, &settings)
+	default:
+		err = fmt.Errorf("unsupported self-config extension %q", ext)
 	}
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("parse self-config %s: %w", path, err)
 	}
 	return &settings, nil
+}
+
+// Self-configuration controls Confii's loading and validation behavior, so a
+// misspelled top-level key must never be silently ignored. The nested Sources
+// and Secrets maps intentionally remain open-ended for provider-specific
+// fields; strictness applies to the Settings schema itself.
+func decodeYAML(data []byte, settings *Settings) error {
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(settings); err != nil && err != io.EOF {
+		return err
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return trailingDocumentError("YAML")
+		}
+		return err
+	}
+	return nil
+}
+
+func decodeJSON(data []byte, settings *Settings) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(settings); err != nil {
+		return err
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return trailingDocumentError("JSON")
+		}
+		return err
+	}
+	return nil
+}
+
+func decodeTOML(data []byte, settings *Settings) error {
+	metadata, err := toml.Decode(string(data), settings)
+	if err != nil {
+		return err
+	}
+	undecoded := metadata.Undecoded()
+	if len(undecoded) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(undecoded))
+	for _, key := range undecoded {
+		keys = append(keys, key.String())
+	}
+	return fmt.Errorf("unknown self-config field(s): %s", strings.Join(keys, ", "))
+}
+
+func trailingDocumentError(format string) error {
+	return fmt.Errorf("self-config must contain exactly one %s document", format)
 }

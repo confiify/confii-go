@@ -8,7 +8,11 @@
 //
 // Search order: CWD (confii.*, .confii.*), then ~/.config/confii/
 //
-// See the .confii.yaml file in this directory for available settings.
+// Run from this directory:
+//
+//	go run .
+//	APP_ENV=production go run .
+//	APP_SERVER__PORT=9090 go run .
 package main
 
 import (
@@ -30,9 +34,15 @@ func main() {
 	// The self-config set:
 	//   default_environment: development
 	//   env_prefix: APP
-	//   deep_merge: true
-	//   default_files: [config/base.yaml, config/dev.yaml]
+	//   environment_strategy: named_files
+	//   sources: [config/default.yaml, config/{environment}.yaml]
+	//   env_prefix: APP (OS variables are the final override layer)
 
 	fmt.Println("Environment:", cfg.Env())
-	fmt.Println("Keys:", cfg.Keys())
+	fmt.Println("Application:", cfg.GetStringOr("app.name", "unknown"))
+	fmt.Printf("Server: %s:%d\n",
+		cfg.GetStringOr("server.host", "unknown"),
+		cfg.GetIntOr("server.port", 0),
+	)
+	fmt.Println("Database:", cfg.GetStringOr("database.host", "unknown"))
 }

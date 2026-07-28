@@ -225,6 +225,42 @@ sources:
 	assert.True(t, sources["environment:APPCFG"], "G04: cfg.Layers() must list environment:APPCFG; got %v", sources)
 }
 
+func TestSelfConfigEnvPrefixOverridesDeclarativeSources(t *testing.T) {
+	dir := chdirToSelfConfig(t, `
+env_prefix: APP
+sources:
+  - type: yaml
+    path: application.yaml
+`)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "application.yaml"), []byte(`
+server:
+  port: 8080
+`), 0644))
+	t.Setenv("APP_SERVER__PORT", "9090")
+
+	cfg, err := confii.New[any](context.Background())
+	require.NoError(t, err)
+	port, err := cfg.Get("server.port")
+	require.NoError(t, err)
+	assert.Equal(t, 9090, port)
+
+	layers := cfg.Layers()
+	require.Len(t, layers, 2)
+	assert.Equal(t, "application.yaml", layers[0]["source"])
+	assert.Equal(t, "environment:APP", layers[1]["source"])
+}
+
+func TestMalformedSelfConfigFailsClosed(t *testing.T) {
+	chdirToSelfConfig(t, "sources: [\n")
+
+	_, err := confii.New[any](context.Background())
+	require.Error(t, err)
+	var ce *confii.ConfigError
+	require.True(t, errors.As(err, &ce))
+	assert.ErrorIs(t, err, confii.ErrConfigLoad)
+	assert.Contains(t, err.Error(), "read self-config")
+}
+
 // TestSources_UnknownType_TypedError pins that an unsupported source
 // type surfaces as a typed *ConfigError instead of silently dropping
 // the declared loader.
