@@ -91,10 +91,17 @@ func discoverNamedEnvironments(root string, cfg environmentFilesSource, availabl
 		if !filepath.IsAbs(dir) {
 			dir = filepath.Join(root, dir)
 		}
-		entries, err := os.ReadDir(dir)
+		info, err := os.Stat(dir)
 		if errors.Is(err, os.ErrNotExist) {
 			continue
 		}
+		if err != nil {
+			return environmentFilesError("inspect environment search path "+dir, err)
+		}
+		if !info.IsDir() {
+			return environmentFilesError("list environment search path "+dir, errors.New("not a directory"))
+		}
+		entries, err := os.ReadDir(dir)
 		if err != nil {
 			return environmentFilesError("list environment search path "+dir, err)
 		}
