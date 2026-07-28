@@ -32,8 +32,26 @@ func TestAzureSelfConfigSourceRegistration(t *testing.T) {
 		t.Fatal("expected missing address error")
 	}
 	if _, err := factory(context.Background(), map[string]any{
+		"container_url": "https://account.blob.core.windows.net/config", "blob": "app.yaml", "account_key": "key",
+	}); err == nil {
+		t.Fatal("expected account-key account_name error")
+	}
+	if _, err := factory(context.Background(), map[string]any{
 		"container_url": "https://account.blob.core.windows.net/config", "blob": "app.yaml", "sas_token": "token",
 	}); err == nil {
 		t.Fatal("expected SAS account_name error")
+	}
+	loader, err = factory(context.Background(), map[string]any{
+		"container_url": "https://account.blob.core.windows.net/config", "blob": "app.yaml", "connection_string": "connection",
+	})
+	if err != nil || loader.(*AzureBlobLoader).connectionString != "connection" {
+		t.Fatalf("expected connection-string option, loader=%#v err=%v", loader, err)
+	}
+	loader, err = factory(context.Background(), map[string]any{
+		"container_url": "https://account.blob.core.windows.net/config", "blob": "app.yaml",
+		"account_name": "account", "sas_token": "token",
+	})
+	if err != nil || loader.(*AzureBlobLoader).sasToken != "token" {
+		t.Fatalf("expected SAS option, loader=%#v err=%v", loader, err)
 	}
 }

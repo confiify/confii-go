@@ -44,6 +44,9 @@ func TestSelfConfigSourceHelpers(t *testing.T) {
 	if got, err := sourceBool(cfg, "enabled", false); err != nil || !got {
 		t.Fatalf("sourceBool = %v, %v", got, err)
 	}
+	if got, err := sourceBool(cfg, "missing", true); err != nil || !got {
+		t.Fatalf("sourceBool fallback = %v, %v", got, err)
+	}
 	if _, err := sourceBool(map[string]any{"enabled": "invalid"}, "enabled", false); err == nil {
 		t.Fatal("expected invalid boolean error")
 	}

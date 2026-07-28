@@ -31,6 +31,9 @@ func TestAWSSelfConfigSourceRegistration(t *testing.T) {
 	if _, err := s3Factory(context.Background(), map[string]any{}); err == nil {
 		t.Fatal("expected missing URL error")
 	}
+	if _, err := s3Factory(context.Background(), map[string]any{"url": "s3://bucket/key", "access_key": "incomplete"}); err == nil {
+		t.Fatal("expected incomplete S3 credentials error")
+	}
 
 	ssmFactory, ok := confii.LookupSelfConfigSourceProvider("ssm")
 	if !ok {
@@ -48,5 +51,17 @@ func TestAWSSelfConfigSourceRegistration(t *testing.T) {
 	}
 	if _, err := ssmFactory(context.Background(), map[string]any{"path": "/app", "decrypt": "bad"}); err == nil {
 		t.Fatal("expected invalid decrypt error")
+	}
+	if _, err := ssmFactory(context.Background(), map[string]any{}); err == nil {
+		t.Fatal("expected missing SSM path error")
+	}
+	if _, err := ssmFactory(context.Background(), map[string]any{"path": "/app", "access_key": "incomplete"}); err == nil {
+		t.Fatal("expected incomplete SSM credentials error")
+	}
+	loader, err = ssmFactory(context.Background(), map[string]any{
+		"path": "/secure", "access_key": "key", "secret_key": "secret",
+	})
+	if err != nil || loader.(*SSMLoader).accessKey != "key" {
+		t.Fatalf("expected explicit SSM credentials, loader=%#v err=%v", loader, err)
 	}
 }
