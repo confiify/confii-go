@@ -5,13 +5,17 @@ The canonical, release-by-release changelog is maintained in
 
 ## Upcoming release
 
-The next release adds the safe `confii init` bootstrapper and makes the full
+No changes are currently assigned beyond v1.3.0. Consult the Unreleased section
+of the canonical changelog as post-release work begins.
+
+## v1.3.0
+
+Version 1.3.0 adds the safe `confii init` bootstrapper and makes the complete
 self-configuration template operational. It also enforces strict self-config
 decoding, fixes declarative environment-variable override precedence, lets
 `confii get` and `confii validate` use project defaults directly, and aligns
 the built-in example and onboarding documentation with the generated named-file
-layout. Consult the Unreleased section of the canonical changelog for the exact
-scope until the release PR assigns a version.
+layout. Consult the canonical changelog for the complete release notes.
 
 ## v1.2.1
 
