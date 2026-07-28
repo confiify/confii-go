@@ -65,6 +65,10 @@ func buildConfig(env string, loaderSpecs []string) (*confii.Config[any], error) 
 }
 
 func buildConfigWithOptions(env string, loaderSpecs []string, extraOptions ...confii.Option) (*confii.Config[any], error) {
+	return buildConfigWithContext(context.Background(), env, loaderSpecs, extraOptions...)
+}
+
+func buildConfigWithContext(ctx context.Context, env string, loaderSpecs []string, extraOptions ...confii.Option) (*confii.Config[any], error) {
 	loaders, err := parseLoaders(loaderSpecs)
 	if err != nil {
 		return nil, err
@@ -79,5 +83,5 @@ func buildConfigWithOptions(env string, loaderSpecs []string, extraOptions ...co
 	}
 	opts = append(opts, extraOptions...)
 
-	return confii.New[any](context.Background(), opts...)
+	return confii.New[any](ctx, opts...)
 }

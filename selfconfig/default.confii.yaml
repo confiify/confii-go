@@ -43,8 +43,10 @@ environment_conflict_policy: last_wins
 default_files: []
 
 # Ordered declarative sources. Later sources have higher precedence.
-# Supported source types are environment_files, yaml, yml, json, toml, ini,
-# cfg, envfile, env (file path or OS prefix), environment, and env-vars.
+# Core source types are environment_files, yaml, yml, json, toml, ini, cfg,
+# envfile, env (file path or OS prefix), environment, and env-vars. Optional
+# loader/cloud registration adds git, s3, ssm, azure_blob, gcs, and ibm_cos
+# when the containing binary imports that module with the matching build tag.
 sources: []
 # Example named-file setup:
 # sources:

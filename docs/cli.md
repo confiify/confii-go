@@ -1,6 +1,6 @@
 # CLI Tool
 
-Confii includes a command-line tool with 13 commands for initializing,
+Confii includes a command-line tool with 14 commands for initializing,
 loading, inspecting, validating, exporting, and comparing configurations.
 
 ---
@@ -173,6 +173,78 @@ APP_ENV=production go run .
 
 All inspection commands support `--json`. The aliases `confii environment`
 and `confii environments` resolve to the same command family.
+
+---
+
+### connections test
+
+Perform a release or deployment preflight through the same configuration path
+as application startup:
+
+```bash
+confii connections test production --timeout 20s
+confii connections test production --key database.password --json
+```
+
+The command overrides `on_error` to `raise`, loads every selected source, and
+then resolves all leaf values (or repeatable `--key` selections). This proves a
+real read instead of merely parsing provider settings. The report contains
+only environment, loader type, key counts, provider name, and timing. It never
+prints source addresses, secret identifiers, credentials, or resolved values.
+A declared secret provider with no selected `${secret:...}` reference fails as
+unverified rather than producing a misleading success.
+Failure messages are category-only (timeout, authentication, missing secret,
+source read, and similar); the provider cause remains available through Go
+error unwrapping but is not rendered by the CLI.
+
+The installed standalone CLI contains core file, environment, and HTTP
+providers. Cloud SDKs remain opt-in. For a Vault/OpenBao or cloud preflight,
+reuse the command tree in a small operational binary inside the application
+module so its imports and build tags exactly match production:
+
+```go
+package main
+
+import (
+    "fmt"
+    "os"
+
+    "github.com/confiify/confii-go/confii/cmd"
+    _ "github.com/confiify/confii-go/loader/cloud"
+    _ "github.com/confiify/confii-go/secret/cloud"
+)
+
+func main() {
+    root := cmd.NewRootCommand("application", os.Stdout, os.Stderr)
+    if err := root.Execute(); err != nil {
+        fmt.Fprintln(os.Stderr, err)
+        os.Exit(1)
+    }
+}
+```
+
+Build and run only the providers the application uses:
+
+```bash
+go build -tags "aws,vault" -o bin/confii-app ./cmd/confii-app
+bin/confii-app connections test production --timeout 20s
+```
+
+This keeps unused SDKs out of the core module and standalone CLI, while the
+provider-enabled probe executes the exact registered loader and secret-store
+implementations used at runtime. The aliases `connection` and `connect` are
+available for interactive use.
+
+| Flag | Description | Default |
+| --- | --- | --- |
+| `-l, --loader` | Explicit core loader in `type:source` form | self-config sources |
+| `--key` | Resolve only one key; repeat for multiple keys | all keys |
+| `--timeout` | Deadline for context-aware source loads and value reads | `15s` |
+| `--json` | Value-safe machine-readable report | `false` |
+
+Provider constructors or interactive authentication flows that define their
+own timeout retain that provider-specific limit; for example, Vault OIDC uses
+`callback_timeout_seconds` from its `auth` configuration.
 
 ---
 

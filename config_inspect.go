@@ -143,6 +143,56 @@ func (c *Config[T]) SourcePlan() SourcePlan {
 	return cloneSourcePlan(c.sourcePlan)
 }
 
+// SecretProvider returns the normalized name of the secret provider declared
+// in the active self-configuration. It intentionally exposes no credentials,
+// endpoint, namespace, secret path, or resolved value. An empty string means
+// that no declarative provider was configured (an explicit custom hook may
+// still resolve secrets).
+func (c *Config[T]) SecretProvider() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.opts.selfConfigSecretProvider
+}
+
+// SecretReferenceKeys returns configuration key paths whose raw values
+// contain at least one ${secret:...} placeholder. The referenced provider key
+// itself is never returned, which makes this suitable for health reporting.
+func (c *Config[T]) SecretReferenceKeys() []string {
+	c.mu.RLock()
+	snapshot := dictutil.DeepCopy(c.envConfig)
+	c.mu.RUnlock()
+
+	seen := make(map[string]struct{})
+	collectSecretReferenceKeys("", snapshot, seen)
+	keys := make([]string, 0, len(seen))
+	for key := range seen {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func collectSecretReferenceKeys(path string, value any, found map[string]struct{}) {
+	switch typed := value.(type) {
+	case map[string]any:
+		for key, child := range typed {
+			childPath := key
+			if path != "" {
+				childPath = path + "." + key
+			}
+			collectSecretReferenceKeys(childPath, child, found)
+		}
+	case []any:
+		for _, child := range typed {
+			collectSecretReferenceKeys(path, child, found)
+		}
+	case string:
+		if path != "" && selfConfigSecretPattern.MatchString(typed) {
+			found[path] = struct{}{}
+		}
+	}
+}
+
 // GetSourceInfo returns source tracking info for a key.
 func (c *Config[T]) GetSourceInfo(keyPath string) *sourcetrack.SourceInfo {
 	return c.sourceTracker.GetSourceInfo(keyPath)

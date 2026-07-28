@@ -177,7 +177,7 @@ decision.
 | `log_level` | `string` | `""` | Log level for Confii's internal logger |
 | `environment_strategy` | `string` | `"auto"` | Environment model: `auto`, `sectioned`, `named_files`, or explicit `hybrid` |
 | `environment_conflict_policy` | `string` | `"last_wins"` | In hybrid mode: `error`, `warn`, or `last_wins`; it must be explicitly configured |
-| `sources` | `[]map` | `[]` | Ordered declarative source definitions, including opt-in `environment_files` discovery |
+| `sources` | `[]map` | `[]` | Ordered declarative source definitions, including `environment_files` and registered opt-in cloud loaders |
 | `secrets` | `map` | `{}` | Declarative secret store configuration |
 
 !!! tip "When to use self-config"
@@ -190,6 +190,8 @@ for `.confii.yaml`, so the discovered file cannot relocate its own discovery
 root. Inline Go schemas, custom loggers, custom hooks, and explicit loader
 objects likewise remain code-level extension points; their declarative
 counterparts are `schema_path`, `log_level`, `secrets`, and `sources`.
+Cloud source field mappings and provider build tags are listed in
+[Configuration Sources](sources.md#cloud-loaders).
 
 #### Named Environment Files
 

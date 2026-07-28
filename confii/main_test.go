@@ -39,6 +39,17 @@ func TestRootCommandIncludesEnvironmentManagement(t *testing.T) {
 	}
 }
 
+func TestRootCommandIncludesConnectionTesting(t *testing.T) {
+	root := newRootCommand(&bytes.Buffer{}, &bytes.Buffer{})
+	command, _, err := root.Find([]string{"connections", "test"})
+	if err != nil {
+		t.Fatalf("find connections test: %v", err)
+	}
+	if command.CommandPath() != "confii connections test" {
+		t.Fatalf("command path = %q, want %q", command.CommandPath(), "confii connections test")
+	}
+}
+
 func TestResolveVersion(t *testing.T) {
 	tests := []struct {
 		name          string

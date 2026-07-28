@@ -71,6 +71,10 @@ go test -tags vault ./...
 go build -tags "aws,vault" ./...
 ```
 
+The same provider imports enable declarative `.confii.yaml` source types and
+the value-safe `connections test` preflight when embedded through
+`confii/cmd.NewRootCommand`; see the [CLI connection test](cli.md#connections-test).
+
 Repository contributors can verify every module and all tagged packages with:
 
 ```bash

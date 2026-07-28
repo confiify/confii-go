@@ -44,7 +44,7 @@ CRUD, LocalStack, and Vault/OpenBao companion repository.
 - **Drift detection** — Diff configs, detect unintended changes, version with rollback
 - **Dynamic reloading** — File watching via fsnotify, incremental reload (mtime + SHA256)
 - **Observability** — Access metrics, event emission, change callbacks
-- **CLI tool** — 13 commands: init, env, load, get, validate, export, diff, debug, explain, plan, lint, docs, migrate
+- **CLI tool** — 14 commands: init, env, connections, load, get, validate, export, diff, debug, explain, plan, lint, docs, migrate
 - **Thread-safe** — synchronized Config instances, callback-safe lifecycle events, and concurrency-safe process registries/caches
 
 ## Install

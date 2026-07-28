@@ -145,6 +145,7 @@ Before writing application code, ask the CLI what Confii will load:
 
 ```bash
 confii plan
+confii connections test
 APP_ENV=production confii plan
 ```
 

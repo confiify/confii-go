@@ -18,7 +18,7 @@ production bug than as a CI failure.
 0. [Root Package Layout](#0-root-package-layout)
 1. [The DeepCopy Engine](#1-the-deepcopy-engine)
 2. [The Override Stack](#2-the-override-stack)
-3. [The Self-Config Secret Registry](#3-the-self-config-secret-registry)
+3. [Self-Config Provider Registries](#3-self-config-provider-registries)
 4. [Cross-Cutting Invariants](#4-cross-cutting-invariants)
 
 ---
@@ -317,7 +317,38 @@ rebuild plus a no-op.
 
 ---
 
-## 3. The Self-Config Secret Registry
+## 3. Self-Config Provider Registries
+
+### Configuration source registry
+
+**Source:** [`config_source_self.go`](https://github.com/confiify/confii-go/blob/main/config_source_self.go).
+
+Optional cloud loaders use the same driver-registration boundary as secret
+stores. Root owns the context-aware factory contract but does not import any
+provider SDK:
+
+```go
+type SelfConfigSourceProviderFactory func(
+    context.Context,
+    map[string]any,
+) (Loader, error)
+
+func RegisterSelfConfigSourceProvider(name string, factory SelfConfigSourceProviderFactory)
+func LookupSelfConfigSourceProvider(name string) (SelfConfigSourceProviderFactory, bool)
+```
+
+Core file/environment sources stay in the built-in dispatcher. The opt-in
+`loader/cloud` module registers `git`, `s3`, `ssm`, `azure_blob`, `gcs`, and
+`ibm_cos`; provider SDK implementations are selected by build tags. `New`
+passes its caller context into a registered factory and later into
+`Loader.Load`, so deployment preflights and application startup use the same
+credential discovery and read path.
+
+Unknown providers fail closed and list the factories actually registered in
+the current binary. A factory error is wrapped as `ErrConfigLoad`, and a nil
+loader is rejected before loading begins.
+
+### Secret registry
 
 **Source:** [`config_secret_self.go`](https://github.com/confiify/confii-go/blob/main/config_secret_self.go).
 

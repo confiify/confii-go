@@ -4,6 +4,7 @@
 package confii
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -184,6 +185,8 @@ func applySelfConfig(opts *options) error {
 			return err
 		}
 		opts.SecretHook = h
+		provider, _ := settings.Secrets["provider"].(string)
+		opts.selfConfigSecretProvider = strings.ToLower(strings.TrimSpace(provider))
 	}
 	return nil
 }
@@ -253,7 +256,7 @@ func parseSelfConfigMergeStrategy(s string) (MergeStrategy, error) {
 // by `prefix`. Unknown types surface as typed *ConfigError so operator
 // typos in `.confii.yaml` fail loudly instead of silently dropping a
 // declared source.
-func appendSelfConfigSource(opts *options, src map[string]any) error {
+func appendSelfConfigSource(ctx context.Context, opts *options, src map[string]any) error {
 	rawType, _ := src["type"].(string)
 	t := strings.ToLower(strings.TrimSpace(rawType))
 	switch t {
@@ -326,12 +329,11 @@ func appendSelfConfigSource(opts *options, src map[string]any) error {
 		opts.Loaders = append(opts.Loaders, &envPrefixAutoLoader{prefix: upper})
 		return nil
 	default:
-		return &ConfigError{
-			Op: "ApplySelfConfig",
-			Err: fmt.Errorf(
-				"%w: unsupported self-config source type %q (supported: environment_files, yaml, yml, json, toml, ini, cfg, env, envfile, environment)",
-				ErrConfigLoad, rawType,
-			),
+		loader, err := buildRegisteredSelfConfigSource(ctx, t, src)
+		if err != nil {
+			return err
 		}
+		opts.Loaders = append(opts.Loaders, loader)
+		return nil
 	}
 }

@@ -412,6 +412,19 @@ A root `token` or `VAULT_TOKEN` is used for token auth. The same build can
 register multiple providers by enabling multiple tags, for example
 `-tags="aws,vault"`.
 
+After configuration contains at least one `${secret:...}` reference, run the
+value-safe preflight before deployment:
+
+```bash
+confii connections test production --timeout 20s
+```
+
+The standard installed CLI intentionally has no cloud SDKs. Use an
+application operational binary that imports the selected provider modules as
+described in the [CLI connection test](cli.md#connections-test). The command
+authenticates and performs real reads through the normal resolution hook, then
+discards every value.
+
 ---
 
 ## Resolver Options

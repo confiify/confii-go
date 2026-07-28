@@ -161,7 +161,7 @@ func New[T any](ctx context.Context, cfgOpts ...Option) (*Config[T], error) {
 	// This is observable only for the opt-in `environment_files` source;
 	// existing source types retain their previous order and behavior.
 	for _, src := range opts.selfConfigSources {
-		if err := appendSelfConfigSource(&opts, src); err != nil {
+		if err := appendSelfConfigSource(ctx, &opts, src); err != nil {
 			return nil, err
 		}
 	}

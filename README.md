@@ -84,7 +84,7 @@ Go has several configuration libraries, but none provides a complete configurati
 | Hook/middleware system (4 types) | Yes | No | No | No |
 | File watching + incremental reload | Yes | Yes | Yes | Partial |
 | JSON Schema validation | Yes | No | No | No |
-| CLI tool (13 commands) | Yes | No | No | No |
+| CLI tool (14 commands) | Yes | No | No | No |
 | Thread-safe (RWMutex) | Yes | [No](https://github.com/spf13/viper/issues/268) | Partial | Varies |
 
 <!-- markdownlint-disable MD033 -->
@@ -811,6 +811,7 @@ go install github.com/confiify/confii-go/confii@latest
 | --- | --- |
 | `confii init` | Safely scaffold `.confii.yaml` and the selected environment layout |
 | `confii env` | Show the effective environment; list or safely change the configured default |
+| `confii connections test` | Perform value-safe reads against configured sources and secret providers |
 | `confii load` | Load and display configuration |
 | `confii get` | Retrieve a single value |
 | `confii export` | Export to a different format |
@@ -828,6 +829,7 @@ confii init
 confii env list
 confii env set production
 confii plan
+confii connections test
 APP_ENV=production confii load
 confii get database.host
 
@@ -925,7 +927,7 @@ github.com/confiify/confii-go/
   ├── internal/              # Internal utilities (dictutil, typecoerce, formatparse)
   ├── integration/           # End-to-end integration tests
   ├── examples/              # Runnable examples
-  └── confii/                # CLI tool (13 commands)
+  └── confii/                # CLI tool (14 commands)
 ```
 
 ## Requirements
