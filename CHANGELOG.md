@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- Report the module version embedded by `go install package@version` when the
+  CLI was not built through GoReleaser; reserve `dev` for unversioned local
+  builds while retaining linker-injected release versions as the priority.
+- Make the library and CLI installation scopes explicit and align every
+  from-scratch onboarding path on `go mod init`, `go get`, `go install`,
+  version verification, and `confii init`. CI now rejects drift among the
+  README, documentation homepage, quick start, and `llms.txt`.
+
 ## [1.3.0] - 2026-07-28
 
 ### Added

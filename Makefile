@@ -223,6 +223,7 @@ $(REUSE_BIN): tools/reuse/requirements.txt
 
 .PHONY: docs-check
 docs-check: ## Build documentation with warnings treated as errors
+	sh scripts/check-onboarding-docs.sh
 	mkdocs build --strict
 	sh scripts/check-docs-artifact.sh
 

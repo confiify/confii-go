@@ -6,17 +6,23 @@ on:
   push:
     branches: [main]
     paths:
+      - "README.md"
+      - "llms.txt"
       - "docs/**"
       - "mkdocs.yml"
       - "Makefile"
       - "scripts/check-docs-artifact.sh"
+      - "scripts/check-onboarding-docs.sh"
       - "scripts/check-site-headers.sh"
   pull_request:
     paths:
+      - "README.md"
+      - "llms.txt"
       - "docs/**"
       - "mkdocs.yml"
       - "Makefile"
       - "scripts/check-docs-artifact.sh"
+      - "scripts/check-onboarding-docs.sh"
       - "scripts/check-site-headers.sh"
 
 permissions:

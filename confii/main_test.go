@@ -5,6 +5,7 @@ package main
 
 import (
 	"bytes"
+	"runtime/debug"
 	"strings"
 	"testing"
 )
@@ -24,5 +25,65 @@ func TestRootCommandVersion(t *testing.T) {
 	}
 	if got := stdout.String(); !strings.Contains(got, "v1.2.3-test") {
 		t.Fatalf("version output %q does not contain the linked version", got)
+	}
+}
+
+func TestResolveVersion(t *testing.T) {
+	tests := []struct {
+		name          string
+		linkedVersion string
+		buildInfo     *debug.BuildInfo
+		buildInfoOK   bool
+		want          string
+	}{
+		{
+			name:          "release linker value wins",
+			linkedVersion: "v1.3.1",
+			buildInfo:     &debug.BuildInfo{Main: debug.Module{Version: "v1.3.0"}},
+			buildInfoOK:   true,
+			want:          "v1.3.1",
+		},
+		{
+			name:          "go install module version",
+			linkedVersion: "dev",
+			buildInfo:     &debug.BuildInfo{Main: debug.Module{Version: "v1.3.1"}},
+			buildInfoOK:   true,
+			want:          "v1.3.1",
+		},
+		{
+			name:          "empty linker value uses module version",
+			linkedVersion: "",
+			buildInfo:     &debug.BuildInfo{Main: debug.Module{Version: "v1.3.1"}},
+			buildInfoOK:   true,
+			want:          "v1.3.1",
+		},
+		{
+			name:          "local build remains dev",
+			linkedVersion: "dev",
+			buildInfo:     &debug.BuildInfo{Main: debug.Module{Version: "(devel)"}},
+			buildInfoOK:   true,
+			want:          "dev",
+		},
+		{
+			name:          "missing module version remains dev",
+			linkedVersion: "dev",
+			buildInfo:     &debug.BuildInfo{},
+			buildInfoOK:   true,
+			want:          "dev",
+		},
+		{
+			name:          "unavailable build info remains dev",
+			linkedVersion: "dev",
+			buildInfoOK:   false,
+			want:          "dev",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := resolveVersion(test.linkedVersion, test.buildInfo, test.buildInfoOK); got != test.want {
+				t.Fatalf("resolveVersion() = %q, want %q", got, test.want)
+			}
+		})
 	}
 }

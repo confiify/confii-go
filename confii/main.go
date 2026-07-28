@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime/debug"
 
 	"github.com/confiify/confii-go/confii/cmd"
 	"github.com/spf13/cobra"
@@ -14,12 +15,27 @@ import (
 
 var version = "dev"
 
+func executableVersion() string {
+	buildInfo, ok := debug.ReadBuildInfo()
+	return resolveVersion(version, buildInfo, ok)
+}
+
+func resolveVersion(linkedVersion string, buildInfo *debug.BuildInfo, buildInfoOK bool) string {
+	if linkedVersion != "" && linkedVersion != "dev" {
+		return linkedVersion
+	}
+	if buildInfoOK && buildInfo != nil && buildInfo.Main.Version != "" && buildInfo.Main.Version != "(devel)" {
+		return buildInfo.Main.Version
+	}
+	return "dev"
+}
+
 func newRootCommand(out, errOut io.Writer) *cobra.Command {
 	root := &cobra.Command{
 		Use:     "confii",
 		Short:   "Configuration management CLI",
 		Long:    "Confii CLI provides tools for loading, validating, exporting, and comparing configurations.",
-		Version: version,
+		Version: executableVersion(),
 	}
 	root.SetOut(out)
 	root.SetErr(errOut)
