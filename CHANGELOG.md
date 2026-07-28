@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-07-28
+
 ### Fixed
 
 - Report the module version embedded by `go install package@version` when the
