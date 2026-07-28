@@ -357,6 +357,9 @@ func TestReadUsesXDGStyleHomeFallback(t *testing.T) {
 	require.NoError(t, os.MkdirAll(xdg, 0750))
 	require.NoError(t, os.WriteFile(filepath.Join(xdg, "confii.yaml"), []byte("default_environment: fallback\n"), 0644))
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("HOMEDRIVE", "")
+	t.Setenv("HOMEPATH", "")
 	ClearCache()
 	t.Cleanup(ClearCache)
 
@@ -368,6 +371,9 @@ func TestReadUsesXDGStyleHomeFallback(t *testing.T) {
 
 func TestReadWithoutHomeStillTreatsAbsenceAsValid(t *testing.T) {
 	t.Setenv("HOME", "")
+	t.Setenv("USERPROFILE", "")
+	t.Setenv("HOMEDRIVE", "")
+	t.Setenv("HOMEPATH", "")
 	ClearCache()
 	t.Cleanup(ClearCache)
 

@@ -106,6 +106,9 @@ func NewInitCmd() *cobra.Command {
 }
 
 func inspectInitialization(dir string) ([]string, error) {
+	if err := ensureDirectoryLineage(dir); err != nil {
+		return nil, fmt.Errorf("inspect Confii initialization at %s: %w", dir, err)
+	}
 	var found []string
 	for _, name := range selfconfig.CandidateFilenames() {
 		path := filepath.Join(dir, name)

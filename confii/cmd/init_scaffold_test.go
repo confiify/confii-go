@@ -260,6 +260,25 @@ func TestInitOptionValidation(t *testing.T) {
 	}
 }
 
+func TestCleanProjectRelativeDirRejectsCrossPlatformAbsoluteAndTraversalPaths(t *testing.T) {
+	for _, value := range []string{
+		"/tmp/config",
+		`\tmp\config`,
+		`C:\tmp\config`,
+		"C:/tmp/config",
+		`\\server\share\config`,
+		"../outside",
+		`..\outside`,
+	} {
+		_, err := cleanProjectRelativeDir(value)
+		require.Error(t, err, "path %q", value)
+	}
+
+	cleaned, err := cleanProjectRelativeDir(`config\environments`)
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join("config", "environments"), cleaned)
+}
+
 func TestInitCommandReturnsPlanWriterError(t *testing.T) {
 	dir := t.TempDir()
 	cmd := NewInitCmd()

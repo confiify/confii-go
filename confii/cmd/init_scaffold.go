@@ -9,6 +9,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	pathpkg "path"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -127,14 +128,23 @@ func cleanProjectRelativeDir(value string) (string, error) {
 	if value == "" || value == "." {
 		return ".", nil
 	}
-	if filepath.IsAbs(value) {
+	// Treat both slash styles as separators so a project initialized on one OS
+	// cannot accept a path that becomes absolute or escapes the project when
+	// the same command is run on another OS.
+	normalized := strings.ReplaceAll(value, `\`, "/")
+	if filepath.IsAbs(value) || strings.HasPrefix(normalized, "/") || hasWindowsVolumePrefix(normalized) {
 		return "", errors.New("--config-dir must be relative to the project root")
 	}
-	cleaned := filepath.Clean(value)
-	if cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
+	cleaned := pathpkg.Clean(normalized)
+	if cleaned == ".." || strings.HasPrefix(cleaned, "../") {
 		return "", errors.New("--config-dir must stay within the project root")
 	}
-	return cleaned, nil
+	return filepath.FromSlash(cleaned), nil
+}
+
+func hasWindowsVolumePrefix(value string) bool {
+	return len(value) >= 2 && ((value[0] >= 'A' && value[0] <= 'Z') ||
+		(value[0] >= 'a' && value[0] <= 'z')) && value[1] == ':'
 }
 
 func normalizeInitEnvironments(values []string, defaultEnvironment string) ([]string, error) {
@@ -317,6 +327,9 @@ func writeInitPlan(plan []initFile, force bool) error {
 	backups := make(map[string]initFileBackup, len(plan))
 	if force {
 		for _, file := range plan {
+			if err := ensureDirectoryLineage(filepath.Dir(file.path)); err != nil {
+				return fmt.Errorf("back up %s before replacement: %w", file.path, err)
+			}
 			info, err := os.Stat(file.path)
 			switch {
 			case err == nil:
@@ -344,6 +357,31 @@ func writeInitPlan(plan []initFile, force bool) error {
 		}
 	}
 	return nil
+}
+
+// ensureDirectoryLineage verifies that every existing component on the way to
+// dir is a directory. Windows may classify a missing child below a regular
+// file as os.ErrNotExist, while Unix reports ENOTDIR at the child. Walking back
+// to the nearest existing component gives callers one portable invariant.
+func ensureDirectoryLineage(dir string) error {
+	current := filepath.Clean(dir)
+	for {
+		info, err := os.Stat(current)
+		switch {
+		case err == nil && !info.IsDir():
+			return fmt.Errorf("path component %s is not a directory", current)
+		case err == nil:
+			return nil
+		case !errors.Is(err, os.ErrNotExist):
+			return err
+		}
+
+		parent := filepath.Dir(current)
+		if parent == current {
+			return nil
+		}
+		current = parent
+	}
 }
 
 func withInitRollback(cause error, paths []string, backups map[string]initFileBackup, force bool) error {
