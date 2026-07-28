@@ -5,10 +5,16 @@ The canonical, release-by-release changelog is maintained in
 
 ## Upcoming release
 
-The next patch release corrects version reporting for CLIs installed with
-`go install package@version` and aligns every from-scratch onboarding path on
-the same module, library, CLI, verification, and initialization sequence.
-Consult the Unreleased section of the canonical changelog for details.
+No changes are currently assigned beyond v1.3.1. Consult the Unreleased section
+of the canonical changelog as post-release work begins.
+
+## v1.3.1
+
+Version 1.3.1 corrects version reporting for CLIs installed with
+`go install package@version`, aligns every from-scratch onboarding path on the
+same module, library, CLI, verification, and initialization sequence, and adds
+a CI contract that prevents those instructions from drifting again. Consult
+the canonical changelog for complete release notes.
 
 ## v1.3.0
 
