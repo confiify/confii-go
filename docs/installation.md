@@ -145,6 +145,84 @@ make install-dev INSTALL_DIR="$PWD/bin/dev-install"
 Re-run `make install-dev` after changing branches or commits. The Go tool does
 not automatically refresh an already installed development executable.
 
+### Use an unreleased library in another project
+
+Installing the CLI does not change the Confii library selected by another Go
+module. Choose one of these workflows depending on what you need to test.
+
+For a pushed feature branch, resolve its commit and ask Go to record that exact
+revision as a pseudo-version in the consumer project's `go.mod`:
+
+```bash
+CONFII_DEV_REF="$(git -C /path/to/confii-go rev-parse HEAD)"
+cd /path/to/consumer
+go get "github.com/confiify/confii-go@${CONFII_DEV_REF}"
+go mod tidy
+go test ./...
+go list -m github.com/confiify/confii-go
+```
+
+The commit must already exist on the remote. `go.mod` records an immutable
+pseudo-version containing its timestamp and hash. This is the preferred way to
+share a committed prerelease build with another developer or CI job. A Git
+branch containing `/`, such as `feat/environment-management-cli`, is not a
+valid Go module version query, so use its commit rather than passing that branch
+name after `@`. Do not release the consumer while it still depends on the
+pseudo-version.
+
+Applications importing the optional cloud modules must select the same branch
+for all three independently versioned modules:
+
+```bash
+go get "github.com/confiify/confii-go@${CONFII_DEV_REF}"
+go get "github.com/confiify/confii-go/loader/cloud@${CONFII_DEV_REF}"
+go get "github.com/confiify/confii-go/secret/cloud@${CONFII_DEV_REF}"
+go mod tidy
+```
+
+For local changes that have not been pushed, link the consumer directly to the
+working tree. Run the goal from the Confii checkout:
+
+```bash
+make consumer-link-dev CONSUMER_DIR=/absolute/path/to/consumer
+```
+
+For a consumer that imports cloud loaders or secret stores, link all three
+modules together:
+
+```bash
+make consumer-link-dev-cloud CONSUMER_DIR=/absolute/path/to/consumer
+```
+
+The goals add standard Go `replace` directives but deliberately do not run
+`go mod tidy` or tests on someone else's project. Review the resulting
+`go.mod`, then run the consumer's own workflow:
+
+```bash
+cd /absolute/path/to/consumer
+go mod tidy
+go test ./...
+go list -m -json github.com/confiify/confii-go
+```
+
+The `Replace.Dir` field in the final command should point at the local Confii
+checkout. Local replacements consume the working tree, including uncommitted
+changes; the commit-aware CLI version cannot describe those library changes.
+
+Remove every Confii development replacement before committing or releasing
+the consumer:
+
+```bash
+cd /path/to/confii-go
+make consumer-unlink-dev CONSUMER_DIR=/absolute/path/to/consumer
+cd /absolute/path/to/consumer
+go mod tidy
+go test ./...
+```
+
+Check `git diff -- go.mod go.sum` after either workflow. Local filesystem paths
+must never be committed to a portable consumer module.
+
 ## Verify
 
 Preview initialization without writing anything:

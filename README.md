@@ -158,6 +158,13 @@ Use `make install-dev INSTALL_DIR="$PWD/bin/dev-install"` to avoid replacing an
 existing released CLI. See the [installation guide](docs/installation.md#install-a-development-checkout)
 for the complete workflow.
 
+To test the unreleased library from another Go project, use a commit-pinned
+`go get` for pushed changes or `make consumer-link-dev
+CONSUMER_DIR=/absolute/path/to/project` for the local working tree. Cloud
+consumers use `consumer-link-dev-cloud` so the root, loader, and secret modules
+stay aligned. The [development consumer guide](docs/installation.md#use-an-unreleased-library-in-another-project)
+covers verification and cleanup.
+
 Starting from an empty directory? Follow the complete sequence below; creating
 the module before `go get` is required.
 

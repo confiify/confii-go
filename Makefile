@@ -84,6 +84,16 @@ install-dev: ## Install current CLI checkout with commit-aware dev version
 	@echo "Installed $(INSTALL_DIR)/$(CLI_BIN)"
 	@"$(INSTALL_DIR)/$(CLI_BIN)" --version
 
+.PHONY: consumer-link-dev consumer-link-dev-cloud consumer-unlink-dev
+consumer-link-dev: ## Link current root module into CONSUMER_DIR
+	@sh scripts/dev-consumer.sh link "$(CONSUMER_DIR)" "$(CURDIR)" core
+
+consumer-link-dev-cloud: ## Link current root and cloud modules into CONSUMER_DIR
+	@sh scripts/dev-consumer.sh link "$(CONSUMER_DIR)" "$(CURDIR)" cloud
+
+consumer-unlink-dev: ## Remove local Confii replacements from CONSUMER_DIR
+	@sh scripts/dev-consumer.sh unlink "$(CONSUMER_DIR)" "$(CURDIR)" all
+
 .PHONY: clean
 clean: ## Remove build artifacts
 	rm -rf $(BUILD_DIR)
