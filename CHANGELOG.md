@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-07-28
+
 ### Added
 
 - Add an idempotent `confii init [directory]` project bootstrapper with an
@@ -37,6 +39,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   nested variables such as `APP_SERVER__PORT=9090` are a real final override
   layer. Constructor option order no longer loses the auto-loader, while an
   explicitly supplied equivalent environment loader keeps its chosen order.
+- Make initializer path validation portable across Unix and Windows, rejecting
+  absolute, UNC/rooted, drive-qualified, and traversal paths expressed with
+  either separator style while reporting non-directory ancestors consistently.
 - Align the self-config example, quick start, CLI reference, installation
   module boundaries, Vault/OpenBao qualification, and example discoverability
   with the tested runtime behavior.
