@@ -104,8 +104,8 @@ consumer-link-dev: ## Link current root module into CONSUMER_DIR
 consumer-link-dev-cloud: ## Link current root and cloud modules into CONSUMER_DIR
 	@sh scripts/dev-consumer.sh link "$(CONSUMER_DIR)" "$(CURDIR)" cloud
 
-consumer-unlink-dev: ## Remove local Confii replacements from CONSUMER_DIR
-	@sh scripts/dev-consumer.sh unlink "$(CONSUMER_DIR)" "$(CURDIR)" all
+consumer-unlink-dev: ## Remove local Confii replacements; optionally pin CONFII_VERSION
+	@sh scripts/dev-consumer.sh unlink "$(CONSUMER_DIR)" "$(CURDIR)" all "$(CONFII_VERSION)"
 
 .PHONY: clean
 clean: ## Remove build artifacts

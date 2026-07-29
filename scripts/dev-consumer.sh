@@ -8,9 +8,10 @@ action=${1:-}
 consumer_input=${2:-}
 repo_input=${3:-}
 scope=${4:-core}
+release_version=${5:-}
 
 usage() {
-	echo "usage: $0 <link|unlink> <consumer-dir> <confii-repo-dir> <core|cloud|all>" >&2
+	echo "usage: $0 <link|unlink> <consumer-dir> <confii-repo-dir> <core|cloud|all> [release-version]" >&2
 }
 
 if [ "$action" != "link" ] && [ "$action" != "unlink" ]; then
@@ -44,6 +45,7 @@ fi
 root_module=github.com/confiify/confii-go
 loader_module=$root_module/loader/cloud
 secret_module=$root_module/secret/cloud
+zero_version=v0.0.0-00010101000000-000000000000
 
 if [ "$action" = "link" ]; then
 	(
@@ -69,6 +71,37 @@ fi
 	go mod edit -dropreplace="$root_module"
 	go mod edit -dropreplace="$loader_module"
 	go mod edit -dropreplace="$secret_module"
+
+	if [ -n "$release_version" ]; then
+		if [ "$release_version" = "$zero_version" ]; then
+			echo "CONFII_VERSION must identify a real release or revision, not $zero_version" >&2
+			exit 2
+		fi
+		if [ "$scope" = "cloud" ] || [ "$scope" = "all" ]; then
+			go mod edit \
+				-require="$root_module@$release_version" \
+				-require="$loader_module@$release_version" \
+				-require="$secret_module@$release_version"
+		else
+			go mod edit -require="$root_module@$release_version"
+		fi
+	fi
+
+	# A local replacement has no module version. If `go get` is run while the
+	# replacement is active, Go can persist its zero pseudo-version in require.
+	# Once the replacement is removed that revision is invalid, so drop only
+	# those synthetic requirements and let the consumer's next tidy restore the
+	# modules selected by its imports.
+	for module in "$root_module" "$loader_module" "$secret_module"; do
+		if awk -v module="$module" -v version="$zero_version" \
+			'$1 == module && $2 == version { found = 1 } END { exit !found }' go.mod; then
+			go mod edit -droprequire="$module"
+			printf 'Removed stale zero-version requirement for %s\n' "$module"
+		fi
+	done
 )
 echo "Removed local Confii replacements from $consumer"
+if [ -n "$release_version" ]; then
+	echo "Pinned Confii root and selected optional modules to $release_version"
+fi
 echo "Run 'go mod tidy' inside the consumer module to restore its normal module graph."

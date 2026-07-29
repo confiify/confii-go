@@ -231,11 +231,20 @@ the consumer:
 
 ```bash
 cd /path/to/confii-go
-make consumer-unlink-dev CONSUMER_DIR=/absolute/path/to/consumer
+make consumer-unlink-dev \
+  CONSUMER_DIR=/absolute/path/to/consumer \
+  CONFII_VERSION=v1.4.0
 cd /absolute/path/to/consumer
 go mod tidy
-go test ./...
+go test -tags "aws,vault" ./... # select only the providers the consumer imports
 ```
+
+`CONFII_VERSION` is optional. When supplied, the cleanup pins the root,
+`loader/cloud`, and `secret/cloud` modules together before removing the local
+links. Without it, the cleanup removes any synthetic zero pseudo-version left
+by a `go get` performed while local replacements were active; the next
+`go mod tidy` then restores modules required by the consumer's imports. Do not
+run `go get ...@latest` while filesystem replacements are active.
 
 Check `git diff -- go.mod go.sum` after either workflow. Local filesystem paths
 must never be committed to a portable consumer module.
