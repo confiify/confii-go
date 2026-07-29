@@ -233,7 +233,7 @@ the consumer:
 cd /path/to/confii-go
 make consumer-unlink-dev \
   CONSUMER_DIR=/absolute/path/to/consumer \
-  CONFII_VERSION=v1.4.0
+  CONFII_VERSION=v1.4.1
 cd /absolute/path/to/consumer
 go mod tidy
 go test -tags "aws,vault" ./... # select only the providers the consumer imports

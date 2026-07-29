@@ -6,12 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-07-30
+
 ### Fixed
 
 - Make `consumer-unlink-dev` recover safely when `go get` persisted synthetic
   zero pseudo-versions while filesystem replacements were active. Cleanup can
   now pin all selected Confii modules with `CONFII_VERSION`, or remove only
   stale zero-version requirements before the consumer runs `go mod tidy`.
+- Keep branch-coverage enforcement compatible with directories that contain
+  external Go tests but no production Go source. Test-only packages continue
+  to run in the regular and statement-coverage passes without being sent to a
+  source instrumenter that has no production code to instrument.
 
 ## [1.4.0] - 2026-07-29
 
