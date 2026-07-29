@@ -139,8 +139,6 @@ updates `default_environment` in `.confii.yaml`. To clear the fallback, use
 `APP_ENV=production confii env` reports production without modifying the
 project file.
 
-Then ask the CLI what Confii will load:
-
 Before writing application code, ask the CLI what Confii will load:
 
 ```bash

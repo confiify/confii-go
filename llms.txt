@@ -33,7 +33,7 @@ Confii provides:
 - File watching with incremental reload (mtime + SHA256 change detection)
 - Observability: access metrics, event emission, top-accessed keys
 - Documentation generation (markdown, JSON) from live config
-- 13-command CLI tool: init, env, load, get, validate, export, diff, debug, explain, plan, lint, docs, migrate. `confii init` is an idempotent project bootstrapper with interactive or flag-selected named-file/sectioned layouts, full preflight, dry-run, and rollback safety. `confii env` reports the effective/default selection, lists discoverable environments, and safely persists or resets the project default.
+- 14-command CLI tool: init, env, connections, load, get, validate, export, diff, debug, explain, plan, lint, docs, migrate. `confii init` is an idempotent project bootstrapper with interactive or flag-selected named-file/sectioned layouts, full preflight, dry-run, and rollback safety. `confii env` reports the effective/default selection, lists discoverable environments, and safely persists or resets the project default. `confii connections test` performs value-safe, fail-closed preflight of selected declarative sources and secret providers.
 - Self-configuration via .confii.yaml auto-discovery with 3-tier priority
 - Builder pattern with fluent API
 
