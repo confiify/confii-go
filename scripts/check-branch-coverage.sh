@@ -26,14 +26,22 @@ trap 'rm -rf "$work"' EXIT HUP INT TERM
 
 (
   cd "$root"
-  go list -f '{{.ImportPath}}|{{.Dir}}' ./...
+  go list -f '{{.ImportPath}}|{{.Dir}}|{{len .GoFiles}}|{{len .CgoFiles}}' ./...
 ) >"$work/packages"
 
 covered=0
 conditions=0
 packages=0
 
-while IFS='|' read -r import_path package_dir; do
+while IFS='|' read -r import_path package_dir go_files cgo_files; do
+  # Gobco instruments production source before invoking `go test`. Packages
+  # containing only external tests have no source to instrument, and gobco
+  # cannot preserve their external package name in its generated fixed file.
+  # Their tests still run in the regular and statement-coverage test passes.
+  if [ $((go_files + cgo_files)) -eq 0 ]; then
+    continue
+  fi
+
   case "$package_dir" in
     "$root"/examples/*|"$root"/integration)
       continue
