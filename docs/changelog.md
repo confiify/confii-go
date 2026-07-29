@@ -5,8 +5,16 @@ The canonical, release-by-release changelog is maintained in
 
 ## Upcoming release
 
-No changes are currently assigned beyond v1.4.0. Consult the Unreleased section
+No changes are currently assigned beyond v1.4.1. Consult the Unreleased section
 of the canonical changelog as post-release work begins.
+
+## v1.4.1
+
+Version 1.4.1 hardens development-consumer cleanup after local module
+replacement testing. It can pin all selected Confii modules to an explicit
+release, removes synthetic zero pseudo-version requirements safely, and keeps
+branch-coverage enforcement compatible with test-only Go package directories.
+Consult the canonical changelog for complete release notes.
 
 ## v1.4.0
 
