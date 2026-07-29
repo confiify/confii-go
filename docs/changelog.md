@@ -5,9 +5,19 @@ The canonical, release-by-release changelog is maintained in
 
 ## Upcoming release
 
-The next release adds environment discovery and default management through
-`confii env`, plus a reusable `Config.AvailableEnvironments()` API. Consult the
-Unreleased section of the canonical changelog for the current scope.
+No changes are currently assigned beyond v1.4.0. Consult the Unreleased section
+of the canonical changelog as post-release work begins.
+
+## v1.4.0
+
+Version 1.4.0 adds eager transactional secret materialization, explicit mixed
+secret-provider routing, environment-aware declarative cloud sources, and a
+value-safe `confii connections test` preflight. It also adds `confii env` and
+`Config.AvailableEnvironments()`, LocalStack-compatible S3/SSM endpoints,
+commit-aware development installation and consumer linking, and a Vault OIDC
+interoperability fix. Existing single-provider references and explicit loader
+workflows remain compatible. Consult the canonical changelog for complete
+release notes.
 
 ## v1.3.1
 

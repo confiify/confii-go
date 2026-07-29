@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-07-29
+
 ### Added
 
 - Eagerly materialize the final selected configuration before `New` returns:
@@ -44,6 +46,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   override is reported instead of being misrepresented as changed.
 - Add `Config.AvailableEnvironments()` so applications can obtain the same
   sorted, deduplicated environment inventory as the CLI.
+
+- Add a reusable provider-enabled CLI root and `confii connections test` for
+  value-safe, fail-closed preflight of the selected environment's declarative
+  sources and secret providers. Context-aware source registration covers Git,
+  AWS S3 and SSM, Azure Blob, GCS, and IBM COS without adding their SDKs to the
+  core module or standalone CLI.
 
 ### Fixed
 

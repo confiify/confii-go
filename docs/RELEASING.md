@@ -26,13 +26,13 @@ cloud-loader, and cloud-secret tags all identify the same reviewed commit.
 
 ## Tag and publish
 
-Create signed, annotated tags on the same verified commit. For `v1.3.1`:
+Create signed, annotated tags on the same verified commit. For `v1.4.0`:
 
 ```bash
-git tag -s loader/cloud/v1.3.1 -m "loader/cloud v1.3.1"
-git tag -s secret/cloud/v1.3.1 -m "secret/cloud v1.3.1"
-git tag -s v1.3.1 -m "confii-go v1.3.1"
-git push --atomic origin loader/cloud/v1.3.1 secret/cloud/v1.3.1 v1.3.1
+git tag -s loader/cloud/v1.4.0 -m "loader/cloud v1.4.0"
+git tag -s secret/cloud/v1.4.0 -m "secret/cloud v1.4.0"
+git tag -s v1.4.0 -m "confii-go v1.4.0"
+git push --atomic origin loader/cloud/v1.4.0 secret/cloud/v1.4.0 v1.4.0
 ```
 
 The root tag starts the release workflow. It re-runs module, race, and cloud
@@ -51,22 +51,22 @@ After the workflow succeeds, verify one archive and verify all modules through
 a clean consumer:
 
 ```bash
-gh release download v1.3.1 \
-  --pattern 'confii-v1.3.1-linux-amd64.tar.gz' \
-  --pattern 'confii-v1.3.1-linux-amd64.tar.gz.sbom.json' \
+gh release download v1.4.0 \
+  --pattern 'confii-v1.4.0-linux-amd64.tar.gz' \
+  --pattern 'confii-v1.4.0-linux-amd64.tar.gz.sbom.json' \
   --pattern 'checksums.txt' \
   --pattern '*.openvex.json' \
-  --pattern 'confii-v1.3.1.intoto.jsonl'
+  --pattern 'confii-v1.4.0.intoto.jsonl'
 sha256sum --check --ignore-missing checksums.txt
 jq -e '.spdxVersion == "SPDX-2.3" and (.packages | length > 0)' \
-  confii-v1.3.1-linux-amd64.tar.gz.sbom.json
-gh attestation verify confii-v1.3.1-linux-amd64.tar.gz \
+  confii-v1.4.0-linux-amd64.tar.gz.sbom.json
+gh attestation verify confii-v1.4.0-linux-amd64.tar.gz \
   --repo confiify/confii-go \
-  --bundle confii-v1.3.1.intoto.jsonl \
+  --bundle confii-v1.4.0.intoto.jsonl \
   --signer-workflow confiify/confii-go/.github/workflows/release.yaml
-go list -m github.com/confiify/confii-go@v1.3.1
-go list -m github.com/confiify/confii-go/loader/cloud@v1.3.1
-go list -m github.com/confiify/confii-go/secret/cloud@v1.3.1
+go list -m github.com/confiify/confii-go@v1.4.0
+go list -m github.com/confiify/confii-go/loader/cloud@v1.4.0
+go list -m github.com/confiify/confii-go/secret/cloud@v1.4.0
 ```
 
 Tags and published releases are immutable. If a release is defective, publish
