@@ -124,12 +124,28 @@ log:
     layout, so review obsolete configuration files manually after changing
     strategies.
 
-## 4. Inspect the load plan
+## 4. Inspect and select the environment
+
+First confirm which environment is effective and which choices were generated:
+
+```bash
+confii env
+confii env list
+```
+
+To change the project fallback, use `confii env set production`. This safely
+updates `default_environment` in `.confii.yaml`. To clear the fallback, use
+`confii env reset`. A shell value still has higher precedence, so
+`APP_ENV=production confii env` reports production without modifying the
+project file.
+
+Then ask the CLI what Confii will load:
 
 Before writing application code, ask the CLI what Confii will load:
 
 ```bash
 confii plan
+confii connections test
 APP_ENV=production confii plan
 ```
 

@@ -257,6 +257,34 @@ small. Provider SDK loaders are additionally selected by build tags. The Git
 loader is the exception: it belongs to `loader/cloud` but requires no build
 tag.
 
+Cloud loaders may also be declared in `.confii.yaml` when the containing
+application or operational CLI blank-imports `loader/cloud`. The source
+registry is context-aware and uses the same constructors shown below:
+
+```yaml
+sources:
+  - type: s3
+    url: s3://my-bucket/config/production.yaml
+    region: us-east-1
+  - type: ssm
+    path: /myapp/production/
+    decrypt: true
+```
+
+| Type | Required fields | Optional fields |
+| --- | --- | --- |
+| `git` | `repository`, `file_path` | `branch`, `token` |
+| `s3` | `url` | `region`, `access_key`, `secret_key`, `endpoint`, `path_style` |
+| `ssm` | `path` | `region`, `decrypt`, `access_key`, `secret_key`, `endpoint` |
+| `azure_blob` | `container_url`, `blob` | `connection_string`, or `account_name` with `account_key`/`sas_token` |
+| `gcs` | `bucket`, `object` | `project_id`, `credentials_file` |
+| `ibm_cos` | `bucket`, `object` | `region`, `endpoint` |
+
+Prefer each provider's default credential chain or environment variables over
+literal credentials in a committed self-config file. Use
+`confii connections test` from a provider-enabled operational binary to prove
+that authentication and reads work without displaying loaded values.
+
 ### Build Tags Overview
 
 | Build Tag | Enabled Loaders | SDK |

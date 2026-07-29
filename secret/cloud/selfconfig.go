@@ -10,14 +10,24 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	confii "github.com/confiify/confii-go"
 )
 
 type selfConfigStoreAdapter struct {
-	get func(context.Context, string) (any, error)
+	get func(context.Context, string, ...confii.SecretOption) (any, error)
 }
 
 func (s selfConfigStoreAdapter) GetSecret(ctx context.Context, key string) (any, error) {
 	return s.get(ctx, key)
+}
+
+func (s selfConfigStoreAdapter) GetSecretRequest(ctx context.Context, request confii.SelfConfigSecretRequest) (any, error) {
+	var opts []confii.SecretOption
+	if request.Version != "" {
+		opts = append(opts, confii.WithVersion(request.Version))
+	}
+	return s.get(ctx, request.Key, opts...)
 }
 
 func selfString(cfg map[string]any, keys ...string) string {

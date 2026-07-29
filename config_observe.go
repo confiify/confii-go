@@ -110,6 +110,10 @@ func (c *Config[T]) RollbackToVersion(versionID string) error {
 	// observe drifted (post-mutation) state instead of the captured one.
 	snapshot := dictutil.DeepCopy(v.Config)
 	c.envConfig = snapshot
+	// Version snapshots intentionally contain the ready effective values. A
+	// rollback therefore establishes a new reference-free source baseline;
+	// later RefreshSecrets is a no-op until a loader reload restores refs.
+	c.unresolvedEnvConfig = dictutil.DeepCopy(snapshot)
 	c.mergedConfig = dictutil.DeepCopy(snapshot)
 	c.validatedModel = nil
 	return nil

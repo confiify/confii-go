@@ -43,8 +43,10 @@ environment_conflict_policy: last_wins
 default_files: []
 
 # Ordered declarative sources. Later sources have higher precedence.
-# Supported source types are environment_files, yaml, yml, json, toml, ini,
-# cfg, envfile, env (file path or OS prefix), environment, and env-vars.
+# Core source types are environment_files, yaml, yml, json, toml, ini, cfg,
+# envfile, env (file path or OS prefix), environment, and env-vars. Optional
+# loader/cloud registration adds git, s3, ssm, azure_blob, gcs, and ibm_cos
+# when the containing binary imports that module with the matching build tag.
 sources: []
 # Example named-file setup:
 # sources:
@@ -93,11 +95,34 @@ on_error: raise # raise | warn | ignore
 # install Confii's JSON logger at that level.
 log_level: ""
 
-# Declarative secret resolution. An empty map disables it. Core providers are
-# env, dict, and file. Build-tagged cloud registration adds aws, azure, gcp,
-# and vault. Never commit literal production secrets.
+# Declarative secret resolution. After all sources are merged and the active
+# environment is selected, Confii resolves every remaining reference before
+# New returns. Normal getters then use the ready in-memory snapshot; call
+# RefreshSecrets explicitly for rotation. An empty map disables providers.
+# Core providers are env, dict, and file. Build-tagged cloud registration adds
+# aws, azure, gcp, and vault. Never commit literal production secrets.
 secrets: {}
 # Example:
 # secrets:
 #   provider: env
 #   prefix: SECRET_
+# Named providers support mixed backends and environment-specific defaults.
+# Unqualified ${secret:key} references use the active default; an explicit
+# ${secret@shared:key} reference always uses that named provider.
+# secrets:
+#   default_provider: vault
+#   environment_defaults:
+#     production: aws-production
+#   providers:
+#     vault:
+#       type: vault
+#       mount_point: secret
+#       kv_version: 2
+#       auth:
+#         method: token
+#     aws-production:
+#       type: aws
+#       region: us-east-1
+#     shared:
+#       type: gcp
+#       project_id: shared-platform

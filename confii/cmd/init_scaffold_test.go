@@ -486,6 +486,7 @@ func TestInitNextStepsMatchLayoutAndTarget(t *testing.T) {
 	var named bytes.Buffer
 	require.NoError(t, printInitNextSteps(&named, initLayoutNamedFiles, "path with spaces", "development", "APP_ENV", true))
 	assert.Contains(t, named.String(), `cd "path with spaces"`)
+	assert.Contains(t, named.String(), "confii env list")
 	assert.Contains(t, named.String(), "APP_ENV=development confii plan")
 	assert.Contains(t, named.String(), "never removes files")
 
@@ -496,7 +497,7 @@ func TestInitNextStepsMatchLayoutAndTarget(t *testing.T) {
 }
 
 func TestInitNextStepsReportsEveryWriterFailure(t *testing.T) {
-	for writes := 0; writes <= 6; writes++ {
+	for writes := 0; writes <= 7; writes++ {
 		err := printInitNextSteps(
 			&failAfterWriter{writesBeforeFailure: writes},
 			initLayoutNamedFiles,

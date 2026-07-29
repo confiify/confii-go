@@ -298,6 +298,9 @@ jobs:
       - name: Run tests with coverage
         run: go test -coverprofile=coverage.out -covermode=atomic -timeout 120s ./...
 
+      - name: Run cloud-provider tests with coverage
+        run: sh scripts/test-cloud-consumer.sh "aws,azure,gcp,vault,ibm" coverage "$GITHUB_WORKSPACE/coverage-cloud.out"
+
       - name: Enforce 90% non-example statement coverage
         run: sh scripts/check-statement-coverage.sh coverage.out
 
@@ -308,7 +311,7 @@ jobs:
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          files: coverage.out
+          files: coverage.out,coverage-cloud.out
 
   lint:
     name: Lint

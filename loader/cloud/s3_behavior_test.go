@@ -7,17 +7,9 @@
 //
 // Provider: AWS S3 object storage (loader/cloud/s3.go).
 //
-// Fixture mechanism: protocol-level / constructor exercises only. The
-// production S3 loader instantiates an SDK client via
-// `s3.NewFromConfig(cfg)` with no `UsePathStyle` toggle and no exported
-// endpoint override option (see the matching `secret/cloud/aws.go`
-// `WithAWSEndpoint` for contrast). The AWS SDK v2 default uses
-// virtual-hosted addressing (`https://<bucket>.<endpoint>`), which cannot
-// be redirected to a `httptest.NewServer` listening on a loopback port —
-// the `<bucket>.127.0.0.1:<port>` host does not resolve. Until a
-// `WithS3Endpoint` / `WithS3PathStyle` option is added (see G26
-// follow-up), full Load() behavior cannot be asserted from a hermetic in-
-// process fixture, only the URL-parsing and credential-plumbing paths.
+// Fixture mechanism: protocol-level fixture through an explicit endpoint and
+// path-style addressing, the same options used for LocalStack and other
+// S3-compatible services.
 //
 // Build-tag gating: this file is gated by `//go:build aws`; the cloud module
 // owns the required AWS SDK versions. Upstream CI exercises it through the
@@ -32,6 +24,9 @@ package cloud
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -102,13 +97,41 @@ func TestS3Loader_WithS3Credentials_PopulatesFields(t *testing.T) {
 	}
 }
 
+func TestS3Loader_Load_CustomEndpointPathStyle(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got, want := r.URL.Path, "/fixture-bucket/config.json"; got != want {
+			http.Error(w, fmt.Sprintf("path=%q want=%q", got, want), http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"cloud":{"provider":"fixture"}}`))
+	}))
+	t.Cleanup(server.Close)
+
+	loader, err := NewS3(
+		"s3://fixture-bucket/config.json",
+		WithS3Region("us-east-1"),
+		WithS3Credentials("test", "test"),
+		WithS3Endpoint(server.URL),
+		WithS3PathStyle(true),
+	)
+	if err != nil {
+		t.Fatalf("NewS3: %v", err)
+	}
+	got, err := loader.Load(context.Background())
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	cloud, ok := got["cloud"].(map[string]any)
+	if !ok || cloud["provider"] != "fixture" {
+		t.Fatalf("loaded document: %#v", got)
+	}
+}
+
 // TestS3Loader_Load_FailsWithoutResolvableEndpoint exercises the error
 // path for Load(): with a bogus region and bogus bucket the SDK should
 // fail to issue a request and the loader should wrap the error in a
-// ConfigError. This is a smoke test of the error-wrapping contract; it
-// does NOT validate the success path because the production loader does
-// not expose a path-style endpoint override (see file header for the
-// G26-territory rationale).
+// ConfigError. This is a smoke test of the error-wrapping contract.
 func TestS3Loader_Load_FailsWithoutResolvableEndpoint(t *testing.T) {
 	// Use an obviously-unreachable endpoint via env so the SDK does not
 	// reach out to real AWS during this hermetic test.

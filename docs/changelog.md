@@ -5,8 +5,9 @@ The canonical, release-by-release changelog is maintained in
 
 ## Upcoming release
 
-No changes are currently assigned beyond v1.3.1. Consult the Unreleased section
-of the canonical changelog as post-release work begins.
+The next release adds environment discovery and default management through
+`confii env`, plus a reusable `Config.AvailableEnvironments()` API. Consult the
+Unreleased section of the canonical changelog for the current scope.
 
 ## v1.3.1
 

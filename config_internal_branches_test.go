@@ -228,15 +228,16 @@ func TestConfig_InternalHelperContracts(t *testing.T) {
 	}
 
 	base := defaultOptions()
-	require.Error(t, appendSelfConfigSource(&base, map[string]any{"type": "yaml"}))
-	require.NoError(t, appendSelfConfigSource(&base, map[string]any{"type": "env", "path": "app.env"}))
-	require.Error(t, appendSelfConfigSource(&base, map[string]any{"type": "env"}))
-	require.NoError(t, appendSelfConfigSource(&base, map[string]any{"type": "env", "prefix": "app"}))
-	require.NoError(t, appendSelfConfigSource(&base, map[string]any{"type": "env", "prefix": "APP"}))
-	require.Error(t, appendSelfConfigSource(&base, map[string]any{"type": "environment"}))
-	require.NoError(t, appendSelfConfigSource(&base, map[string]any{"type": "env-vars", "prefix": "other"}))
-	require.NoError(t, appendSelfConfigSource(&base, map[string]any{"type": "environment", "prefix": "OTHER"}))
-	require.Error(t, appendSelfConfigSource(&base, map[string]any{"type": "unknown"}))
+	ctx := context.Background()
+	require.Error(t, appendSelfConfigSource(ctx, &base, map[string]any{"type": "yaml"}))
+	require.NoError(t, appendSelfConfigSource(ctx, &base, map[string]any{"type": "env", "path": "app.env"}))
+	require.Error(t, appendSelfConfigSource(ctx, &base, map[string]any{"type": "env"}))
+	require.NoError(t, appendSelfConfigSource(ctx, &base, map[string]any{"type": "env", "prefix": "app"}))
+	require.NoError(t, appendSelfConfigSource(ctx, &base, map[string]any{"type": "env", "prefix": "APP"}))
+	require.Error(t, appendSelfConfigSource(ctx, &base, map[string]any{"type": "environment"}))
+	require.NoError(t, appendSelfConfigSource(ctx, &base, map[string]any{"type": "env-vars", "prefix": "other"}))
+	require.NoError(t, appendSelfConfigSource(ctx, &base, map[string]any{"type": "environment", "prefix": "OTHER"}))
+	require.Error(t, appendSelfConfigSource(ctx, &base, map[string]any{"type": "unknown"}))
 
 	badSchema := defaultOptions()
 	badSchema.Schema = map[string]any{"type": "definitely-not-a-json-schema-type"}

@@ -34,6 +34,17 @@ GOBUILD  := $(GO) build
 GOVET    := $(GO) vet
 GOFMT    := gofmt
 
+# Development installs identify the exact checkout instead of masquerading as
+# a released module version. Override INSTALL_DIR to keep a test installation
+# isolated from an existing CLI on PATH.
+DEV_COMMIT := $(shell git rev-parse --short=12 HEAD 2>/dev/null)
+DEV_DIRTY := $(shell git status --porcelain --untracked-files=no 2>/dev/null)
+DEV_VERSION ?= dev-$(if $(DEV_COMMIT),$(DEV_COMMIT),unknown)$(if $(strip $(DEV_DIRTY)),-dirty)
+INSTALL_DIR ?= $(shell $(GO) env GOBIN)
+ifeq ($(strip $(INSTALL_DIR)),)
+INSTALL_DIR := $(shell $(GO) env GOPATH)/bin
+endif
+
 # Default target
 .DEFAULT_GOAL := help
 
@@ -63,9 +74,38 @@ $(APIDIFF_BIN):
 	@mkdir -p "$(@D)"
 	GOBIN="$(abspath $(@D))" $(GO) install golang.org/x/exp/cmd/apidiff@$(APIDIFF_VERSION)
 
-.PHONY: install
-install: ## Install the CLI binary to $GOPATH/bin
-	$(GO) install $(CLI_PKG)
+.PHONY: install install-dev
+install: install-dev ## Install the current checkout (alias for install-dev)
+
+install-dev: ## Install current CLI checkout with commit-aware dev version
+	@mkdir -p "$(INSTALL_DIR)"
+	GOBIN="$(INSTALL_DIR)" $(GO) install -trimpath \
+		-ldflags "-X main.version=$(DEV_VERSION)" $(CLI_PKG)
+	@echo "Installed $(INSTALL_DIR)/$(CLI_BIN)"
+	@"$(INSTALL_DIR)/$(CLI_BIN)" --version
+
+.PHONY: uninstall
+uninstall: ## Remove CLI from INSTALL_DIR, GOBIN, or GOPATH/bin
+	@if [ -d "$(INSTALL_DIR)/$(CLI_BIN)" ]; then \
+		echo "Refusing to remove directory $(INSTALL_DIR)/$(CLI_BIN)" >&2; \
+		exit 1; \
+	fi
+	@if [ -e "$(INSTALL_DIR)/$(CLI_BIN)" ] || [ -L "$(INSTALL_DIR)/$(CLI_BIN)" ]; then \
+		rm -f -- "$(INSTALL_DIR)/$(CLI_BIN)"; \
+		echo "Removed $(INSTALL_DIR)/$(CLI_BIN)"; \
+	else \
+		echo "No Confii CLI installed at $(INSTALL_DIR)/$(CLI_BIN)"; \
+	fi
+
+.PHONY: consumer-link-dev consumer-link-dev-cloud consumer-unlink-dev
+consumer-link-dev: ## Link current root module into CONSUMER_DIR
+	@sh scripts/dev-consumer.sh link "$(CONSUMER_DIR)" "$(CURDIR)" core
+
+consumer-link-dev-cloud: ## Link current root and cloud modules into CONSUMER_DIR
+	@sh scripts/dev-consumer.sh link "$(CONSUMER_DIR)" "$(CURDIR)" cloud
+
+consumer-unlink-dev: ## Remove local Confii replacements from CONSUMER_DIR
+	@sh scripts/dev-consumer.sh unlink "$(CONSUMER_DIR)" "$(CURDIR)" all
 
 .PHONY: clean
 clean: ## Remove build artifacts

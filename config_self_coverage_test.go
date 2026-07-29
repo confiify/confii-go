@@ -50,6 +50,9 @@ func TestSelfConfigAccountsForEveryStartupOption(t *testing.T) {
 	internalBookkeeping := map[string]bool{
 		"environmentConflictPolicyConfigured": true,
 		"selfConfigSources":                   true,
+		"selfConfigSecrets":                   true,
+		"selfConfigSecretProvider":            true,
+		"selfConfigSecretProviders":           true,
 		"explicitlySet":                       true,
 	}
 

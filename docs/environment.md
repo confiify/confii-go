@@ -12,6 +12,13 @@ Run `confii init` to choose either layout and generate matching self-config.
 Do not combine both models in normal operation; Confii rejects accidental
 mixing unless a controlled migration explicitly selects `hybrid`.
 
+Inspect the resolved selection and the available environments at any time:
+
+```bash
+confii env
+confii env list
+```
+
 ---
 
 ## How Sectioned Files Work
@@ -129,6 +136,29 @@ default_environment: development
 ```
 
 This applies with the lowest priority -- any explicit code option overrides it.
+
+The CLI can safely change this project fallback without editing unrelated
+self-config settings:
+
+```bash
+confii env set production
+confii env reset
+```
+
+`confii env set` does not mutate the calling shell. A non-empty value in the
+configured `env_switcher` still wins, and the command says so. For a temporary
+selection, prefix the application or Confii command instead:
+
+```bash
+APP_ENV=production confii env
+APP_ENV=production go run .
+```
+
+Applications can obtain the same sorted inventory through
+`cfg.AvailableEnvironments()`. Sectioned environments are discovered from
+loaded top-level mappings; named environments are discovered from regular
+files matching each `environment_files` template and search path. The shared
+`default` layer is deliberately excluded.
 
 ### Separate Files Per Environment
 

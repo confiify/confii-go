@@ -18,7 +18,7 @@ production bug than as a CI failure.
 0. [Root Package Layout](#0-root-package-layout)
 1. [The DeepCopy Engine](#1-the-deepcopy-engine)
 2. [The Override Stack](#2-the-override-stack)
-3. [The Self-Config Secret Registry](#3-the-self-config-secret-registry)
+3. [Self-Config Provider Registries](#3-self-config-provider-registries)
 4. [Cross-Cutting Invariants](#4-cross-cutting-invariants)
 
 ---
@@ -317,14 +317,46 @@ rebuild plus a no-op.
 
 ---
 
-## 3. The Self-Config Secret Registry
+## 3. Self-Config Provider Registries
+
+### Configuration source registry
+
+**Source:** [`config_source_self.go`](https://github.com/confiify/confii-go/blob/main/config_source_self.go).
+
+Optional cloud loaders use the same driver-registration boundary as secret
+stores. Root owns the context-aware factory contract but does not import any
+provider SDK:
+
+```go
+type SelfConfigSourceProviderFactory func(
+    context.Context,
+    map[string]any,
+) (Loader, error)
+
+func RegisterSelfConfigSourceProvider(name string, factory SelfConfigSourceProviderFactory)
+func LookupSelfConfigSourceProvider(name string) (SelfConfigSourceProviderFactory, bool)
+```
+
+Core file/environment sources stay in the built-in dispatcher. The opt-in
+`loader/cloud` module registers `git`, `s3`, `ssm`, `azure_blob`, `gcs`, and
+`ibm_cos`; provider SDK implementations are selected by build tags. `New`
+passes its caller context into a registered factory and later into
+`Loader.Load`, so deployment preflights and application startup use the same
+credential discovery and read path.
+
+Unknown providers fail closed and list the factories actually registered in
+the current binary. A factory error is wrapped as `ErrConfigLoad`, and a nil
+loader is rejected before loading begins.
+
+### Secret registry
 
 **Source:** [`config_secret_self.go`](https://github.com/confiify/confii-go/blob/main/config_secret_self.go).
 
-The library supports a declarative `secrets:` block in self-config
-that wires a hook resolving `${secret:key}` placeholders against a
-named provider. The set of available providers is open-ended and
-varies with build configuration.
+The library supports a declarative `secrets:` block in self-config. The legacy
+shape wires `${secret:key}` to one provider. The named shape configures several
+provider aliases, selects a default globally or by active environment, and
+routes `${secret@provider:key}` explicitly. The set of available provider
+types is open-ended and varies with build configuration.
 
 ### The constraint
 
@@ -355,7 +387,24 @@ func LookupSelfConfigSecretProvider(name string) (SelfConfigSecretProviderFactor
 type SelfConfigSecretStore interface {
     GetSecret(ctx context.Context, key string) (any, error)
 }
+
+// Optional extension for version-aware declarative reads.
+type SelfConfigSecretRequestStore interface {
+    GetSecretRequest(context.Context, SelfConfigSecretRequest) (any, error)
+}
 ```
+
+Named provider factories are validated at construction and initialized only
+when the selected effective environment references them. After consolidation,
+Confii eagerly materializes all remaining secret references before publishing
+the Config. Reads of the same provider/key/version document are deduplicated
+within that materialization session, so multiple JSON paths share one backend
+fetch. The unresolved selected snapshot is retained for provider attribution
+and explicit `RefreshSecrets`; ordinary access uses the resolved snapshot.
+JSON-path extraction is performed uniformly after the store read;
+version-capable adapters receive the requested version through
+`SelfConfigSecretRequestStore`. Legacy custom providers remain source
+compatible and fail clearly if asked for a versioned read they cannot support.
 
 Three providers are pre-registered by root's own `init()`:
 
@@ -417,7 +466,8 @@ and the path to opt in.
 Three contracts must hold:
 
 1. **Factory signature.** `func(map[string]any) (SelfConfigSecretStore, error)`.
-   The map is the `secrets:` sub-map. Validate required fields
+   In the legacy shape the map is the `secrets:` sub-map. In the named shape it
+   is one entry under `secrets.providers`. Validate required fields
    (e.g. `base_dir`) and return a typed error from the factory if
    they are missing — `buildSelfConfigSecretHook` wraps that error
    into a `*ConfigError`.

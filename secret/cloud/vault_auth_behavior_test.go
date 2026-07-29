@@ -398,7 +398,9 @@ func TestVaultAuth_OIDC_HappyPath(t *testing.T) {
 			if !strings.Contains(authURL, "state=vault-state") {
 				t.Errorf("authorization URL: got %q", authURL)
 			}
-			return "http://localhost:8250/oidc/callback?state=vault-state&nonce=vault-nonce&code=provider-code", nil
+			// Real OIDC providers return state and code. They do not echo the
+			// authorization-request nonce as a callback query parameter.
+			return "http://localhost:8250/oidc/callback?state=vault-state&code=provider-code", nil
 		},
 	}
 	token, err := auth.Authenticate(f.client(t))
@@ -421,15 +423,15 @@ func TestVaultAuth_OIDC_RejectsMismatchedState(t *testing.T) {
 	auth := &OIDCAuth{
 		ClientNonce: "client-nonce",
 		CallbackProvider: func(string) (string, error) {
-			return "http://localhost:8250/oidc/callback?state=attacker&nonce=expected-nonce&code=code", nil
+			return "http://localhost:8250/oidc/callback?state=attacker&code=code", nil
 		},
 	}
 	_, err := auth.Authenticate(f.client(t))
 	if err == nil || !errors.Is(err, confii.ErrVaultAuth) {
 		t.Fatalf("error: got %v, want ErrVaultAuth", err)
 	}
-	if !strings.Contains(err.Error(), "state or nonce") {
-		t.Errorf("error: got %v, want state/nonce mismatch", err)
+	if !strings.Contains(err.Error(), "state did not match") {
+		t.Errorf("error: got %v, want state mismatch", err)
 	}
 }
 
@@ -457,7 +459,7 @@ func TestVaultAuth_OIDC_BuiltInLoopbackCallback(t *testing.T) {
 		RedirectURI: redirectURI,
 		ClientNonce: "loopback-client-nonce",
 		OpenBrowser: func(string) error {
-			callback := redirectURI + "?state=loopback-state&nonce=loopback-nonce&code=loopback-code"
+			callback := redirectURI + "?state=loopback-state&code=loopback-code"
 			resp, getErr := http.Get(callback)
 			if resp != nil {
 				_ = resp.Body.Close()

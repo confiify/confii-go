@@ -11,6 +11,7 @@ set -eu
 tags=${1:-aws,azure,gcp,vault,ibm}
 mode=${2:-test}
 repo_root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+coverage_output=${3:-$repo_root/coverage-cloud.out}
 fixture_dir=$(mktemp -d "${TMPDIR:-/tmp}/confii-cloud-consumer.XXXXXX")
 trap 'rm -rf "$fixture_dir"' EXIT HUP INT TERM
 GOCACHE="$fixture_dir/go-build"
@@ -54,6 +55,11 @@ case "$mode" in
 		# shellcheck disable=SC2086 # package list is intentionally word-split.
 		go test -tags "$tags" -count=1 -timeout=180s $packages
 		;;
+	coverage)
+		# shellcheck disable=SC2086 # package list is intentionally word-split.
+		go test -tags "$tags" -count=1 -timeout=180s -covermode=atomic \
+			-coverprofile="$coverage_output" $packages
+		;;
 	vet)
 		# shellcheck disable=SC2086 # package list is intentionally word-split.
 		go vet -tags "$tags" $packages
@@ -67,7 +73,7 @@ case "$mode" in
 			github.com/confiify/confii-go/secret/cloud
 		;;
 	*)
-		echo "usage: $0 [tags] [build|test|vet|vuln|openbao]" >&2
+		echo "usage: $0 [tags] [build|test|coverage|vet|vuln|openbao] [coverage-output]" >&2
 		exit 2
 		;;
 esac

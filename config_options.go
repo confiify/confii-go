@@ -115,9 +115,21 @@ type options struct {
 	// on the environment, but `environment_files` does; deferring the entire
 	// ordered list preserves source precedence when the two kinds are mixed.
 	selfConfigSources []map[string]any
+	// selfConfigSecrets is deferred until the active environment has been
+	// selected. Named secret-provider configurations may choose a different
+	// default provider for each environment.
+	selfConfigSecrets map[string]any
+	// selfConfigSecretProvider records only the normalized provider name for
+	// value-safe runtime introspection. Credentials and provider options stay
+	// inside the hook/store and are never exposed through Config.
+	selfConfigSecretProvider string
+	// selfConfigSecretProviders records every configured provider alias for
+	// value-safe introspection. It never contains provider credentials.
+	selfConfigSecretProviders []string
 	// SecretHook is a context-aware hook registered on the Config's hook
 	// processor at construction time so secret placeholders (for example
-	// ${secret:db/password}) are resolved during value access. It is the
+	// ${secret:db/password}) are eagerly resolved after source merging and
+	// environment selection, before New returns. It is the
 	// option-level wiring path (G04) parallel to the post-construction
 	// pattern of cfg.HookProcessor().RegisterGlobalHookCtx(...). Self-
 	// config `secrets` declarations populate this field with a built-in
@@ -128,6 +140,15 @@ type options struct {
 	// Tracks which fields were explicitly set by user options.
 	// Used to implement priority: explicit > self-config > built-in default.
 	explicitlySet map[string]bool
+}
+
+// ManagedSecretResolver is the constructor-time resolver contract used when
+// Confii should own both eager materialization and cache invalidation during
+// [Config.RefreshSecrets]. The resolver in the secret package satisfies this
+// interface without creating an import cycle.
+type ManagedSecretResolver interface {
+	HookCtx() hook.FuncCtx
+	ClearCache()
 }
 
 func defaultOptions() options {
@@ -439,11 +460,11 @@ func WithLogger(l *slog.Logger) Option {
 }
 
 // WithSecretHook registers a context-aware secret-resolution hook on the
-// Config's hook processor at construction time. The hook is invoked for
-// every accessed value (matching the [hook.Processor.RegisterGlobalHookCtx]
-// contract) so placeholders such as ${secret:KEY} can be substituted with
-// the resolved secret. Errors returned by the hook propagate to the caller
-// of [Config.GetCtx], honoring the standard hook error contract.
+// Config's hook processor at construction time. After sources are merged and
+// the active environment is selected, New invokes the hook across the final
+// effective configuration and fails atomically if a required secret cannot be
+// resolved. Ordinary reads then consume the ready in-memory snapshot; the hook
+// remains registered for backward-compatible runtime access paths.
 //
 // G04: this option is the explicit-wins counterpart to a self-config
 // `secrets:` declaration. When both are supplied, the explicit hook wins
@@ -451,4 +472,16 @@ func WithLogger(l *slog.Logger) Option {
 // of the explicit > self-config priority).
 func WithSecretHook(h hook.FuncCtx) Option {
 	return func(o *options) { o.SecretHook = h; o.explicitlySet["secret_hook"] = true }
+}
+
+// WithSecretResolver wires a managed resolver into eager initialization and
+// explicit refresh. Unlike [WithSecretHook], this option also gives Confii a
+// cache invalidation handle, so [Config.RefreshSecrets] reads through to the
+// backing store instead of accepting an unexpired resolver cache entry.
+func WithSecretResolver(resolver ManagedSecretResolver) Option {
+	return func(o *options) {
+		o.SecretResolver = resolver
+		o.SecretHook = resolver.HookCtx()
+		o.explicitlySet["secret_hook"] = true
+	}
 }

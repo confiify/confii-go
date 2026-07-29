@@ -156,6 +156,7 @@ func (c *Config[T]) Reload(ctx context.Context, opts ...ReloadOption) error {
 	// rolling it back, a subsequent incremental Reload would see the
 	// recorded-bad hash and short-circuit the change-detection gate.
 	oldEnv := copyMap(c.envConfig)
+	oldUnresolvedEnv := copyMap(c.unresolvedEnvConfig)
 	oldMerged := copyMap(c.mergedConfig)
 	trackerSnap := c.sourceTracker.Snapshot()
 	fileTrackerSnap := c.fileTracker.Snapshot()
@@ -168,6 +169,7 @@ func (c *Config[T]) Reload(ctx context.Context, opts ...ReloadOption) error {
 	// failure exits (load, validate) share the same restoration logic.
 	rollback := func(failureErr error) {
 		c.envConfig = oldEnv
+		c.unresolvedEnvConfig = oldUnresolvedEnv
 		c.mergedConfig = oldMerged
 		c.sourceTracker.Restore(trackerSnap)
 		c.fileTracker.Restore(fileTrackerSnap)
@@ -203,6 +205,14 @@ func (c *Config[T]) Reload(ctx context.Context, opts ...ReloadOption) error {
 	if err := c.loadSelected(ctx, selectedSources); err != nil {
 		rollback(err)
 		return err
+	}
+	if err := c.materializeEffectiveConfig(ctx); err != nil {
+		materializeErr := &ConfigError{
+			Op:  "Reload",
+			Err: fmt.Errorf("%w: materialize effective configuration: %w", ErrConfigLoad, err),
+		}
+		rollback(materializeErr)
+		return materializeErr
 	}
 
 	// Phase 5: Validate.
@@ -258,6 +268,7 @@ func (c *Config[T]) Reload(ctx context.Context, opts ...ReloadOption) error {
 	// records that the dry-run finished so operators have a trace.
 	if ro.dryRun {
 		c.envConfig = oldEnv
+		c.unresolvedEnvConfig = oldUnresolvedEnv
 		c.mergedConfig = oldMerged
 		c.sourceTracker.Restore(trackerSnap)
 		c.fileTracker.Restore(fileTrackerSnap)

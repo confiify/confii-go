@@ -84,7 +84,7 @@ Go has several configuration libraries, but none provides a complete configurati
 | Hook/middleware system (4 types) | Yes | No | No | No |
 | File watching + incremental reload | Yes | Yes | Yes | Partial |
 | JSON Schema validation | Yes | No | No | No |
-| CLI tool (12 commands) | Yes | No | No | No |
+| CLI tool (14 commands) | Yes | No | No | No |
 | Thread-safe (RWMutex) | Yes | [No](https://github.com/spf13/viper/issues/268) | Partial | Varies |
 
 <!-- markdownlint-disable MD033 -->
@@ -145,6 +145,29 @@ go get github.com/confiify/confii-go@latest
 go install github.com/confiify/confii-go/confii@latest
 confii --version
 ```
+
+Contributors and prerelease testers can install the current checkout with
+traceable development version metadata:
+
+```bash
+make install-dev
+confii --version  # dev-<commit>, with -dirty when applicable
+```
+
+Use `make install-dev INSTALL_DIR="$PWD/bin/dev-install"` to avoid replacing an
+existing released CLI. See the [installation guide](docs/installation.md#install-a-development-checkout)
+for the complete workflow.
+
+```bash
+make uninstall  # removes confii from the resolved Go installation directory
+```
+
+To test the unreleased library from another Go project, use a commit-pinned
+`go get` for pushed changes or `make consumer-link-dev
+CONSUMER_DIR=/absolute/path/to/project` for the local working tree. Cloud
+consumers use `consumer-link-dev-cloud` so the root, loader, and secret modules
+stay aligned. The [development consumer guide](docs/installation.md#use-an-unreleased-library-in-another-project)
+covers verification and cleanup.
 
 Starting from an empty directory? Follow the complete sequence below; creating
 the module before `go get` is required.
@@ -230,6 +253,8 @@ func main() {
 
 ```bash
 # Preview the exact layers before starting the application
+confii env
+confii env list
 confii plan
 APP_ENV=production confii plan
 
@@ -594,7 +619,9 @@ err := v.Validate(cfg.ToDict())
 
 ### Secret Management
 
-Secrets are resolved via the hook system — register a secret resolver as a global hook, and `${secret:key}` placeholders in config values are automatically replaced.
+Secrets are resolved eagerly after source merging and environment selection.
+`confii.New` returns only after the effective configuration is ready, so normal
+getters do not contact Vault or a cloud provider.
 
 ```go
 store := secret.NewDictStore(map[string]any{"db/password": "s3cret"})
@@ -603,11 +630,29 @@ resolver := secret.NewResolver(store,
     secret.WithCacheTTL(5 * time.Minute),
 )
 
-cfg.HookProcessor().RegisterGlobalHook(resolver.Hook())
-// ${secret:db/password} in values → "s3cret"
+cfg, err := confii.New[any](ctx,
+    confii.WithLoaders(loader.NewYAML("config.yaml")),
+    confii.WithSecretResolver(resolver),
+)
+if err != nil {
+    return err // required secrets fail startup atomically
+}
+
+// ${secret:db/password} was resolved before New returned.
+password, _ := cfg.Get("database.password") // in-memory read
+_ = password
+
+// Rotation is deliberate and preserves the last known-good snapshot on error.
+err = cfg.RefreshSecrets(ctx)
 ```
 
-**Placeholder formats:** `${secret:key}`, `${secret:key:json_path}`, `${secret:key:json_path:version}`
+**Placeholder formats:** `${secret:key}`, `${secret:key:json_path}`,
+`${secret:key:json_path:version}`, and the declarative named-provider form
+`${secret@provider:key[:json_path][:version]}`. Named providers support an
+environment-specific default plus explicit per-reference routing, so one
+application can use Vault for shared secrets and AWS/GCP/Azure for selected
+environments without ambiguous fallback behavior. See
+[Secret Management](docs/secrets.md#declarative-self-config-providers).
 
 **Cloud secret stores** (build-tag gated):
 
@@ -808,6 +853,8 @@ go install github.com/confiify/confii-go/confii@latest
 | Command | Description |
 | --- | --- |
 | `confii init` | Safely scaffold `.confii.yaml` and the selected environment layout |
+| `confii env` | Show the effective environment; list or safely change the configured default |
+| `confii connections test` | Perform value-safe reads against configured sources and secret providers |
 | `confii load` | Load and display configuration |
 | `confii get` | Retrieve a single value |
 | `confii export` | Export to a different format |
@@ -822,7 +869,10 @@ go install github.com/confiify/confii-go/confii@latest
 
 ```bash
 confii init
+confii env list
+confii env set production
 confii plan
+confii connections test
 APP_ENV=production confii load
 confii get database.host
 
@@ -875,6 +925,7 @@ repository.
 | [`hooks`](examples/hooks/main.go) | Key, value, condition, and global hooks |
 | [`validation`](examples/validation/main.go) | Struct tags + JSON Schema validation |
 | [`secrets`](examples/secrets/main.go) | Secret resolution with `${secret:key}` |
+| [`mixed-secrets`](examples/mixed-secrets/main.go) | Environment defaults and explicit `${secret@provider:key}` routing |
 
 #### Runtime & Debugging
 
@@ -920,7 +971,7 @@ github.com/confiify/confii-go/
   ├── internal/              # Internal utilities (dictutil, typecoerce, formatparse)
   ├── integration/           # End-to-end integration tests
   ├── examples/              # Runnable examples
-  └── confii/                # CLI tool (12 commands)
+  └── confii/                # CLI tool (14 commands)
 ```
 
 ## Requirements

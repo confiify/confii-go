@@ -128,7 +128,10 @@ Register it with the secret resolver:
 ```go
 store := &RedisSecretStore{client: redisClient}
 resolver := secret.NewResolver(store, secret.WithCache(true))
-cfg.HookProcessor().RegisterGlobalHook(resolver.Hook())
+cfg, err := confii.New[any](ctx,
+    confii.WithLoaders(loader.NewYAML("config.yaml")),
+    confii.WithSecretResolver(resolver),
+)
 ```
 
 ---

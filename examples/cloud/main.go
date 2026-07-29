@@ -52,14 +52,6 @@ func main() {
 		cloud.WithGitToken(os.Getenv("GIT_TOKEN")),
 	)
 
-	cfg, err := confii.New[any](ctx,
-		confii.WithLoaders(s3Loader, ssmLoader, gitLoader),
-		confii.WithDeepMerge(true),
-	)
-	if err != nil {
-		log.Fatal(err)
-	}
-
 	// ========================================
 	// Cloud Secret Stores
 	// ========================================
@@ -74,8 +66,16 @@ func main() {
 	multi := secret.NewMultiStore([]confii.SecretStore{awsStore})
 
 	resolver := secret.NewResolver(multi)
-	cfg.HookProcessor().RegisterGlobalHook(resolver.Hook())
+	cfg, err := confii.New[any](ctx,
+		confii.WithLoaders(s3Loader, ssmLoader, gitLoader),
+		confii.WithDeepMerge(true),
+		confii.WithSecretResolver(resolver),
+	)
+	if err != nil {
+		log.Fatal(err)
+	}
 
+	// Already resolved during New; this is an in-memory read.
 	val, _ := cfg.Get("some.key")
 	fmt.Println(val)
 }

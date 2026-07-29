@@ -441,8 +441,13 @@ func printInitNextSteps(output io.Writer, layout initLayout, root, environment, 
 		if _, err := fmt.Fprintln(output, "  Edit .confii.yaml and declare at least one source, then run: confii plan"); err != nil {
 			return err
 		}
-	} else if _, err := fmt.Fprintf(output, "  %s=%s confii plan\n", envSwitcher, environment); err != nil {
-		return err
+	} else {
+		if _, err := fmt.Fprintln(output, "  confii env list"); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintf(output, "  %s=%s confii plan\n", envSwitcher, environment); err != nil {
+			return err
+		}
 	}
 	_, err := fmt.Fprintln(output, "  In Go: cfg, err := confii.New[YourConfig](ctx)")
 	return err

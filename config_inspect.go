@@ -17,6 +17,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+const redactedSecretValue = "[REDACTED: secret-backed value]"
+
 // Explain returns detailed resolution information for a key.
 //
 // D08 (Wave 13): every value embedded in the returned map is defensively
@@ -48,12 +50,20 @@ func (c *Config[T]) Explain(keyPath string) map[string]any {
 		"environment":    c.env,
 		"override_count": info.OverrideCount,
 	}
+	secretBacked := c.secretBackedPathLocked(keyPath)
+	if secretBacked {
+		result["value"] = redactedSecretValue
+	}
 
 	if len(info.History) > 0 {
 		history := make([]map[string]any, 0, len(info.History))
 		for _, h := range info.History {
+			historyValue := dictutil.DeepCopyValue(h.Value)
+			if secretBacked {
+				historyValue = redactedSecretValue
+			}
 			history = append(history, map[string]any{
-				"value":       dictutil.DeepCopyValue(h.Value),
+				"value":       historyValue,
 				"source":      h.Source,
 				"loader_type": h.LoaderType,
 			})
@@ -64,7 +74,11 @@ func (c *Config[T]) Explain(keyPath string) map[string]any {
 	// Current value from live config — deep-copied so a caller mutating
 	// the returned map cannot leak into envConfig (D08 / G10 parity).
 	if val, ok := dictutil.GetNested(c.envConfig, keyPath); ok {
-		result["current_value"] = dictutil.DeepCopyValue(val)
+		if secretBacked {
+			result["current_value"] = redactedSecretValue
+		} else {
+			result["current_value"] = dictutil.DeepCopyValue(val)
+		}
 	}
 
 	return result
@@ -88,7 +102,11 @@ func (c *Config[T]) Schema(keyPath string) map[string]any {
 	}
 
 	result["exists"] = true
-	result["value"] = dictutil.DeepCopyValue(val)
+	if c.secretBackedPathLocked(keyPath) {
+		result["value"] = redactedSecretValue
+	} else {
+		result["value"] = dictutil.DeepCopyValue(val)
+	}
 	result["type"] = fmt.Sprintf("%T", val)
 
 	return result
@@ -143,6 +161,141 @@ func (c *Config[T]) SourcePlan() SourcePlan {
 	return cloneSourcePlan(c.sourcePlan)
 }
 
+// SecretProvider returns the normalized name of the secret provider declared
+// in the active self-configuration. It intentionally exposes no credentials,
+// endpoint, namespace, secret path, or resolved value. An empty string means
+// that no declarative provider was configured (an explicit custom hook may
+// still resolve secrets).
+func (c *Config[T]) SecretProvider() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.opts.selfConfigSecretProvider
+}
+
+// SecretProviders returns the configured declarative provider aliases in
+// deterministic order. It exposes no credentials or backend options. For a
+// legacy single-provider configuration the result contains that provider.
+func (c *Config[T]) SecretProviders() []string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return append([]string(nil), c.opts.selfConfigSecretProviders...)
+}
+
+// SecretReferenceKeys returns configuration key paths whose raw values
+// contain at least one ${secret:...} or ${secret@provider:...} placeholder.
+// The referenced provider alias and secret key are never returned, which makes
+// this suitable for health reporting.
+func (c *Config[T]) SecretReferenceKeys() []string {
+	c.mu.RLock()
+	snapshot := dictutil.DeepCopy(c.unresolvedEnvConfig)
+	c.mu.RUnlock()
+
+	seen := make(map[string]struct{})
+	collectSecretReferenceKeys("", snapshot, seen)
+	keys := make([]string, 0, len(seen))
+	for key := range seen {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func (c *Config[T]) secretBackedPathLocked(keyPath string) bool {
+	if c.unresolvedEnvConfig == nil {
+		return false
+	}
+	value, ok := dictutil.GetNested(c.unresolvedEnvConfig, keyPath)
+	if !ok {
+		return false
+	}
+	found := make(map[string]struct{})
+	collectSecretReferenceKeys(keyPath, value, found)
+	return len(found) > 0
+}
+
+// SecretReferenceProviders returns the provider aliases selected by raw
+// secret references in the active merged configuration. Unqualified
+// references contribute the effective default provider; explicitly qualified
+// references contribute their alias. Secret keys and resolved values are
+// never exposed.
+func (c *Config[T]) SecretReferenceProviders() []string {
+	return c.SecretReferenceProvidersFor()
+}
+
+// SecretReferenceProvidersFor is the key-scoped form of
+// [Config.SecretReferenceProviders]. A selected parent path includes every
+// reference in its subtree. With no paths it inspects the complete active
+// configuration.
+func (c *Config[T]) SecretReferenceProvidersFor(keyPaths ...string) []string {
+	c.mu.RLock()
+	snapshot := dictutil.DeepCopy(c.unresolvedEnvConfig)
+	defaultProvider := c.opts.selfConfigSecretProvider
+	c.mu.RUnlock()
+
+	seen := make(map[string]struct{})
+	if len(keyPaths) == 0 {
+		collectSecretReferenceProviders(snapshot, defaultProvider, seen)
+	} else {
+		for _, keyPath := range keyPaths {
+			if value, ok := dictutil.GetNested(snapshot, keyPath); ok {
+				collectSecretReferenceProviders(value, defaultProvider, seen)
+			}
+		}
+	}
+	providers := make([]string, 0, len(seen))
+	for provider := range seen {
+		if provider != "" {
+			providers = append(providers, provider)
+		}
+	}
+	sort.Strings(providers)
+	return providers
+}
+
+func collectSecretReferenceKeys(path string, value any, found map[string]struct{}) {
+	switch typed := value.(type) {
+	case map[string]any:
+		for key, child := range typed {
+			childPath := key
+			if path != "" {
+				childPath = path + "." + key
+			}
+			collectSecretReferenceKeys(childPath, child, found)
+		}
+	case []any:
+		for _, child := range typed {
+			collectSecretReferenceKeys(path, child, found)
+		}
+	case string:
+		if path != "" && selfConfigSecretPattern.MatchString(typed) {
+			found[path] = struct{}{}
+		}
+	}
+}
+
+func collectSecretReferenceProviders(value any, defaultProvider string, found map[string]struct{}) {
+	switch typed := value.(type) {
+	case map[string]any:
+		for _, child := range typed {
+			collectSecretReferenceProviders(child, defaultProvider, found)
+		}
+	case []any:
+		for _, child := range typed {
+			collectSecretReferenceProviders(child, defaultProvider, found)
+		}
+	case string:
+		for _, groups := range selfConfigSecretPattern.FindAllStringSubmatch(typed, -1) {
+			provider := strings.ToLower(groups[1])
+			if provider == "" {
+				provider = defaultProvider
+			}
+			if provider != "" {
+				found[provider] = struct{}{}
+			}
+		}
+	}
+}
+
 // GetSourceInfo returns source tracking info for a key.
 func (c *Config[T]) GetSourceInfo(keyPath string) *sourcetrack.SourceInfo {
 	return c.sourceTracker.GetSourceInfo(keyPath)
@@ -189,6 +342,7 @@ func (c *Config[T]) GenerateDocs(format string) (string, error) {
 	defer c.mu.RUnlock()
 
 	flat := dictutil.Flatten(c.envConfig)
+	raw := c.unresolvedEnvConfig
 	keys := make([]string, 0, len(flat))
 	for k := range flat {
 		keys = append(keys, k)
@@ -205,6 +359,13 @@ func (c *Config[T]) GenerateDocs(format string) (string, error) {
 	var entries []docEntry
 	for _, k := range keys {
 		v := flat[k]
+		if rawValue, ok := dictutil.GetNested(raw, k); ok {
+			found := make(map[string]struct{})
+			collectSecretReferenceKeys(k, rawValue, found)
+			if len(found) > 0 {
+				v = redactedSecretValue
+			}
+		}
 		source := ""
 		if info := c.sourceTracker.GetSourceInfo(k); info != nil {
 			source = info.SourceFile

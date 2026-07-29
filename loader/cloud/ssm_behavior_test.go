@@ -37,6 +37,7 @@ import (
 	"testing"
 
 	confii "github.com/confiify/confii-go"
+	"github.com/stretchr/testify/require"
 )
 
 // ssmFixture wires a httptest server up as a fake SSM endpoint and
@@ -88,7 +89,11 @@ func TestSSMLoader_Load_HappyPath_ReturnsParsedKeys(t *testing.T) {
 		})
 	})
 
-	l := NewSSM("/myapp/", WithSSMRegion("us-east-1"), WithSSMCredentials("AKIA-test", "secret-test"))
+	l := NewSSM("/myapp/",
+		WithSSMRegion("us-east-1"),
+		WithSSMCredentials("AKIA-test", "secret-test"),
+		WithSSMEndpoint(f.server.URL),
+	)
 	got, err := l.Load(context.Background())
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -116,6 +121,15 @@ func TestSSMLoader_Load_HappyPath_ReturnsParsedKeys(t *testing.T) {
 	if !strings.Contains(string(f.lastBody), "/myapp/") {
 		t.Errorf("captured body: got %q, want containing %q", string(f.lastBody), "/myapp/")
 	}
+}
+
+func TestSSMLoader_LoadCanceledContextWrapsConfigError(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	l := NewSSM("/canceled/", WithSSMRegion("us-east-1"))
+	_, err := l.Load(ctx)
+	require.Error(t, err)
+	require.ErrorIs(t, err, confii.ErrConfigLoad)
 }
 
 // TestSSMLoader_Load_ServerError_ReturnsConfigLoadError exercises the
