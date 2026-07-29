@@ -22,7 +22,7 @@ func newSelfConfigS3(_ context.Context, cfg map[string]any) (confii.Loader, erro
 	if address == "" {
 		return nil, fmt.Errorf("s3 source requires url")
 	}
-	opts := make([]S3Option, 0, 2)
+	opts := make([]S3Option, 0, 4)
 	if region := sourceString(cfg, "region"); region != "" {
 		opts = append(opts, WithS3Region(region))
 	}
@@ -33,6 +33,14 @@ func newSelfConfigS3(_ context.Context, cfg map[string]any) (confii.Loader, erro
 	if accessKey != "" {
 		opts = append(opts, WithS3Credentials(accessKey, secretKey))
 	}
+	if endpoint := sourceString(cfg, "endpoint", "endpoint_url"); endpoint != "" {
+		opts = append(opts, WithS3Endpoint(endpoint))
+	}
+	pathStyle, err := sourceBool(cfg, "path_style", false)
+	if err != nil {
+		return nil, err
+	}
+	opts = append(opts, WithS3PathStyle(pathStyle))
 	return NewS3(address, opts...)
 }
 
@@ -41,7 +49,7 @@ func newSelfConfigSSM(_ context.Context, cfg map[string]any) (confii.Loader, err
 	if path == "" {
 		return nil, fmt.Errorf("ssm source requires path")
 	}
-	opts := make([]SSMOption, 0, 3)
+	opts := make([]SSMOption, 0, 4)
 	if region := sourceString(cfg, "region"); region != "" {
 		opts = append(opts, WithSSMRegion(region))
 	}
@@ -56,6 +64,9 @@ func newSelfConfigSSM(_ context.Context, cfg map[string]any) (confii.Loader, err
 	}
 	if accessKey != "" {
 		opts = append(opts, WithSSMCredentials(accessKey, secretKey))
+	}
+	if endpoint := sourceString(cfg, "endpoint", "endpoint_url"); endpoint != "" {
+		opts = append(opts, WithSSMEndpoint(endpoint))
 	}
 	return NewSSM(path, opts...), nil
 }

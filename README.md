@@ -619,7 +619,9 @@ err := v.Validate(cfg.ToDict())
 
 ### Secret Management
 
-Secrets are resolved via the hook system — register a secret resolver as a global hook, and `${secret:key}` placeholders in config values are automatically replaced.
+Secrets are resolved eagerly after source merging and environment selection.
+`confii.New` returns only after the effective configuration is ready, so normal
+getters do not contact Vault or a cloud provider.
 
 ```go
 store := secret.NewDictStore(map[string]any{"db/password": "s3cret"})
@@ -628,8 +630,20 @@ resolver := secret.NewResolver(store,
     secret.WithCacheTTL(5 * time.Minute),
 )
 
-cfg.HookProcessor().RegisterGlobalHook(resolver.Hook())
-// ${secret:db/password} in values → "s3cret"
+cfg, err := confii.New[any](ctx,
+    confii.WithLoaders(loader.NewYAML("config.yaml")),
+    confii.WithSecretResolver(resolver),
+)
+if err != nil {
+    return err // required secrets fail startup atomically
+}
+
+// ${secret:db/password} was resolved before New returned.
+password, _ := cfg.Get("database.password") // in-memory read
+_ = password
+
+// Rotation is deliberate and preserves the last known-good snapshot on error.
+err = cfg.RefreshSecrets(ctx)
 ```
 
 **Placeholder formats:** `${secret:key}`, `${secret:key:json_path}`,

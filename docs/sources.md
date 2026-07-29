@@ -274,8 +274,8 @@ sources:
 | Type | Required fields | Optional fields |
 | --- | --- | --- |
 | `git` | `repository`, `file_path` | `branch`, `token` |
-| `s3` | `url` | `region`, `access_key`, `secret_key` |
-| `ssm` | `path` | `region`, `decrypt`, `access_key`, `secret_key` |
+| `s3` | `url` | `region`, `access_key`, `secret_key`, `endpoint`, `path_style` |
+| `ssm` | `path` | `region`, `decrypt`, `access_key`, `secret_key`, `endpoint` |
 | `azure_blob` | `container_url`, `blob` | `connection_string`, or `account_name` with `account_key`/`sas_token` |
 | `gcs` | `bucket`, `object` | `project_id`, `credentials_file` |
 | `ibm_cos` | `bucket`, `object` | `region`, `endpoint` |

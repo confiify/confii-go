@@ -25,6 +25,28 @@ import (
 // normal loading, but only environment names observable in their loaded
 // sectioned data can be returned here.
 func (c *Config[T]) AvailableEnvironments() ([]string, error) {
+	return c.availableEnvironments(defaultEnvironmentInventoryFS())
+}
+
+type environmentInventoryFS struct {
+	abs       func(string) (string, error)
+	stat      func(string) (os.FileInfo, error)
+	readDir   func(string) ([]os.DirEntry, error)
+	entryInfo func(os.DirEntry) (os.FileInfo, error)
+}
+
+func defaultEnvironmentInventoryFS() environmentInventoryFS {
+	return environmentInventoryFS{
+		abs:     filepath.Abs,
+		stat:    os.Stat,
+		readDir: os.ReadDir,
+		entryInfo: func(entry os.DirEntry) (os.FileInfo, error) {
+			return entry.Info()
+		},
+	}
+}
+
+func (c *Config[T]) availableEnvironments(fs environmentInventoryFS) ([]string, error) {
 	c.mu.RLock()
 	layers := copyLoaderLayers(c.loaderLayers)
 	loaders := append([]Loader(nil), c.loaders...)
@@ -57,7 +79,7 @@ func (c *Config[T]) AvailableEnvironments() ([]string, error) {
 	if root == "" {
 		root = "."
 	}
-	absRoot, err := filepath.Abs(root)
+	absRoot, err := fs.abs(root)
 	if err != nil {
 		return nil, environmentFilesError("resolve project root for environment inventory", err)
 	}
@@ -71,7 +93,7 @@ func (c *Config[T]) AvailableEnvironments() ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		if err := discoverNamedEnvironments(absRoot, cfg, available); err != nil {
+		if err := discoverNamedEnvironmentsWithFS(absRoot, cfg, available, fs); err != nil {
 			return nil, err
 		}
 	}
@@ -85,13 +107,22 @@ func (c *Config[T]) AvailableEnvironments() ([]string, error) {
 }
 
 func discoverNamedEnvironments(root string, cfg environmentFilesSource, available map[string]struct{}) error {
+	return discoverNamedEnvironmentsWithFS(root, cfg, available, defaultEnvironmentInventoryFS())
+}
+
+func discoverNamedEnvironmentsWithFS(
+	root string,
+	cfg environmentFilesSource,
+	available map[string]struct{},
+	fs environmentInventoryFS,
+) error {
 	prefix, suffix, _ := strings.Cut(cfg.environmentFile, environmentPlaceholder)
 	for _, searchPath := range cfg.searchPaths {
 		dir := searchPath
 		if !filepath.IsAbs(dir) {
 			dir = filepath.Join(root, dir)
 		}
-		info, err := os.Stat(dir)
+		info, err := fs.stat(dir)
 		if errors.Is(err, os.ErrNotExist) {
 			continue
 		}
@@ -101,7 +132,7 @@ func discoverNamedEnvironments(root string, cfg environmentFilesSource, availabl
 		if !info.IsDir() {
 			return environmentFilesError("list environment search path "+dir, errors.New("not a directory"))
 		}
-		entries, err := os.ReadDir(dir)
+		entries, err := fs.readDir(dir)
 		if err != nil {
 			return environmentFilesError("list environment search path "+dir, err)
 		}
@@ -113,7 +144,7 @@ func discoverNamedEnvironments(root string, cfg environmentFilesSource, availabl
 			if !ok || name == "default" || validateEnvironmentName(name) != nil {
 				continue
 			}
-			info, err := entry.Info()
+			info, err := fs.entryInfo(entry)
 			if err != nil {
 				return environmentFilesError("inspect environment candidate "+filepath.Join(dir, entry.Name()), err)
 			}

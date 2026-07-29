@@ -95,9 +95,12 @@ on_error: raise # raise | warn | ignore
 # install Confii's JSON logger at that level.
 log_level: ""
 
-# Declarative secret resolution. An empty map disables it. Core providers are
-# env, dict, and file. Build-tagged cloud registration adds aws, azure, gcp,
-# and vault. Never commit literal production secrets.
+# Declarative secret resolution. After all sources are merged and the active
+# environment is selected, Confii resolves every remaining reference before
+# New returns. Normal getters then use the ready in-memory snapshot; call
+# RefreshSecrets explicitly for rotation. An empty map disables providers.
+# Core providers are env, dict, and file. Build-tagged cloud registration adds
+# aws, azure, gcp, and vault. Never commit literal production secrets.
 secrets: {}
 # Example:
 # secrets:

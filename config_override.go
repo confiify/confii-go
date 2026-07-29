@@ -4,6 +4,9 @@
 package confii
 
 import (
+	"context"
+	"fmt"
+
 	"github.com/confiify/confii-go/internal/dictutil"
 	"github.com/confiify/confii-go/sourcetrack"
 	"log/slog"
@@ -13,9 +16,10 @@ import (
 // applied flag is flipped on the first restore invocation, so a
 // second call is a no-op.
 type overrideFrame struct {
-	id      uint64
-	payload map[string]any
-	applied bool
+	id               uint64
+	payload          map[string]any
+	effectivePayload map[string]any
+	applied          bool
 }
 
 // Override temporarily overrides configuration values.
@@ -54,6 +58,20 @@ type overrideFrame struct {
 // permit nested overrides). Callers that have not relinquished an
 // override scope cannot Freeze the Config.
 func (c *Config[T]) Override(overrides map[string]any) (restore func(), err error) {
+	// Materialize every candidate before locking or mutating live state.
+	// Provider failures reject the complete override and preserve the current
+	// ready snapshot.
+	effectiveOverrides := make(map[string]any, len(overrides))
+	for key, value := range overrides {
+		resolved, resolveErr := c.materializeEffectiveValue(context.Background(), key, value)
+		if resolveErr != nil {
+			return nil, &ConfigError{
+				Op:  "Override",
+				Err: fmt.Errorf("%w: materialize %q: %w", ErrConfigLoad, key, resolveErr),
+			}
+		}
+		effectiveOverrides[key] = resolved
+	}
 	c.mu.Lock()
 
 	wasEmpty := len(c.overrideStack) == 0
@@ -63,12 +81,24 @@ func (c *Config[T]) Override(overrides map[string]any) (restore func(), err erro
 	// just append.
 	if wasEmpty {
 		c.overrideBaseEnv = dictutil.DeepCopy(c.envConfig)
+		rawBase := c.unresolvedEnvConfig
+		if rawBase == nil {
+			rawBase = c.envConfig
+		}
+		c.overrideBaseRawEnv = dictutil.DeepCopy(rawBase)
 		c.overrideBaseMerged = dictutil.DeepCopy(c.mergedConfig)
 		c.overrideBaseTracker = c.sourceTracker.Snapshot()
 		c.overrideBaseFrozen = c.frozen
 	}
 
 	preOverrideEnv := copyMap(c.envConfig)
+	var preOverrideRawEnv map[string]any
+	if c.unresolvedEnvConfig == nil {
+		preOverrideRawEnv = copyMap(c.envConfig)
+		c.unresolvedEnvConfig = copyMap(c.envConfig)
+	} else {
+		preOverrideRawEnv = copyMap(c.unresolvedEnvConfig)
+	}
 	preOverrideMerged := copyMap(c.mergedConfig)
 	preOverrideTrackerSnap := c.sourceTracker.Snapshot()
 	preOverrideFrozen := c.frozen
@@ -79,23 +109,28 @@ func (c *Config[T]) Override(overrides map[string]any) (restore func(), err erro
 	// frames below this push must remain applied), and surfaces the
 	// error as a typed *ConfigError.
 	frame := &overrideFrame{
-		id:      c.overrideIDCounter + 1,
-		payload: make(map[string]any, len(overrides)),
-		applied: true,
+		id:               c.overrideIDCounter + 1,
+		payload:          make(map[string]any, len(overrides)),
+		effectivePayload: make(map[string]any, len(overrides)),
+		applied:          true,
 	}
 	c.overrideIDCounter = frame.id
 	for k, v := range overrides {
 		// Defensive deep copy: a caller mutating the overrides map
 		// after Override returns must not bleed into Config state.
 		stored := dictutil.DeepCopyValue(v)
+		effectiveStored := dictutil.DeepCopyValue(effectiveOverrides[k])
 		frame.payload[k] = stored
-		if serr := dictutil.SetNested(c.envConfig, k, stored); serr != nil {
+		frame.effectivePayload[k] = effectiveStored
+		if serr := dictutil.SetNested(c.envConfig, k, effectiveStored); serr != nil {
 			c.envConfig = preOverrideEnv
+			c.unresolvedEnvConfig = preOverrideRawEnv
 			c.mergedConfig = preOverrideMerged
 			c.frozen = preOverrideFrozen
 			c.sourceTracker.Restore(preOverrideTrackerSnap)
 			if wasEmpty {
 				c.overrideBaseEnv = nil
+				c.overrideBaseRawEnv = nil
 				c.overrideBaseMerged = nil
 				c.overrideBaseTracker = sourcetrack.Snapshot{}
 			}
@@ -110,13 +145,30 @@ func (c *Config[T]) Override(overrides map[string]any) (restore func(), err erro
 			}
 			return nil, NewInvalidError("Override", k, serr)
 		}
-		if serr := dictutil.SetNested(c.mergedConfig, k, stored); serr != nil {
+		if serr := dictutil.SetNested(c.unresolvedEnvConfig, k, stored); serr != nil {
 			c.envConfig = preOverrideEnv
+			c.unresolvedEnvConfig = preOverrideRawEnv
 			c.mergedConfig = preOverrideMerged
 			c.frozen = preOverrideFrozen
 			c.sourceTracker.Restore(preOverrideTrackerSnap)
 			if wasEmpty {
 				c.overrideBaseEnv = nil
+				c.overrideBaseRawEnv = nil
+				c.overrideBaseMerged = nil
+				c.overrideBaseTracker = sourcetrack.Snapshot{}
+			}
+			c.mu.Unlock()
+			return nil, NewInvalidError("Override", k, serr)
+		}
+		if serr := dictutil.SetNested(c.mergedConfig, k, stored); serr != nil {
+			c.envConfig = preOverrideEnv
+			c.unresolvedEnvConfig = preOverrideRawEnv
+			c.mergedConfig = preOverrideMerged
+			c.frozen = preOverrideFrozen
+			c.sourceTracker.Restore(preOverrideTrackerSnap)
+			if wasEmpty {
+				c.overrideBaseEnv = nil
+				c.overrideBaseRawEnv = nil
 				c.overrideBaseMerged = nil
 				c.overrideBaseTracker = sourcetrack.Snapshot{}
 			}
@@ -196,10 +248,12 @@ func (c *Config[T]) makeOverrideRestore(frame *overrideFrame) func() {
 			// Stack drained: restore base atomically. frozen returns
 			// to whatever it was when the first override pushed.
 			c.envConfig = c.overrideBaseEnv
+			c.unresolvedEnvConfig = c.overrideBaseRawEnv
 			c.mergedConfig = c.overrideBaseMerged
 			c.sourceTracker.Restore(c.overrideBaseTracker)
 			c.frozen = c.overrideBaseFrozen
 			c.overrideBaseEnv = nil
+			c.overrideBaseRawEnv = nil
 			c.overrideBaseMerged = nil
 			c.overrideBaseTracker = sourcetrack.Snapshot{}
 		} else {
@@ -207,18 +261,38 @@ func (c *Config[T]) makeOverrideRestore(frame *overrideFrame) func() {
 			// base (so we do not mutate the persisted snapshot) and
 			// replay each frame's payload in push order.
 			c.envConfig = dictutil.DeepCopy(c.overrideBaseEnv)
+			rawBase := c.overrideBaseRawEnv
+			if rawBase == nil {
+				rawBase = c.overrideBaseEnv
+			}
+			c.unresolvedEnvConfig = dictutil.DeepCopy(rawBase)
 			c.mergedConfig = dictutil.DeepCopy(c.overrideBaseMerged)
 			c.sourceTracker.Restore(c.overrideBaseTracker)
 			for _, f := range c.overrideStack {
 				for k, v := range f.payload {
+					effectiveValue, materialized := f.effectivePayload[k]
+					if !materialized {
+						effectiveValue = v
+					}
 					// Replay-time SetNested failure means a Set or
 					// Reload during override scope reshaped the tree;
 					// log and skip. The scope is best-effort under
 					// concurrent mutation.
-					if serr := dictutil.SetNested(c.envConfig, k, v); serr != nil {
+					if serr := dictutil.SetNested(c.envConfig, k, effectiveValue); serr != nil {
 						if c.logger != nil {
 							c.logger.Warn(
 								"override replay skipped key",
+								slog.String("key", k),
+								slog.Uint64("frame_id", f.id),
+								slog.String("error", serr.Error()),
+							)
+						}
+						continue
+					}
+					if serr := dictutil.SetNested(c.unresolvedEnvConfig, k, v); serr != nil {
+						if c.logger != nil {
+							c.logger.Warn(
+								"override replay skipped key on unresolved environment",
 								slog.String("key", k),
 								slog.Uint64("frame_id", f.id),
 								slog.String("error", serr.Error()),

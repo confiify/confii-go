@@ -492,6 +492,62 @@ func getSelfConfigSecret(ctx context.Context, store SelfConfigSecretStore, key, 
 
 type selfConfigSecretGetter func(context.Context, string, string, string) (any, error)
 
+// secretResolutionSession deduplicates provider reads during one eager
+// materialization pass. A single remote secret document can feed multiple
+// configuration keys or JSON paths without generating repeated backend
+// requests. Entries are scoped to the caller's context and are never reused
+// by a later explicit refresh.
+type secretResolutionSession struct {
+	mu      sync.Mutex
+	entries map[string]*secretResolutionSessionEntry
+}
+
+type secretResolutionSessionEntry struct {
+	done  chan struct{}
+	value any
+	err   error
+}
+
+type secretResolutionSessionContextKey struct{}
+
+func withSecretResolutionSession(ctx context.Context) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, secretResolutionSessionContextKey{}, &secretResolutionSession{
+		entries: make(map[string]*secretResolutionSessionEntry),
+	})
+}
+
+func getSelfConfigSecretOnce(
+	ctx context.Context,
+	get selfConfigSecretGetter,
+	provider, key, version string,
+) (any, error) {
+	session, ok := ctx.Value(secretResolutionSessionContextKey{}).(*secretResolutionSession)
+	if !ok || session == nil {
+		return get(ctx, provider, key, version)
+	}
+	cacheKey := provider + "\x00" + key + "\x00" + version
+	session.mu.Lock()
+	if existing, found := session.entries[cacheKey]; found {
+		session.mu.Unlock()
+		select {
+		case <-existing.done:
+			return existing.value, existing.err
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	entry := &secretResolutionSessionEntry{done: make(chan struct{})}
+	session.entries[cacheKey] = entry
+	session.mu.Unlock()
+
+	entry.value, entry.err = get(ctx, provider, key, version)
+	close(entry.done)
+	return entry.value, entry.err
+}
+
 func makeSelfConfigSecretValueHook(get selfConfigSecretGetter) hook.FuncCtx {
 	return func(ctx context.Context, _ string, value any) (any, error) {
 		s, ok := value.(string)
@@ -512,7 +568,7 @@ func makeSelfConfigSecretValueHook(get selfConfigSecretGetter) hook.FuncCtx {
 			key := groups[2]
 			jsonPath := groups[3]
 			version := groups[4]
-			val, err := get(ctx, provider, key, version)
+			val, err := getSelfConfigSecretOnce(ctx, get, provider, key, version)
 			if err != nil {
 				firstErr = err
 				return match

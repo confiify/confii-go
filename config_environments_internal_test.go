@@ -5,9 +5,12 @@ package confii
 
 import (
 	"context"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/confiify/confii-go/envhandler"
 	"github.com/stretchr/testify/assert"
@@ -30,6 +33,72 @@ func TestDiscoverNamedEnvironmentsEdgeCases(t *testing.T) {
 	cfg.searchPaths = []string{notDirectory}
 	require.ErrorContains(t, discoverNamedEnvironments(root, cfg, available), "list environment search path")
 }
+
+func TestEnvironmentInventoryFilesystemFailures(t *testing.T) {
+	baseFS := defaultEnvironmentInventoryFS()
+	newConfig := func() *Config[any] {
+		return &Config[any]{
+			envHandler: envhandler.New(nil),
+			opts: options{selfConfigSources: []map[string]any{{
+				"type": "environment_files", "search_paths": []any{"config"},
+			}}},
+		}
+	}
+
+	t.Run("absolute root", func(t *testing.T) {
+		injected := baseFS
+		injected.abs = func(string) (string, error) { return "", errors.New("abs failed") }
+		_, err := newConfig().availableEnvironments(injected)
+		require.ErrorContains(t, err, "resolve project root")
+	})
+
+	t.Run("stat", func(t *testing.T) {
+		injected := baseFS
+		injected.stat = func(string) (os.FileInfo, error) { return nil, errors.New("stat failed") }
+		_, err := newConfig().availableEnvironments(injected)
+		require.ErrorContains(t, err, "inspect environment search path")
+	})
+
+	t.Run("read directory", func(t *testing.T) {
+		injected := baseFS
+		injected.stat = func(string) (os.FileInfo, error) { return inventoryFileInfo{directory: true}, nil }
+		injected.readDir = func(string) ([]os.DirEntry, error) { return nil, errors.New("read failed") }
+		_, err := newConfig().availableEnvironments(injected)
+		require.ErrorContains(t, err, "list environment search path")
+	})
+
+	t.Run("entry info", func(t *testing.T) {
+		injected := baseFS
+		injected.stat = func(string) (os.FileInfo, error) { return inventoryFileInfo{directory: true}, nil }
+		injected.readDir = func(string) ([]os.DirEntry, error) {
+			return []os.DirEntry{inventoryDirEntry{name: "development.yaml"}}, nil
+		}
+		injected.entryInfo = func(os.DirEntry) (os.FileInfo, error) { return nil, errors.New("info failed") }
+		_, err := newConfig().availableEnvironments(injected)
+		require.ErrorContains(t, err, "inspect environment candidate")
+	})
+}
+
+type inventoryFileInfo struct{ directory bool }
+
+func (i inventoryFileInfo) Name() string { return "fixture" }
+func (i inventoryFileInfo) Size() int64  { return 0 }
+func (i inventoryFileInfo) Mode() fs.FileMode {
+	if i.directory {
+		return fs.ModeDir
+	}
+	return 0
+}
+func (i inventoryFileInfo) ModTime() time.Time { return time.Time{} }
+func (i inventoryFileInfo) IsDir() bool        { return i.directory }
+func (i inventoryFileInfo) Sys() any           { return nil }
+
+type inventoryDirEntry struct{ name string }
+
+func (i inventoryDirEntry) Name() string             { return i.name }
+func (inventoryDirEntry) IsDir() bool                { return false }
+func (inventoryDirEntry) Type() fs.FileMode          { return 0 }
+func (inventoryDirEntry) Info() (os.FileInfo, error) { return inventoryFileInfo{}, nil }
 
 func TestEnvironmentNameFromFilename(t *testing.T) {
 	name, ok := environmentNameFromFilename("app-production.yaml", "app-", ".yaml")

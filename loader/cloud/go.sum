@@ -94,6 +94,8 @@ github.com/cncf/xds/go v0.0.0-20260202195803-dba9d589def2 h1:aBangftG7EVZoUb69Os
 github.com/cncf/xds/go v0.0.0-20260202195803-dba9d589def2/go.mod h1:qwXFYgsP6T7XnJtbKlf1HP8AjxZZyzxMmc+Lq5GjlU4=
 github.com/confiify/confii-go v1.2.0 h1:NPT2eDY4xAsPOCxz+vgWusKRwHtWIgvdLCxw6X/BrPM=
 github.com/confiify/confii-go v1.2.0/go.mod h1:rj99YCdawZ4QeJwqHeN9B11qAj6WLKM9lOrU5T2fHNg=
+github.com/confiify/confii-go v1.3.1 h1:ci+tvqGuXbJwox3uwnVgsFj3qNooCVT8qNeTdcLssFM=
+github.com/confiify/confii-go v1.3.1/go.mod h1:rj99YCdawZ4QeJwqHeN9B11qAj6WLKM9lOrU5T2fHNg=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc h1:U9qPSI2PIWSS1VwoXQT9A3Wy9MM3WgvqSxFWenqJduM=

@@ -97,6 +97,7 @@ func (c *Config[T]) Extend(ctx context.Context, l Loader) error {
 
 	// Phase 1: Snapshot live state for rollback. Mirrors Reload phase 3.
 	oldEnv := copyMap(c.envConfig)
+	oldUnresolvedEnv := copyMap(c.unresolvedEnvConfig)
 	oldMerged := copyMap(c.mergedConfig)
 	trackerSnap := c.sourceTracker.Snapshot()
 	oldLayers := copyLoaderLayers(c.loaderLayers)
@@ -109,6 +110,7 @@ func (c *Config[T]) Extend(ctx context.Context, l Loader) error {
 	// logic, matching the Reload rollback pattern.
 	rollback := func(failureErr error) {
 		c.envConfig = oldEnv
+		c.unresolvedEnvConfig = oldUnresolvedEnv
 		c.mergedConfig = oldMerged
 		c.sourceTracker.Restore(trackerSnap)
 		c.loaderLayers = oldLayers
@@ -190,7 +192,19 @@ func (c *Config[T]) Extend(ctx context.Context, l Loader) error {
 	// mergedConfig as candidates so a later validation failure can be
 	// rolled back via the snapshot taken in phase 1.
 	c.mergedConfig = c.merger.Merge(c.mergedConfig, composed)
-	c.envConfig = c.merger.Merge(c.envConfig, resolved)
+	rawBase := c.unresolvedEnvConfig
+	if rawBase == nil {
+		rawBase = c.envConfig
+	}
+	c.envConfig = c.merger.Merge(rawBase, resolved)
+	if err := c.materializeEffectiveConfig(ctx); err != nil {
+		materializeErr := &ConfigError{
+			Op:  "Extend",
+			Err: fmt.Errorf("%w: materialize effective configuration: %w", ErrConfigLoad, err),
+		}
+		rollback(materializeErr)
+		return materializeErr
+	}
 
 	// Phase 6: Validate. When validate-on-load is configured AND a
 	// schema is present, decode and validate the new state. Pre-G15

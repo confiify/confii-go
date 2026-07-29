@@ -8,11 +8,66 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type eagerCountingSecretStore struct {
+	mu    sync.Mutex
+	calls int
+}
+
+func (s *eagerCountingSecretStore) GetSecret(context.Context, string) (any, error) {
+	s.mu.Lock()
+	s.calls++
+	s.mu.Unlock()
+	return map[string]any{"username": "demo", "password": "resolved"}, nil
+}
+
+func (s *eagerCountingSecretStore) callCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.calls
+}
+
+func TestDeclarativeSecretsAreEagerAndDeduplicated(t *testing.T) {
+	dir := t.TempDir()
+	store := &eagerCountingSecretStore{}
+	RegisterSelfConfigSecretProvider("test-eager-counting", func(map[string]any) (SelfConfigSecretStore, error) {
+		return store, nil
+	})
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".confii.yaml"), []byte(`
+sources:
+  - type: yaml
+    path: `+filepath.Join(dir, "app.yaml")+`
+secrets:
+  provider: test-eager-counting
+`), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "app.yaml"), []byte(`
+database:
+  username: ${secret:database-credentials:username}
+  password: ${secret:database-credentials:password}
+`), 0o600))
+
+	cfg, err := New[any](context.Background(), WithWorkingDir(dir))
+	require.NoError(t, err)
+	assert.Equal(t, 1, store.callCount(), "one remote document must serve both JSON paths")
+	assert.Equal(t, "demo", cfg.GetStringOr("database.username", ""))
+	assert.Equal(t, "resolved", cfg.GetStringOr("database.password", ""))
+	assert.Equal(t, 1, store.callCount(), "ordinary reads must use the materialized snapshot")
+	assert.Equal(t, []string{"database.password", "database.username"}, cfg.SecretReferenceKeys())
+	assert.Equal(t, redactedSecretValue, cfg.Explain("database.password")["current_value"])
+	assert.Equal(t, redactedSecretValue, cfg.Schema("database.password")["value"])
+	docs, docsErr := cfg.GenerateDocs("json")
+	require.NoError(t, docsErr)
+	assert.NotContains(t, docs, "resolved")
+
+	require.NoError(t, cfg.RefreshSecrets(context.Background()))
+	assert.Equal(t, 2, store.callCount(), "an explicit refresh starts a new deduplicated provider session")
+}
 
 type registeredSourceFixture struct {
 	source string

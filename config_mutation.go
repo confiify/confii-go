@@ -4,6 +4,7 @@
 package confii
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"reflect"
@@ -102,6 +103,17 @@ func WithOverride(v bool) SetOption {
 //     mtime/hash and the existing Wave 11 G12 source-tracker entry already
 //     provides correct introspection.
 func (c *Config[T]) Set(keyPath string, value any, opts ...SetOption) error {
+	// Resolve a private candidate before taking the Config lock. Hooks may
+	// perform remote I/O or re-enter Config, and a successful Set must preserve
+	// the invariant that all live reads observe an already-materialized value.
+	rawStored := dictutil.DeepCopyValue(value)
+	effectiveStored, materializeErr := c.materializeEffectiveValue(context.Background(), keyPath, rawStored)
+	if materializeErr != nil {
+		return &ConfigError{
+			Op:  "Set",
+			Err: fmt.Errorf("%w: materialize %q: %w", ErrConfigLoad, keyPath, materializeErr),
+		}
+	}
 	c.mu.Lock()
 	// G13: see Reload for the rationale behind the manual unlock flag.
 	// Failure paths fall through the deferred fallback; the success
@@ -130,7 +142,7 @@ func (c *Config[T]) Set(keyPath string, value any, opts ...SetOption) error {
 	// F-G10-SetInputAlias: defensively deep-copy any map/slice value so
 	// later caller mutation does not alias into Config state. Scalars
 	// pass through unchanged.
-	stored := dictutil.DeepCopyValue(value)
+	stored := dictutil.DeepCopyValue(effectiveStored)
 
 	// F-Set-RollbackFidelity (Wave 17): structural snapshot/restore.
 	// Pre-Wave 17 the rollback path used dictutil.Unflatten(Flatten(envConfig)),
@@ -146,6 +158,7 @@ func (c *Config[T]) Set(keyPath string, value any, opts ...SetOption) error {
 	// returning a *PathError, so the FIRST SetNested call must also
 	// roll back envConfig (the pre-Wave 17 code skipped this path).
 	envSnap := dictutil.DeepCopyValue(c.envConfig).(map[string]any)
+	unresolvedEnvSnap := dictutil.DeepCopyValue(c.unresolvedEnvConfig).(map[string]any)
 	mergedSnap := dictutil.DeepCopyValue(c.mergedConfig).(map[string]any)
 	trackerSnap := c.sourceTracker.Snapshot()
 
@@ -163,6 +176,20 @@ func (c *Config[T]) Set(keyPath string, value any, opts ...SetOption) error {
 		// path but we restore it (and the tracker) for symmetry with the
 		// second-call failure path below.
 		c.envConfig = envSnap
+		c.unresolvedEnvConfig = unresolvedEnvSnap
+		c.mergedConfig = mergedSnap
+		c.sourceTracker.Restore(trackerSnap)
+		if c.observer != nil {
+			c.observer.RecordSetFailed()
+		}
+		if c.eventEmitter != nil {
+			c.eventEmitter.Emit("set_failed", keyPath, err)
+		}
+		return NewInvalidError("Set", keyPath, err)
+	}
+	if err := dictutil.SetNested(c.unresolvedEnvConfig, keyPath, rawStored); err != nil {
+		c.envConfig = envSnap
+		c.unresolvedEnvConfig = unresolvedEnvSnap
 		c.mergedConfig = mergedSnap
 		c.sourceTracker.Restore(trackerSnap)
 		if c.observer != nil {
@@ -176,7 +203,7 @@ func (c *Config[T]) Set(keyPath string, value any, opts ...SetOption) error {
 	// mergedConfig must agree with envConfig; the same path-error guard
 	// applies. If this fails, roll back the envConfig mutation so the
 	// two maps stay in lockstep.
-	if err := dictutil.SetNested(c.mergedConfig, keyPath, stored); err != nil {
+	if err := dictutil.SetNested(c.mergedConfig, keyPath, rawStored); err != nil {
 		// Structural rollback (F-Set-RollbackFidelity): restore envConfig
 		// AND mergedConfig from their deep-copy snapshots to preserve
 		// scalar type identity (int stays int, time.Duration stays
@@ -184,6 +211,7 @@ func (c *Config[T]) Set(keyPath string, value any, opts ...SetOption) error {
 		// tracker snapshot is restored for symmetry with Wave 16
 		// Override even though TrackValue has not yet fired on this path.
 		c.envConfig = envSnap
+		c.unresolvedEnvConfig = unresolvedEnvSnap
 		c.mergedConfig = mergedSnap
 		c.sourceTracker.Restore(trackerSnap)
 		if c.observer != nil {
@@ -198,7 +226,7 @@ func (c *Config[T]) Set(keyPath string, value any, opts ...SetOption) error {
 	// Source-tracking parity: a successful Set claims "runtime" as the
 	// source so Explain/GetSourceInfo report the runtime origin until a
 	// subsequent Reload overwrites it.
-	c.sourceTracker.TrackValue(keyPath, stored, "runtime", "runtime", c.env)
+	c.sourceTracker.TrackValue(keyPath, rawStored, "runtime", "runtime", c.env)
 
 	c.validatedModel = nil
 

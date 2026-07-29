@@ -17,6 +17,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+const redactedSecretValue = "[REDACTED: secret-backed value]"
+
 // Explain returns detailed resolution information for a key.
 //
 // D08 (Wave 13): every value embedded in the returned map is defensively
@@ -48,12 +50,20 @@ func (c *Config[T]) Explain(keyPath string) map[string]any {
 		"environment":    c.env,
 		"override_count": info.OverrideCount,
 	}
+	secretBacked := c.secretBackedPathLocked(keyPath)
+	if secretBacked {
+		result["value"] = redactedSecretValue
+	}
 
 	if len(info.History) > 0 {
 		history := make([]map[string]any, 0, len(info.History))
 		for _, h := range info.History {
+			historyValue := dictutil.DeepCopyValue(h.Value)
+			if secretBacked {
+				historyValue = redactedSecretValue
+			}
 			history = append(history, map[string]any{
-				"value":       dictutil.DeepCopyValue(h.Value),
+				"value":       historyValue,
 				"source":      h.Source,
 				"loader_type": h.LoaderType,
 			})
@@ -64,7 +74,11 @@ func (c *Config[T]) Explain(keyPath string) map[string]any {
 	// Current value from live config — deep-copied so a caller mutating
 	// the returned map cannot leak into envConfig (D08 / G10 parity).
 	if val, ok := dictutil.GetNested(c.envConfig, keyPath); ok {
-		result["current_value"] = dictutil.DeepCopyValue(val)
+		if secretBacked {
+			result["current_value"] = redactedSecretValue
+		} else {
+			result["current_value"] = dictutil.DeepCopyValue(val)
+		}
 	}
 
 	return result
@@ -88,7 +102,11 @@ func (c *Config[T]) Schema(keyPath string) map[string]any {
 	}
 
 	result["exists"] = true
-	result["value"] = dictutil.DeepCopyValue(val)
+	if c.secretBackedPathLocked(keyPath) {
+		result["value"] = redactedSecretValue
+	} else {
+		result["value"] = dictutil.DeepCopyValue(val)
+	}
 	result["type"] = fmt.Sprintf("%T", val)
 
 	return result
@@ -169,7 +187,7 @@ func (c *Config[T]) SecretProviders() []string {
 // this suitable for health reporting.
 func (c *Config[T]) SecretReferenceKeys() []string {
 	c.mu.RLock()
-	snapshot := dictutil.DeepCopy(c.envConfig)
+	snapshot := dictutil.DeepCopy(c.unresolvedEnvConfig)
 	c.mu.RUnlock()
 
 	seen := make(map[string]struct{})
@@ -180,6 +198,19 @@ func (c *Config[T]) SecretReferenceKeys() []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+func (c *Config[T]) secretBackedPathLocked(keyPath string) bool {
+	if c.unresolvedEnvConfig == nil {
+		return false
+	}
+	value, ok := dictutil.GetNested(c.unresolvedEnvConfig, keyPath)
+	if !ok {
+		return false
+	}
+	found := make(map[string]struct{})
+	collectSecretReferenceKeys(keyPath, value, found)
+	return len(found) > 0
 }
 
 // SecretReferenceProviders returns the provider aliases selected by raw
@@ -197,7 +228,7 @@ func (c *Config[T]) SecretReferenceProviders() []string {
 // configuration.
 func (c *Config[T]) SecretReferenceProvidersFor(keyPaths ...string) []string {
 	c.mu.RLock()
-	snapshot := dictutil.DeepCopy(c.envConfig)
+	snapshot := dictutil.DeepCopy(c.unresolvedEnvConfig)
 	defaultProvider := c.opts.selfConfigSecretProvider
 	c.mu.RUnlock()
 
@@ -311,6 +342,7 @@ func (c *Config[T]) GenerateDocs(format string) (string, error) {
 	defer c.mu.RUnlock()
 
 	flat := dictutil.Flatten(c.envConfig)
+	raw := c.unresolvedEnvConfig
 	keys := make([]string, 0, len(flat))
 	for k := range flat {
 		keys = append(keys, k)
@@ -327,6 +359,13 @@ func (c *Config[T]) GenerateDocs(format string) (string, error) {
 	var entries []docEntry
 	for _, k := range keys {
 		v := flat[k]
+		if rawValue, ok := dictutil.GetNested(raw, k); ok {
+			found := make(map[string]struct{})
+			collectSecretReferenceKeys(k, rawValue, found)
+			if len(found) > 0 {
+				v = redactedSecretValue
+			}
+		}
 		source := ""
 		if info := c.sourceTracker.GetSourceInfo(k); info != nil {
 			source = info.SourceFile

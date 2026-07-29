@@ -8,6 +8,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Eagerly materialize the final selected configuration before `New` returns:
+  required Vault and cloud references now fail startup atomically, repeated
+  fields from one remote secret are deduplicated, normal getters stay
+  in-memory, reload/extend/runtime mutations preserve the ready-config
+  invariant, and `RefreshSecrets` provides an explicit transactional rotation
+  path. `WithSecretResolver` also invalidates resolver caches during refresh.
+
+- Add explicit `endpoint` configuration for the opt-in S3 and SSM loaders and
+  `path_style` control for S3-compatible services. The matching Go options,
+  `WithS3Endpoint`, `WithS3PathStyle`, and `WithSSMEndpoint`, make LocalStack
+  and other emulators usable without global AWS SDK endpoint overrides.
+
 - Add `make install-dev` for installing the current CLI checkout with
   commit-aware `dev-<commit>` metadata and a `-dirty` marker for tracked local
   changes. `INSTALL_DIR` supports isolated prerelease testing, and the existing
@@ -32,6 +44,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   override is reported instead of being misrepresented as changed.
 - Add `Config.AvailableEnvironments()` so applications can obtain the same
   sorted, deduplicated environment inventory as the CLI.
+
+### Fixed
+
+- Correct Vault browser OIDC interoperability by retaining the nonce from
+  Vault's authorization URL and supplying it during the callback exchange.
+  Standards-compliant providers such as Keycloak return `state` and `code` at
+  the redirect URI rather than echoing the request nonce as a query parameter.
 
 ## [1.3.1] - 2026-07-28
 

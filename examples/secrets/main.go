@@ -37,25 +37,23 @@ func main() {
 
 	cfg, err := confii.New[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML("config.yaml")),
+		confii.WithSecretResolver(resolver),
 	)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	// Register the secret resolver as a global hook
-	cfg.HookProcessor().RegisterGlobalHook(resolver.Hook())
-
-	// Now ${secret:db/password} in config values resolves automatically.
+	// New has already resolved every effective ${secret:...} reference.
 	// Supports formats:
 	//   ${secret:key}
 	//   ${secret:key:json_path}
 	//   ${secret:key:json_path:version}
 
-	// Resolve the secret without ever writing its value to logs or stdout.
-	// Applications should pass the returned value directly to the component
+	// Read the ready in-memory value without writing it to logs or stdout.
+	// Applications pass the returned value directly to the component
 	// that needs it (for example, a database client).
 	if _, err := cfg.Get("database.password"); err != nil {
-		log.Fatal(err)
+		log.Fatal(err) // no provider traffic occurs on this ordinary read
 	}
 	fmt.Println("Database password resolved successfully")
 

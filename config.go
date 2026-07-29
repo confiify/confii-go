@@ -28,10 +28,15 @@ type Config[T any] struct {
 	mu sync.RWMutex
 
 	// Core state.
-	envConfig    map[string]any
-	mergedConfig map[string]any
-	frozen       bool
-	env          string
+	// unresolvedEnvConfig is the selected, merged environment before the
+	// hook pipeline runs. It retains secret references for refresh and
+	// value-safe provider introspection. envConfig is the eagerly materialized
+	// application snapshot served by every read API.
+	unresolvedEnvConfig map[string]any
+	envConfig           map[string]any
+	mergedConfig        map[string]any
+	frozen              bool
+	env                 string
 
 	// Collaborators.
 	loaders []Loader
@@ -90,6 +95,7 @@ type Config[T any] struct {
 	overrideStack       []*overrideFrame
 	overrideIDCounter   uint64
 	overrideBaseEnv     map[string]any
+	overrideBaseRawEnv  map[string]any
 	overrideBaseMerged  map[string]any
 	overrideBaseTracker sourcetrack.Snapshot
 	overrideBaseFrozen  bool
@@ -247,6 +253,18 @@ func New[T any](ctx context.Context, cfgOpts ...Option) (*Config[T], error) {
 	// Step 5: Load all configurations.
 	if err := c.load(ctx); err != nil {
 		return nil, err
+	}
+
+	// Step 5a: Materialize the effective configuration before publishing the
+	// Config. Secret references are therefore resolved once during startup,
+	// rather than causing remote provider traffic on the first Get/Typed call.
+	// The unresolved selected snapshot is retained separately for explicit
+	// refresh and provider/reference introspection.
+	if err := c.materializeEffectiveConfig(ctx); err != nil {
+		return nil, &ConfigError{
+			Op:  "New",
+			Err: fmt.Errorf("%w: materialize effective configuration: %w", ErrConfigLoad, err),
+		}
 	}
 
 	// Step 6: Validate on load.

@@ -29,6 +29,8 @@ type S3Loader struct {
 	region    string
 	accessKey string
 	secretKey string
+	endpoint  string
+	pathStyle bool
 	bucket    string
 	key       string
 }
@@ -47,6 +49,18 @@ func WithS3Credentials(accessKey, secretKey string) S3Option {
 		l.accessKey = accessKey
 		l.secretKey = secretKey
 	}
+}
+
+// WithS3Endpoint sets a custom S3 API endpoint, such as LocalStack.
+func WithS3Endpoint(endpoint string) S3Option {
+	return func(l *S3Loader) { l.endpoint = strings.TrimSpace(endpoint) }
+}
+
+// WithS3PathStyle uses path-style bucket addressing. This is commonly needed
+// by local emulators and S3-compatible services that do not provide wildcard
+// DNS for virtual-hosted bucket names.
+func WithS3PathStyle(enabled bool) S3Option {
+	return func(l *S3Loader) { l.pathStyle = enabled }
 }
 
 // NewS3 creates a new S3 loader from an s3:// URL.
@@ -81,7 +95,12 @@ func (l *S3Loader) Load(ctx context.Context) (map[string]any, error) {
 		return nil, confii.NewLoadError(l.s3URL, err)
 	}
 
-	client := s3.NewFromConfig(cfg)
+	client := s3.NewFromConfig(cfg, func(options *s3.Options) {
+		if l.endpoint != "" {
+			options.BaseEndpoint = aws.String(l.endpoint)
+		}
+		options.UsePathStyle = l.pathStyle
+	})
 	output, err := client.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(l.bucket),
 		Key:    aws.String(l.key),

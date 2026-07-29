@@ -25,13 +25,6 @@ func main() {
 		log.Fatal(err)
 	}
 
-	if _, err := cfg.GetCtx(ctx, "database.password"); err != nil {
-		log.Fatal(err)
-	}
-	if _, err := cfg.GetCtx(ctx, "security.signing_key"); err != nil {
-		log.Fatal(err)
-	}
-
-	fmt.Printf("resolved with default %q across providers %v (values withheld)\n",
+	fmt.Printf("initialized with default %q across providers %v; all effective secrets are ready (values withheld)\n",
 		cfg.SecretProvider(), cfg.SecretProviders())
 }

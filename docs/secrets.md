@@ -1,12 +1,22 @@
 # Secret Management
 
-Confii resolves `${secret:key}` placeholders in configuration values at access time through the hook system. Secrets are fetched from pluggable stores -- from simple in-memory dictionaries to cloud providers like AWS Secrets Manager, Azure Key Vault, GCP Secret Manager, and HashiCorp Vault.
+Confii resolves `${secret:key}` placeholders while initializing the effective
+configuration. It first loads and merges all sources, selects the active
+environment, discovers the remaining secret references, deduplicates reads of
+the same remote document, and resolves them before `confii.New` returns.
+Ordinary getters therefore read a ready in-memory snapshot and do not trigger
+provider traffic. Stores are pluggable -- from in-memory dictionaries to AWS
+Secrets Manager, Azure Key Vault, GCP Secret Manager, Vault, and OpenBao.
 
 ---
 
 ## How Placeholders Work
 
-When a config value contains a `${secret:...}` placeholder, the secret resolver (registered as a global hook) replaces it with the actual secret value. This happens transparently during `Get` calls -- your application code reads resolved values without knowing they came from a secret store.
+When a config value contains a `${secret:...}` placeholder, the configured
+resolver replaces it during startup. Only references in the final selected
+environment are contacted; references exclusive to inactive environments are
+not. Missing or inaccessible required secrets make initialization fail without
+publishing a partially resolved `Config`.
 
 ```yaml title="config.yaml"
 database:
@@ -17,11 +27,35 @@ database:
 
 ```go
 password, _ := cfg.Get("database.password")
-// "s3cret-passw0rd" (resolved from secret store)
+// already resolved in memory; no provider request occurs here
 
 url, _ := cfg.Get("database.url")
-// "postgres://admin:s3cret-passw0rd@prod-db:5432/mydb" (inline replacement)
+// inline references were also resolved before New returned
 ```
+
+### Resolution lifecycle
+
+```text
+load sources → merge → select environment → discover references
+             → deduplicate provider reads → resolve → validate → publish
+```
+
+If two keys select different JSON fields from the same secret document, Confii
+fetches that document once during the materialization pass and extracts both
+fields locally. A normal `Get`, `Typed`, `ToDict`, or `Export` call does not
+refresh secrets. Rotation is explicit and transactional:
+
+```go
+if err := cfg.RefreshSecrets(ctx); err != nil {
+    // The previous ready configuration remains active.
+}
+```
+
+`Reload` performs the same eager materialization after rebuilding the source
+layers. A failed provider read or validation leaves the prior configuration
+active. Imperative hooks registered *after* `New` remain access-time hooks for
+backward compatibility; applications that want startup resolution must use
+declarative `.confii.yaml` providers or `confii.WithSecretHook`.
 
 ---
 
@@ -532,15 +566,13 @@ resolver.ClearCache()
 
 ---
 
-## Wiring Resolver with HookProcessor
+## Imperative resolver wiring
 
-The resolver's `Hook()` method returns a `hook.Func` that you register as a global hook:
+When declarative self-configuration is not appropriate, pass the resolver's
+context-aware hook to `New`. Constructor-time wiring participates in eager,
+fail-fast materialization:
 
 ```go
-cfg, _ := confii.New[any](ctx,
-    confii.WithLoaders(loader.NewYAML("config.yaml")),
-)
-
 // Create store and resolver
 store := secret.NewDictStore(map[string]any{
     "db/password": "s3cret",
@@ -551,16 +583,23 @@ resolver := secret.NewResolver(store,
     secret.WithCacheTTL(5 * time.Minute),
 )
 
-// Register as global hook
-cfg.HookProcessor().RegisterGlobalHook(resolver.Hook())
+cfg, err := confii.New[any](ctx,
+    confii.WithLoaders(loader.NewYAML("config.yaml")),
+    confii.WithSecretResolver(resolver),
+)
+if err != nil {
+    return err
+}
 
-// Now all ${secret:...} placeholders are resolved automatically
+// Already resolved; this is an in-memory read.
 password, _ := cfg.Get("database.password")
-// "s3cret"
 ```
 
-!!! tip "Hook ordering matters"
-    The secret resolver hook should typically be registered **after** the env expander hook. This way, `${VAR}` expansion happens first (resolving env vars), and then `${secret:...}` resolution runs on the result. Since built-in hooks (env expander, type cast) are registered during `New()`, your custom hooks added after creation will naturally run later in the global hook chain.
+!!! tip "Initialization ordering"
+    Eager materialization follows the built-in order: environment expansion,
+    type casting, then constructor-time secret resolution. Arbitrary hooks
+    registered after `New` remain access-time transformations and are not part
+    of the startup transaction.
 
 ---
 
@@ -615,12 +654,15 @@ func main() {
         secret.WithCacheTTL(10 * time.Minute),
     )
 
-    // Load config and wire up secret resolution
-    cfg, _ := confii.New[any](ctx,
+    // Load, consolidate, and resolve before returning.
+    cfg, err := confii.New[any](ctx,
         confii.WithLoaders(loader.NewYAML("config.yaml")),
         confii.WithEnv("production"),
+        confii.WithSecretResolver(resolver),
     )
-    cfg.HookProcessor().RegisterGlobalHook(resolver.Hook())
+    if err != nil {
+        panic(err)
+    }
 
     // All ${secret:...} placeholders are now resolved through the chain
     dbPass, _ := cfg.Get("database.password")
@@ -639,7 +681,6 @@ package main
 
 import (
     "context"
-    "fmt"
     "time"
 
     "github.com/confiify/confii-go"
@@ -667,37 +708,23 @@ func main() {
         secret.WithResolverFailOnMissing(true),
     )
 
-    // Pre-fetch critical secrets
-    _ = resolver.Prefetch(ctx, []string{"db/password", "api/credentials"})
-
-    // Load config
+    // Load, resolve all effective references, and validate before returning.
     cfg, err := confii.New[any](ctx,
         confii.WithLoaders(loader.NewYAML("config.yaml")),
         confii.WithEnv("production"),
+        confii.WithSecretResolver(resolver),
     )
     if err != nil {
         panic(err)
     }
 
-    // Wire secret resolver into hook system
-    cfg.HookProcessor().RegisterGlobalHook(resolver.Hook())
-
-    // Access resolved values
+    // Access already-resolved values without provider traffic.
     dbPass, _ := cfg.Get("database.password")
-    fmt.Println("DB Password:", dbPass)
-    // "super-s3cret"
-
     apiKey, _ := cfg.Get("api.key")
-    fmt.Println("API Key:", apiKey)
-    // "ak-prod-12345" (extracted via JSON path)
-
     dbURL, _ := cfg.Get("database.url")
-    fmt.Println("DB URL:", dbURL)
-    // "postgres://admin:super-s3cret@prod-db:5432/mydb"
-
-    // Cache stats
-    stats := resolver.CacheStats()
-    fmt.Printf("Cache: %d entries\n", stats["size"])
+    _ = dbPass // use to construct the database client; never log it
+    _ = apiKey // use to construct the API client; never log it
+    _ = dbURL
 }
 ```
 

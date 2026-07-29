@@ -25,6 +25,7 @@ type SSMLoader struct {
 	region     string
 	accessKey  string
 	secretKey  string
+	endpoint   string
 }
 
 // SSMOption configures an SSMLoader.
@@ -46,6 +47,11 @@ func WithSSMCredentials(accessKey, secretKey string) SSMOption {
 		l.accessKey = accessKey
 		l.secretKey = secretKey
 	}
+}
+
+// WithSSMEndpoint sets a custom SSM API endpoint, such as LocalStack.
+func WithSSMEndpoint(endpoint string) SSMOption {
+	return func(l *SSMLoader) { l.endpoint = strings.TrimSpace(endpoint) }
 }
 
 // NewSSM creates a new SSM Parameter Store loader.
@@ -74,7 +80,11 @@ func (l *SSMLoader) Load(ctx context.Context) (map[string]any, error) {
 		return nil, confii.NewLoadError(l.Source(), err)
 	}
 
-	client := ssm.NewFromConfig(cfg)
+	client := ssm.NewFromConfig(cfg, func(options *ssm.Options) {
+		if l.endpoint != "" {
+			options.BaseEndpoint = aws.String(l.endpoint)
+		}
+	})
 	result := make(map[string]any)
 
 	var nextToken *string

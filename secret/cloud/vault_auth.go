@@ -564,16 +564,19 @@ func (a *OIDCAuth) Authenticate(client *api.Client) (string, error) {
 	if providerErr := q.Get("error"); providerErr != "" {
 		return "", fmt.Errorf("%w: OIDC provider returned %s: %s", confii.ErrVaultAuth, providerErr, q.Get("error_description"))
 	}
-	if q.Get("state") != expectedState || q.Get("nonce") != expectedNonce {
-		return "", fmt.Errorf("%w: OIDC callback state or nonce did not match the authorization request", confii.ErrVaultAuth)
+	if q.Get("state") != expectedState {
+		return "", fmt.Errorf("%w: OIDC callback state did not match the authorization request", confii.ErrVaultAuth)
 	}
 	if q.Get("code") == "" {
 		return "", fmt.Errorf("%w: OIDC callback omitted authorization code", confii.ErrVaultAuth)
 	}
 
 	secret, err := client.Logical().ReadWithData(fmt.Sprintf("auth/%s/oidc/callback", mp), map[string][]string{
-		"state":        {q.Get("state")},
-		"nonce":        {q.Get("nonce")},
+		"state": {q.Get("state")},
+		// OIDC providers return state and code to the redirect URI. The nonce
+		// is retained from Vault's auth_url response and supplied during the
+		// callback exchange; it is validated against the ID token by Vault.
+		"nonce":        {expectedNonce},
 		"code":         {q.Get("code")},
 		"client_nonce": {clientNonce},
 	})

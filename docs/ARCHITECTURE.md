@@ -394,13 +394,17 @@ type SelfConfigSecretRequestStore interface {
 }
 ```
 
-Named provider factories are validated at construction but initialized lazily
-and exactly once. This prevents an environment from requiring credentials for
-unreferenced backends while remaining concurrency-safe. JSON-path extraction
-is performed uniformly after the store read; version-capable adapters receive
-the requested version through `SelfConfigSecretRequestStore`. Legacy custom
-providers remain source compatible and fail clearly if asked for a versioned
-read they cannot support.
+Named provider factories are validated at construction and initialized only
+when the selected effective environment references them. After consolidation,
+Confii eagerly materializes all remaining secret references before publishing
+the Config. Reads of the same provider/key/version document are deduplicated
+within that materialization session, so multiple JSON paths share one backend
+fetch. The unresolved selected snapshot is retained for provider attribution
+and explicit `RefreshSecrets`; ordinary access uses the resolved snapshot.
+JSON-path extraction is performed uniformly after the store read;
+version-capable adapters receive the requested version through
+`SelfConfigSecretRequestStore`. Legacy custom providers remain source
+compatible and fail clearly if asked for a versioned read they cannot support.
 
 Three providers are pre-registered by root's own `init()`:
 
