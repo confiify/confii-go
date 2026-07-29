@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- Make `consumer-unlink-dev` recover safely when `go get` persisted synthetic
+  zero pseudo-versions while filesystem replacements were active. Cleanup can
+  now pin all selected Confii modules with `CONFII_VERSION`, or remove only
+  stale zero-version requirements before the consumer runs `go mod tidy`.
+
 ## [1.4.0] - 2026-07-29
 
 ### Added
