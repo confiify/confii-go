@@ -6,9 +6,9 @@ package cmd
 import (
 	"fmt"
 
-	confii "github.com/confiify/confii-go"
-	"github.com/confiify/confii-go/selfconfig"
-	"github.com/confiify/confii-go/validate"
+	confii "github.com/confiify/confii-go/v2"
+	"github.com/confiify/confii-go/v2/selfconfig"
+	"github.com/confiify/confii-go/v2/validate"
 	"github.com/spf13/cobra"
 )
 
@@ -64,7 +64,11 @@ func NewValidateCmd() *cobra.Command {
 				return err
 			}
 
-			if err := v.Validate(cfg.ToDict()); err != nil {
+			data, err := cfg.ToDict()
+			if err != nil {
+				return fmt.Errorf("materialize configuration: %w", err)
+			}
+			if err := v.Validate(data); err != nil {
 				return fmt.Errorf("validation failed: %w", err)
 			}
 
@@ -73,7 +77,7 @@ func NewValidateCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringSliceVarP(&loaders, "loader", "l", nil, "Loader spec (type:source)")
+	cmd.Flags().StringSliceVarP(&loaders, "loader", "l", nil, loaderSpecHelp)
 	cmd.Flags().StringVar(&schemaFile, "schema", "", "Path to JSON Schema file")
 	return cmd
 }

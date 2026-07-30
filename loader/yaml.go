@@ -12,8 +12,9 @@ import (
 	"log/slog"
 	"os"
 
-	confii "github.com/confiify/confii-go"
-	"github.com/confiify/confii-go/internal/dictutil"
+	confii "github.com/confiify/confii-go/v2"
+	"github.com/confiify/confii-go/v2/internal/dictutil"
+	"github.com/confiify/confii-go/v2/internal/formatparse"
 	"gopkg.in/yaml.v3"
 )
 
@@ -21,24 +22,23 @@ import (
 //
 // Absence of the configured file is governed by the loader's
 // [confii.ErrorPolicy] (default [confii.ErrorPolicyRaise]) just like any
-// other failure mode (G07):
+// other failure mode:
 //
 //   - ErrorPolicyRaise:  Load returns a typed [*confii.ConfigError]
 //     wrapping [confii.ErrConfigLoad]. Callers that genuinely treat the
 //     file as optional must opt in via [WithYAMLErrorPolicy].
 //   - ErrorPolicyWarn:   the missing file is logged via the configured
 //     [*slog.Logger] and Load returns (nil, nil).
-//   - ErrorPolicyIgnore: the missing file is silently skipped (legacy
-//     pre-G07 behavior).
+//   - ErrorPolicyIgnore: the missing file is silently skipped.
 //
 // Other I/O errors (permission denied, malformed YAML, etc.) are also
 // dispatched through the policy.
 //
-// Key normalization (D01): YAML maps with non-string keys (integers,
+// Key normalization: YAML maps with non-string keys (integers,
 // booleans, sequences, etc.) decode under gopkg.in/yaml.v3 as
 // map[interface{}]interface{}, which is incompatible with the rest of
 // the library's map[string]any data model (it breaks dot-path access,
-// JSON export, and mapstructure decoding). The loader walks the
+// JSON export, and typed configuration decoding). The loader walks the
 // unmarshaled tree and coerces every map key to a string via
 // fmt.Sprint, recursively descending into nested maps and slices, so
 // the returned value is always a fully string-keyed map[string]any.
@@ -59,7 +59,7 @@ func WithYAMLErrorPolicy(p confii.ErrorPolicy) YAMLOption {
 }
 
 // WithYAMLLogger sets the logger used when the error policy is
-// [confii.ErrorPolicyWarn]. Nil is ignored. Defaults to [slog.Default].
+// [confii.ErrorPolicyWarn]. Nil is ignored. Defaults to [slog.Default()].
 func WithYAMLLogger(logger *slog.Logger) YAMLOption {
 	return func(l *YAMLLoader) {
 		if logger != nil {
@@ -83,12 +83,14 @@ func NewYAML(path string, opts ...YAMLOption) *YAMLLoader {
 	return l
 }
 
-// Source returns the identifier for this loader's configuration source.
+// Source returns the configured path exactly as supplied to NewYAML.
 func (l *YAMLLoader) Source() string { return l.source }
 
-// Load reads and parses the YAML file at the configured path, returning
-// the parsed configuration as a map. Failures are dispatched through the
-// loader's [confii.ErrorPolicy]; see [YAMLLoader] for details.
+// Load reads one YAML mapping from the configured path. Top-level scalars and
+// sequences, cross-format content, and key-normalization collisions wrap
+// [confii.ErrConfigFormat]. File errors wrap [confii.ErrConfigLoad], subject to
+// the configured missing-file policy. Local reads are synchronous; ctx is
+// accepted for Loader compatibility but is not observed.
 func (l *YAMLLoader) Load(_ context.Context) (map[string]any, error) {
 	data, err := os.ReadFile(l.source)
 	if err != nil {
@@ -97,9 +99,12 @@ func (l *YAMLLoader) Load(_ context.Context) (map[string]any, error) {
 		}
 		return nil, confii.NewLoadError(l.source, err)
 	}
+	if err := formatparse.ValidateDeclaredContent(formatparse.FormatYAML, data); err != nil {
+		return nil, confii.NewFormatError(l.source, "yaml", err)
+	}
 
 	// Decode into an untyped interface so we can intercept maps with
-	// non-string keys (D01). gopkg.in/yaml.v3 emits
+	// non-string keys. gopkg.in/yaml.v3 emits
 	// map[interface{}]interface{} for any map containing a non-string
 	// key, which the rest of the library does not understand.
 	var raw any

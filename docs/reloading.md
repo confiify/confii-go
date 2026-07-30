@@ -9,7 +9,7 @@ Confii watches configuration files on disk and automatically reloads when change
 === "Constructor"
 
     ```go
-    cfg, err := confii.New[any](ctx,
+    cfg, err := confii.NewWithContext[any](ctx,
         confii.WithLoaders(loader.NewYAML("config.yaml")),
         confii.WithDynamicReloading(true),
     )
@@ -21,7 +21,7 @@ Confii watches configuration files on disk and automatically reloads when change
     cfg, err := confii.NewBuilder[any]().
         AddLoader(loader.NewYAML("config.yaml")).
         EnableDynamicReloading().
-        Build(ctx)
+        BuildWithContext(ctx)
     ```
 
 === "Self-Config"
@@ -29,8 +29,9 @@ Confii watches configuration files on disk and automatically reloads when change
     ```yaml
     # .confii.yaml
     dynamic_reloading: true
-    default_files:
-      - config.yaml
+    sources:
+      - type: yaml
+        path: config.yaml
     ```
 
 Once enabled, Confii starts a background goroutine that watches the **directories** containing your config files for changes.
@@ -58,7 +59,7 @@ Is file in watched set? --No--> Ignore
    Yes
     |
     v
-cfg.Reload(ctx)
+cfg.ReloadWithContext(ctx)
     |
     v
 Incremental check (mtime + SHA256)
@@ -77,7 +78,7 @@ Re-merge and notify callbacks
 Combine file watching with change callbacks to react to configuration changes in real-time:
 
 ```go
-cfg, _ := confii.New[any](ctx,
+cfg, _ := confii.NewWithContext[any](ctx,
     confii.WithLoaders(loader.NewYAML("config.yaml")),
     confii.WithDynamicReloading(true),
 )
@@ -141,7 +142,7 @@ This means:
 
 ```go
 // Manual incremental reload
-err := cfg.Reload(ctx, confii.WithIncremental(true))
+err := cfg.ReloadWithContext(ctx, confii.WithIncremental(true))
 ```
 
 The file watcher calls `Reload(ctx)`, whose default is the incremental behavior above. Pass `WithIncremental(false)` to force every loader to run.
@@ -154,7 +155,7 @@ The file watcher calls `Reload(ctx)`, whose default is the incremental behavior 
     Enable `WithValidateOnLoad(true)` so that invalid config changes are automatically rejected and rolled back:
 
     ```go
-    cfg, _ := confii.New[AppConfig](ctx,
+    cfg, _ := confii.NewWithContext[AppConfig](ctx,
         confii.WithLoaders(loader.NewYAML("config.yaml")),
         confii.WithDynamicReloading(true),
         confii.WithValidateOnLoad(true),
@@ -176,7 +177,7 @@ The file watcher calls `Reload(ctx)`, whose default is the incremental behavior 
     ```
 
 !!! warning "Do not watch files on networked or ephemeral filesystems"
-    fsnotify relies on OS-level filesystem events (inotify on Linux, kqueue on macOS). Network filesystems (NFS, CIFS) and container volumes may not reliably produce these events. For such environments, use a manual polling approach with `cfg.Reload(ctx)` on a timer instead.
+    fsnotify relies on OS-level filesystem events (inotify on Linux, kqueue on macOS). Network filesystems (NFS, CIFS) and container volumes may not reliably produce these events. For such environments, use a manual polling approach with `cfg.ReloadWithContext(ctx)` on a timer instead.
 
 !!! tip "Rate limiting"
     Editors may produce multiple write events in quick succession (e.g., write temp file, rename). fsnotify may fire multiple events for a single save. Confii's incremental check (mtime + hash) mitigates redundant reloads at the source level.
@@ -196,14 +197,14 @@ import (
     "os/signal"
     "syscall"
 
-    confii "github.com/confiify/confii-go"
-    "github.com/confiify/confii-go/loader"
+    confii "github.com/confiify/confii-go/v2"
+    "github.com/confiify/confii-go/v2/loader"
 )
 
 func main() {
     ctx := context.Background()
 
-    cfg, err := confii.New[any](ctx,
+    cfg, err := confii.NewWithContext[any](ctx,
         confii.WithLoaders(loader.NewYAML("config.yaml")),
         confii.WithDynamicReloading(true),
         confii.WithValidateOnLoad(true),

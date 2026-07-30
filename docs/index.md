@@ -13,7 +13,7 @@ hide:
 </p>
 
 <p align="center">
-  <a href="https://pkg.go.dev/github.com/confiify/confii-go"><img src="https://pkg.go.dev/badge/github.com/confiify/confii-go.svg" alt="Go Reference"></a>
+  <a href="https://pkg.go.dev/github.com/confiify/confii-go/v2"><img src="https://pkg.go.dev/badge/github.com/confiify/confii-go/v2.svg" alt="Go Reference"></a>
   <a href="https://github.com/confiify/confii-go/releases/latest"><img src="https://img.shields.io/github/v/release/confiify/confii-go?sort=semver" alt="Latest Release"></a>
   <a href="https://github.com/confiify/confii-go/actions/workflows/ci.yaml"><img src="https://github.com/confiify/confii-go/actions/workflows/ci.yaml/badge.svg" alt="CI"></a>
   <a href="https://codecov.io/gh/confiify/confii-go"><img src="https://codecov.io/gh/confiify/confii-go/branch/main/graph/badge.svg" alt="Coverage"></a>
@@ -35,16 +35,16 @@ CRUD, LocalStack, and Vault/OpenBao companion repository.
 
 - **Multi-source loading** — YAML, JSON, TOML, INI, .env, env vars, HTTP, S3, SSM, Azure Blob, GCS, IBM COS, Git
 - **Type-safe generics** — `Config[T]` with `cfg.Typed()` returning `*T` and full IDE autocomplete
-- **6 merge strategies** — replace, merge, append, prepend, intersection, union — with per-path overrides
+- **Merge strategies** — replace, shallow merge, deep merge, append, prepend, intersection, union — with per-path overrides
 - **Secret resolution** — `${secret:key}` placeholders from AWS Secrets Manager, Azure Key Vault, GCP Secret Manager, HashiCorp Vault, and OpenBao. The Vault-compatible layer implements nine authentication flows; CI live-tests Token and AppRole against OpenBao, while the other flows have protocol-level tests and require provider-side identity configuration.
 - **Config composition** — Hydra-style `_include` and `_defaults` directives with cycle detection
 - **Environment resolution** — Recommended named files or a single file with `default` + environment sections, with explicit hybrid mode for migrations
-- **Hook system** — 4 types (key, value, condition, global) for value transformation on access
+- **Hook system** — key, value, condition, and global hooks applied with full key paths while candidate snapshots are materialized
 - **Introspection** — `Explain()`, `Layers()`, `Schema()`, source tracking, override history
 - **Drift detection** — Diff configs, detect unintended changes, version with rollback
 - **Dynamic reloading** — File watching via fsnotify, incremental reload (mtime + SHA256)
 - **Observability** — Access metrics, event emission, change callbacks
-- **CLI tool** — 14 commands: init, env, connections, load, get, validate, export, diff, debug, explain, plan, lint, docs, migrate
+- **CLI tool** — init, env, connections, load, get, validate, export, diff, debug, explain, plan, lint, docs, and migrate
 - **Thread-safe** — synchronized Config instances, callback-safe lifecycle events, and concurrency-safe process registries/caches
 
 ## Install
@@ -53,8 +53,8 @@ Run `go get` from an existing Go module. The CLI installation is independent
 and may run from any directory:
 
 ```bash
-go get github.com/confiify/confii-go@latest
-go install github.com/confiify/confii-go/confii@latest
+go get github.com/confiify/confii-go/v2@latest
+go install github.com/confiify/confii-go/v2/confii@latest
 confii --version
 ```
 
@@ -67,8 +67,8 @@ self-configuration and environment files:
 mkdir my-service
 cd my-service
 go mod init example.com/my-service
-go get github.com/confiify/confii-go@latest
-go install github.com/confiify/confii-go/confii@latest
+go get github.com/confiify/confii-go/v2@latest
+go install github.com/confiify/confii-go/v2/confii@latest
 confii --version
 confii init
 ```
@@ -92,24 +92,24 @@ import (
     "fmt"
     "log"
 
-    confii "github.com/confiify/confii-go"
+    confii "github.com/confiify/confii-go/v2"
 )
 
 type AppConfig struct {
     App struct {
-        Name string `mapstructure:"name"`
-    } `mapstructure:"app"`
+        Name string `confii:"name"`
+    } `confii:"app"`
     Server struct {
-        Host string `mapstructure:"host"`
-        Port int    `mapstructure:"port"`
-    } `mapstructure:"server"`
+        Host string `confii:"host"`
+        Port int    `confii:"port"`
+    } `confii:"server"`
     Log struct {
-        Level string `mapstructure:"level"`
-    } `mapstructure:"log"`
+        Level string `confii:"level"`
+    } `confii:"log"`
 }
 
 func main() {
-    cfg, err := confii.New[AppConfig](context.Background())
+    cfg, err := confii.New[AppConfig]()
     if err != nil {
         log.Fatal(err)
     }

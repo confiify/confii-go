@@ -11,13 +11,13 @@ import (
 
 func TestEventEmitter_EmitNoListeners(t *testing.T) {
 	e := NewEventEmitter(nil)
-	// Emitting an event with no listeners should not panic.
+
 	e.Emit("nonexistent", "arg1", "arg2")
 }
 
 func TestEventEmitter_OffWithNoListeners(t *testing.T) {
 	e := NewEventEmitter(nil)
-	// Off on a non-existent event should not panic.
+
 	e.Off("nonexistent")
 }
 
@@ -29,7 +29,7 @@ func TestEventEmitter_OffRemovesOnlyLast(t *testing.T) {
 	e.On("evt", func(_ ...any) { calls = append(calls, "second") })
 	e.On("evt", func(_ ...any) { calls = append(calls, "third") })
 
-	e.Off("evt") // removes "third"
+	e.Off("evt")
 	e.Emit("evt")
 	assert.Equal(t, []string{"first", "second"}, calls)
 }
@@ -38,7 +38,6 @@ func TestEventEmitter_Chaining(t *testing.T) {
 	e := NewEventEmitter(nil)
 	var count int
 
-	// On returns the emitter for chaining.
 	e.On("evt", func(_ ...any) { count++ }).
 		On("evt", func(_ ...any) { count++ })
 

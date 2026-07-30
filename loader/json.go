@@ -10,20 +10,19 @@ import (
 	"log/slog"
 	"os"
 
-	confii "github.com/confiify/confii-go"
+	confii "github.com/confiify/confii-go/v2"
 )
 
 // JSONLoader loads configuration from a JSON file.
 //
 // Absence of the configured file is governed by the loader's
-// [confii.ErrorPolicy] (default [confii.ErrorPolicyRaise]) (G07):
+// [confii.ErrorPolicy] (default [confii.ErrorPolicyRaise]):
 //
 //   - ErrorPolicyRaise:  Load returns a typed [*confii.ConfigError]
 //     wrapping [confii.ErrConfigLoad].
 //   - ErrorPolicyWarn:   the missing file is logged via the configured
 //     [*slog.Logger] and Load returns (nil, nil).
-//   - ErrorPolicyIgnore: the missing file is silently skipped (legacy
-//     pre-G07 behavior).
+//   - ErrorPolicyIgnore: the missing file is silently skipped.
 type JSONLoader struct {
 	source      string
 	errorPolicy confii.ErrorPolicy
@@ -41,7 +40,7 @@ func WithJSONErrorPolicy(p confii.ErrorPolicy) JSONOption {
 }
 
 // WithJSONLogger sets the logger used when the error policy is
-// [confii.ErrorPolicyWarn]. Nil is ignored. Defaults to [slog.Default].
+// [confii.ErrorPolicyWarn]. Nil is ignored. Defaults to [slog.Default()].
 func WithJSONLogger(logger *slog.Logger) JSONOption {
 	return func(l *JSONLoader) {
 		if logger != nil {
@@ -65,12 +64,14 @@ func NewJSON(path string, opts ...JSONOption) *JSONLoader {
 	return l
 }
 
-// Source returns the identifier for this loader's configuration source.
+// Source returns the configured path exactly as supplied to NewJSON.
 func (l *JSONLoader) Source() string { return l.source }
 
-// Load reads and parses the JSON file at the configured path, returning
-// the parsed configuration as a map. Failures are dispatched through the
-// loader's [confii.ErrorPolicy]; see [JSONLoader] for details.
+// Load reads one JSON object from the configured path. JSON numbers follow
+// encoding/json's default float64 representation. File errors wrap
+// [confii.ErrConfigLoad] and decoding errors wrap [confii.ErrConfigFormat],
+// subject to the configured missing-file policy. Local reads are synchronous;
+// ctx is accepted for Loader compatibility but is not observed.
 func (l *JSONLoader) Load(_ context.Context) (map[string]any, error) {
 	data, err := os.ReadFile(l.source)
 	if err != nil {

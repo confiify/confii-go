@@ -2,209 +2,234 @@
 // SPDX-License-Identifier: MIT
 
 // Package hook provides a thread-safe hook processor for transforming
-// configuration values during access.
+// configuration values while a configuration snapshot is materialized.
 package hook
 
 import (
 	"context"
+	"errors"
+	"reflect"
 	"sync"
 )
 
-// Func transforms a configuration value during access.
-// It receives the full dot-separated key path and the current value,
-// and returns the transformed value.
+// Func transforms a configuration value during snapshot materialization.
 //
-// Func is the original, context-free hook signature retained for backward
-// compatibility. New hooks that require request-scoped context (deadlines,
-// cancellation, caller values) or that need to surface resolution errors to
-// the caller should implement [FuncCtx] instead and register via
-// [Processor.RegisterGlobalHookCtx] (and friends).
-type Func func(key string, value any) any
-
-// FuncCtx is a context-aware hook that may return an error.
-//
-// Unlike [Func], a FuncCtx receives the caller's context (so it can honor
-// per-request deadlines, cancellation, and propagated values) and may return
-// an error which the [Processor] surfaces back to the caller of
-// [Processor.ProcessCtx]. Hooks that perform I/O (secret resolution, remote
-// lookups) should prefer this signature so the caller can fail fast.
-type FuncCtx func(ctx context.Context, key string, value any) (any, error)
+// Every hook receives the caller's context, the full dot-separated key path,
+// and the value produced by the previous hook. A hook may return an error to
+// stop the pipeline. This is the sole hook signature in v2: transformations
+// cannot silently discard cancellation, provider, or validation failures.
+type Func func(ctx context.Context, key string, value any) (any, error)
 
 // Condition determines whether a conditional hook should fire.
-type Condition func(key string, value any) bool
+//
+// Conditions share the hook operation's context and may return an error. An
+// error stops the pipeline before the associated hook executes.
+type Condition func(ctx context.Context, key string, value any) (bool, error)
 
-// Processor manages hook registration and execution.
-// It is safe for concurrent use.
+// Processor manages hook registration and execution. It is safe for
+// concurrent use.
+//
+// Each registration advances the processor revision. Callers that process a
+// compound value should capture one [Plan] with [Processor.Snapshot()] and use
+// it for the entire operation; this prevents concurrent registration from
+// producing a result assembled under multiple hook sets.
 type Processor struct {
 	mu             sync.RWMutex
-	keyHooks       map[string][]hookEntry
-	valueHooks     map[any][]hookEntry
+	revision       uint64
+	keyHooks       map[string][]Func
+	valueHooks     []valueEntry
 	conditionHooks []conditionEntry
-	globalHooks    []hookEntry
+	globalHooks    []Func
 }
 
-// hookEntry stores a hook in its native form. Exactly one of fn / fnCtx is
-// non-nil. Storing the native form (rather than always wrapping legacy hooks
-// into FuncCtx) keeps ProcessCtx error-aware while still allowing Process to
-// run legacy hooks unchanged.
-type hookEntry struct {
-	fn    Func
-	fnCtx FuncCtx
+type valueEntry struct {
+	value any
+	hooks []Func
 }
 
 type conditionEntry struct {
-	cond  Condition
-	entry hookEntry
+	cond Condition
+	hook Func
 }
 
-// NewProcessor creates a new hook processor.
+// Plan is an immutable snapshot of a processor's hook pipeline.
+//
+// A Plan may be reused concurrently. Its Revision identifies the registration
+// state from which it was captured.
+type Plan struct {
+	revision       uint64
+	keyHooks       map[string][]Func
+	valueHooks     []valueEntry
+	conditionHooks []conditionEntry
+	globalHooks    []Func
+}
+
+// NewProcessor creates an empty hook processor.
 func NewProcessor() *Processor {
-	return &Processor{
-		keyHooks:   make(map[string][]hookEntry),
-		valueHooks: make(map[any][]hookEntry),
-	}
+	return &Processor{keyHooks: make(map[string][]Func)}
 }
 
 // RegisterKeyHook registers a hook that fires when the key exactly matches.
 func (p *Processor) RegisterKeyHook(key string, h Func) {
+	if h == nil {
+		panic("hook: RegisterKeyHook called with nil hook")
+	}
 	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.keyHooks[key] = append(p.keyHooks[key], hookEntry{fn: h})
+	p.keyHooks[key] = append(p.keyHooks[key], h)
+	p.revision++
+	p.mu.Unlock()
 }
 
-// RegisterKeyHookCtx registers a context-aware hook that fires when the key
-// exactly matches. Errors returned by the hook propagate back through
-// [Processor.ProcessCtx].
-func (p *Processor) RegisterKeyHookCtx(key string, h FuncCtx) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.keyHooks[key] = append(p.keyHooks[key], hookEntry{fnCtx: h})
-}
-
-// RegisterValueHook registers a hook that fires when the value exactly matches.
-// Only works for comparable (hashable) values.
+// RegisterValueHook registers a hook selected when the value entering the
+// value-hook stage deeply equals value. Key hooks execute first, so their
+// output determines which value hooks match. Non-comparable map and slice
+// values are supported.
 func (p *Processor) RegisterValueHook(value any, h Func) {
+	if h == nil {
+		panic("hook: RegisterValueHook called with nil hook")
+	}
 	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.valueHooks[value] = append(p.valueHooks[value], hookEntry{fn: h})
+	for i := range p.valueHooks {
+		if reflect.DeepEqual(p.valueHooks[i].value, value) {
+			p.valueHooks[i].hooks = append(p.valueHooks[i].hooks, h)
+			p.revision++
+			p.mu.Unlock()
+			return
+		}
+	}
+	p.valueHooks = append(p.valueHooks, valueEntry{value: value, hooks: []Func{h}})
+	p.revision++
+	p.mu.Unlock()
 }
 
-// RegisterValueHookCtx registers a context-aware hook that fires when the
-// value exactly matches. Only works for comparable (hashable) values.
-func (p *Processor) RegisterValueHookCtx(value any, h FuncCtx) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.valueHooks[value] = append(p.valueHooks[value], hookEntry{fnCtx: h})
-}
-
-// RegisterConditionHook registers a hook that fires when the condition returns true.
+// RegisterConditionHook registers a hook that fires when cond returns true.
 func (p *Processor) RegisterConditionHook(cond Condition, h Func) {
+	if cond == nil {
+		panic("hook: RegisterConditionHook called with nil condition")
+	}
+	if h == nil {
+		panic("hook: RegisterConditionHook called with nil hook")
+	}
 	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.conditionHooks = append(p.conditionHooks, conditionEntry{cond: cond, entry: hookEntry{fn: h}})
-}
-
-// RegisterConditionHookCtx registers a context-aware hook that fires when the
-// condition returns true.
-func (p *Processor) RegisterConditionHookCtx(cond Condition, h FuncCtx) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.conditionHooks = append(p.conditionHooks, conditionEntry{cond: cond, entry: hookEntry{fnCtx: h}})
+	p.conditionHooks = append(p.conditionHooks, conditionEntry{cond: cond, hook: h})
+	p.revision++
+	p.mu.Unlock()
 }
 
 // RegisterGlobalHook registers a hook that fires for every value.
 func (p *Processor) RegisterGlobalHook(h Func) {
+	if h == nil {
+		panic("hook: RegisterGlobalHook called with nil hook")
+	}
 	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.globalHooks = append(p.globalHooks, hookEntry{fn: h})
+	p.globalHooks = append(p.globalHooks, h)
+	p.revision++
+	p.mu.Unlock()
 }
 
-// RegisterGlobalHookCtx registers a context-aware hook that fires for every
-// value. Errors returned by the hook propagate back through
-// [Processor.ProcessCtx].
-func (p *Processor) RegisterGlobalHookCtx(h FuncCtx) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.globalHooks = append(p.globalHooks, hookEntry{fnCtx: h})
+// Revision returns the current hook-registration revision.
+func (p *Processor) Revision() uint64 {
+	p.mu.RLock()
+	revision := p.revision
+	p.mu.RUnlock()
+	return revision
 }
 
-// Process applies all applicable hooks to the value in the defined order:
+// Snapshot returns an immutable plan for one logical processing operation.
+func (p *Processor) Snapshot() Plan {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	plan := Plan{
+		revision:       p.revision,
+		keyHooks:       make(map[string][]Func, len(p.keyHooks)),
+		valueHooks:     make([]valueEntry, len(p.valueHooks)),
+		conditionHooks: append([]conditionEntry(nil), p.conditionHooks...),
+		globalHooks:    append([]Func(nil), p.globalHooks...),
+	}
+	for key, hooks := range p.keyHooks {
+		plan.keyHooks[key] = append([]Func(nil), hooks...)
+	}
+	for i, entry := range p.valueHooks {
+		plan.valueHooks[i] = valueEntry{
+			value: entry.value,
+			hooks: append([]Func(nil), entry.hooks...),
+		}
+	}
+	return plan
+}
+
+// Revision returns the processor revision captured by the plan.
+func (p Plan) Revision() uint64 { return p.revision }
+
+// Process captures the current hook plan and applies it to value.
+func (p *Processor) Process(ctx context.Context, key string, value any) (any, error) {
+	return p.Snapshot().Process(ctx, key, value)
+}
+
+// Process applies the plan's hooks in this order:
 // key hooks → value hooks → condition hooks → global hooks.
 // Each hook's output becomes the next hook's input.
-//
-// Process is the legacy entry point and uses [context.Background] when
-// invoking context-aware hooks. Errors returned by context-aware hooks are
-// silently discarded; callers that need to observe such errors must use
-// [Processor.ProcessCtx].
-func (p *Processor) Process(key string, value any) any {
-	v, _ := p.ProcessCtx(context.Background(), key, value)
-	return v
-}
-
-// ProcessCtx is the context-aware variant of [Processor.Process]. It threads
-// ctx through any registered [FuncCtx] hooks and returns the first error
-// produced by such a hook (after which subsequent hooks are skipped). Legacy
-// [Func] hooks remain non-error-returning and run as before.
-func (p *Processor) ProcessCtx(ctx context.Context, key string, value any) (any, error) {
-	// Snapshot hook slices under read lock to avoid holding lock during execution.
-	p.mu.RLock()
-	keyH := append([]hookEntry(nil), p.keyHooks[key]...)
-	var valueH []hookEntry
-	if isComparable(value) {
-		valueH = append([]hookEntry(nil), p.valueHooks[value]...)
+func (p Plan) Process(ctx context.Context, key string, value any) (any, error) {
+	if ctx == nil {
+		return value, errors.New("hook: nil context")
 	}
-	condH := append([]conditionEntry(nil), p.conditionHooks...)
-	globalH := append([]hookEntry(nil), p.globalHooks...)
-	p.mu.RUnlock()
-
-	for _, e := range keyH {
-		v, err := e.run(ctx, key, value)
+	if err := ctx.Err(); err != nil {
+		return value, err
+	}
+	var err error
+	for _, h := range p.keyHooks[key] {
+		if err := ctx.Err(); err != nil {
+			return value, err
+		}
+		value, err = h(ctx, key, value)
 		if err != nil {
-			return v, err
+			return value, err
 		}
-		value = v
 	}
-	for _, e := range valueH {
-		v, err := e.run(ctx, key, value)
+	valueHooks := p.matchingValueHooks(value)
+	for _, h := range valueHooks {
+		if err := ctx.Err(); err != nil {
+			return value, err
+		}
+		value, err = h(ctx, key, value)
 		if err != nil {
-			return v, err
-		}
-		value = v
-	}
-	for _, ce := range condH {
-		if ce.cond(key, value) {
-			v, err := ce.entry.run(ctx, key, value)
-			if err != nil {
-				return v, err
-			}
-			value = v
+			return value, err
 		}
 	}
-	for _, e := range globalH {
-		v, err := e.run(ctx, key, value)
+	for _, entry := range p.conditionHooks {
+		if err := ctx.Err(); err != nil {
+			return value, err
+		}
+		matched, conditionErr := entry.cond(ctx, key, value)
+		if conditionErr != nil {
+			return value, conditionErr
+		}
+		if !matched {
+			continue
+		}
+		value, err = entry.hook(ctx, key, value)
 		if err != nil {
-			return v, err
+			return value, err
 		}
-		value = v
 	}
-
-	return value, nil
-}
-
-// run executes the entry, dispatching to whichever variant is populated.
-func (e hookEntry) run(ctx context.Context, key string, value any) (any, error) {
-	if e.fnCtx != nil {
-		return e.fnCtx(ctx, key, value)
-	}
-	if e.fn != nil {
-		return e.fn(key, value), nil
+	for _, h := range p.globalHooks {
+		if err := ctx.Err(); err != nil {
+			return value, err
+		}
+		value, err = h(ctx, key, value)
+		if err != nil {
+			return value, err
+		}
 	}
 	return value, nil
 }
 
-// isComparable checks if a value can be used as a map key.
-func isComparable(v any) bool {
-	defer func() { _ = recover() }()
-	_ = v == v
-	return true
+func (p Plan) matchingValueHooks(value any) []Func {
+	for _, entry := range p.valueHooks {
+		if reflect.DeepEqual(entry.value, value) {
+			return entry.hooks
+		}
+	}
+	return nil
 }

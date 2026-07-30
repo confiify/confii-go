@@ -3,25 +3,6 @@
 
 //go:build aws
 
-// Behavior tests for the AWS Secrets Manager secret store.
-//
-// Provider: AWS Secrets Manager (secret/cloud/aws.go).
-//
-// Fixture mechanism: protocol-level fixture via `httptest.NewServer`
-// that mimics the Secrets Manager JSON-RPC endpoint. The store is
-// constructed with `WithAWSEndpoint(server.URL)`, which the production
-// code passes through to the SDK as `secretsmanager.Options.BaseEndpoint`
-// — so the fixture intercepts every call without any global env-var
-// hackery.
-//
-// Build-tag gating: this file is gated by `//go:build aws`; the cloud module
-// owns the required AWS SDK versions. Upstream CI exercises it through the
-// same temporary consumer shape users install.
-//
-// Running locally as a consumer:
-//
-//	go test -tags aws -count=1 ./...
-
 package cloud
 
 import (
@@ -34,13 +15,9 @@ import (
 	"strings"
 	"testing"
 
-	confii "github.com/confiify/confii-go"
+	confii "github.com/confiify/confii-go/v2"
 )
 
-// awsSMFixture wires a httptest server up as a fake Secrets Manager
-// endpoint. The fixture also captures the X-Amz-Target header (which
-// identifies the SecretsManager operation) and the request body so
-// individual tests can assert what the store actually sent.
 type awsSMFixture struct {
 	server     *httptest.Server
 	lastTarget string
@@ -65,8 +42,7 @@ func newAWSSMFixture(t *testing.T, respond func(target string, body []byte, w ht
 
 func newStoreAgainstFixture(t *testing.T, f *awsSMFixture) *AWSSecretsManager {
 	t.Helper()
-	store, err := NewAWSSecretsManager(
-		context.Background(),
+	store, err := NewAWSSecretsManager(context.Background(),
 		WithAWSRegion("us-east-1"),
 		WithAWSCredentials("AKIA-test", "secret-test", ""),
 		WithAWSEndpoint(f.server.URL),
@@ -77,8 +53,6 @@ func newStoreAgainstFixture(t *testing.T, f *awsSMFixture) *AWSSecretsManager {
 	return store
 }
 
-// TestAWSSM_GetSecret_HappyPath_StringValue covers the simplest
-// success path: a plain-string secret is returned as a Go string.
 func TestAWSSM_GetSecret_HappyPath_StringValue(t *testing.T) {
 	f := newAWSSMFixture(t, func(target string, _ []byte, w http.ResponseWriter) {
 		if !strings.Contains(target, "GetSecretValue") {
@@ -103,9 +77,6 @@ func TestAWSSM_GetSecret_HappyPath_StringValue(t *testing.T) {
 	}
 }
 
-// TestAWSSM_GetSecret_HappyPath_JSONExtraction covers the documented
-// "secret_name:json_key" syntax: the store should parse the SecretString
-// as JSON and return only the requested field.
 func TestAWSSM_GetSecret_HappyPath_JSONExtraction(t *testing.T) {
 	f := newAWSSMFixture(t, func(_ string, _ []byte, w http.ResponseWriter) {
 		w.Header().Set("Content-Type", "application/x-amz-json-1.1")
@@ -115,7 +86,7 @@ func TestAWSSM_GetSecret_HappyPath_JSONExtraction(t *testing.T) {
 	})
 	store := newStoreAgainstFixture(t, f)
 
-	got, err := store.GetSecret(context.Background(), "db-creds:password")
+	got, err := store.GetSecret(context.Background(), "db-creds", confii.WithField("password"))
 	if err != nil {
 		t.Fatalf("GetSecret: %v", err)
 	}
@@ -124,10 +95,6 @@ func TestAWSSM_GetSecret_HappyPath_JSONExtraction(t *testing.T) {
 	}
 }
 
-// TestAWSSM_GetSecret_JSONKeyNotFound exercises the validation-error
-// branch of the JSON extraction path: when the JSON parses but the
-// requested key is absent, the store must surface ErrSecretValidation
-// rather than a stale value or nil.
 func TestAWSSM_GetSecret_JSONKeyNotFound(t *testing.T) {
 	f := newAWSSMFixture(t, func(_ string, _ []byte, w http.ResponseWriter) {
 		w.Header().Set("Content-Type", "application/x-amz-json-1.1")
@@ -137,7 +104,7 @@ func TestAWSSM_GetSecret_JSONKeyNotFound(t *testing.T) {
 	})
 	store := newStoreAgainstFixture(t, f)
 
-	_, err := store.GetSecret(context.Background(), "db-creds:password")
+	_, err := store.GetSecret(context.Background(), "db-creds", confii.WithField("password"))
 	if err == nil {
 		t.Fatal("expected error for missing JSON key, got nil")
 	}
@@ -146,15 +113,10 @@ func TestAWSSM_GetSecret_JSONKeyNotFound(t *testing.T) {
 	}
 }
 
-// TestAWSSM_GetSecret_NotFound_ReturnsErrSecretNotFound exercises the
-// AWS-specific error mapping: a ResourceNotFoundException response from
-// SecretsManager must surface as confii.ErrSecretNotFound, not as a
-// generic access error.
 func TestAWSSM_GetSecret_NotFound_ReturnsErrSecretNotFound(t *testing.T) {
 	f := newAWSSMFixture(t, func(_ string, _ []byte, w http.ResponseWriter) {
 		w.Header().Set("Content-Type", "application/x-amz-json-1.1")
-		// SecretsManager returns 400 with a typed __type body for
-		// resource-not-found.
+
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte(`{"__type":"ResourceNotFoundException","message":"Secrets Manager can't find the specified secret."}`))
 	})
@@ -169,9 +131,6 @@ func TestAWSSM_GetSecret_NotFound_ReturnsErrSecretNotFound(t *testing.T) {
 	}
 }
 
-// TestAWSSM_GetSecret_ServerError_ReturnsErrSecretAccess exercises the
-// generic-access-error branch: a 500 from SecretsManager must surface
-// as confii.ErrSecretAccess, distinguishable from ErrSecretNotFound.
 func TestAWSSM_GetSecret_ServerError_ReturnsErrSecretAccess(t *testing.T) {
 	f := newAWSSMFixture(t, func(_ string, _ []byte, w http.ResponseWriter) {
 		w.Header().Set("Content-Type", "application/x-amz-json-1.1")
@@ -192,10 +151,6 @@ func TestAWSSM_GetSecret_ServerError_ReturnsErrSecretAccess(t *testing.T) {
 	}
 }
 
-// TestAWSSM_GetSecret_VersionStage exercises the version-routing logic:
-// when the caller passes a known stage name (AWSCURRENT/AWSPREVIOUS/
-// AWSPENDING), the store should populate VersionStage in the request
-// payload, not VersionId. We assert via the captured request body.
 func TestAWSSM_GetSecret_VersionStage(t *testing.T) {
 	f := newAWSSMFixture(t, func(_ string, _ []byte, w http.ResponseWriter) {
 		w.Header().Set("Content-Type", "application/x-amz-json-1.1")
@@ -203,8 +158,7 @@ func TestAWSSM_GetSecret_VersionStage(t *testing.T) {
 	})
 	store := newStoreAgainstFixture(t, f)
 
-	if _, err := store.GetSecret(
-		context.Background(),
+	if _, err := store.GetSecret(context.Background(),
 		"my-secret",
 		confii.WithVersion("AWSPREVIOUS"),
 	); err != nil {
@@ -222,8 +176,6 @@ func TestAWSSM_GetSecret_VersionStage(t *testing.T) {
 	}
 }
 
-// TestAWSSM_GetSecret_VersionID exercises the inverse routing: a
-// non-stage version string must be sent as VersionId.
 func TestAWSSM_GetSecret_VersionID(t *testing.T) {
 	f := newAWSSMFixture(t, func(_ string, _ []byte, w http.ResponseWriter) {
 		w.Header().Set("Content-Type", "application/x-amz-json-1.1")
@@ -231,8 +183,7 @@ func TestAWSSM_GetSecret_VersionID(t *testing.T) {
 	})
 	store := newStoreAgainstFixture(t, f)
 
-	if _, err := store.GetSecret(
-		context.Background(),
+	if _, err := store.GetSecret(context.Background(),
 		"my-secret",
 		confii.WithVersion("ad9b8e2f-1234-5678-90ab-cdef01234567"),
 	); err != nil {
@@ -247,13 +198,8 @@ func TestAWSSM_GetSecret_VersionID(t *testing.T) {
 	}
 }
 
-// TestAWSSM_NewAWSSecretsManager_AuthPlumbing verifies the constructor
-// happy path threads explicit credentials, region, and endpoint through
-// without error. This is the auth-path smoke test for the store: a
-// missing/invalid SDK config would surface here.
 func TestAWSSM_NewAWSSecretsManager_AuthPlumbing(t *testing.T) {
-	store, err := NewAWSSecretsManager(
-		context.Background(),
+	store, err := NewAWSSecretsManager(context.Background(),
 		WithAWSRegion("eu-west-1"),
 		WithAWSCredentials("AKIA-test", "secret-test", "session-token"),
 		WithAWSEndpoint("http://example.invalid"),

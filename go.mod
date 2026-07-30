@@ -1,4 +1,4 @@
-module github.com/confiify/confii-go
+module github.com/confiify/confii-go/v2
 
 go 1.25.0
 

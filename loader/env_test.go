@@ -5,8 +5,10 @@ package loader
 
 import (
 	"context"
+	"errors"
 	"testing"
 
+	confii "github.com/confiify/confii-go/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -38,7 +40,7 @@ func TestEnvironmentLoader_NoMatches(t *testing.T) {
 }
 
 func TestEnvironmentLoader_EnvVarWithEmptyValue(t *testing.T) {
-	// An env var with no value after = should still be picked up.
+
 	t.Setenv("EMPTYVAL_KEY", "")
 
 	l := NewEnvironment("EMPTYVAL")
@@ -59,4 +61,14 @@ func TestEnvironmentLoader_CustomSeparator(t *testing.T) {
 	db, ok := result["db"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "dbhost", db["host"])
+}
+
+func TestEnvironmentLoader_RejectsEmptySeparator(t *testing.T) {
+	t.Setenv("EMPTYSEP_KEY", "value")
+
+	result, err := NewEnvironment("EMPTYSEP", WithSeparator("")).Load(context.Background())
+
+	assert.Nil(t, result)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, confii.ErrConfigLoad))
 }

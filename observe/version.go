@@ -16,17 +16,25 @@ import (
 	"time"
 )
 
-// Version represents an immutable configuration snapshot.
+// Version represents a captured configuration snapshot. VersionManager stores
+// an independent copy of Config; callers must treat values returned by manager
+// methods as read-only.
 //
 // The Timestamp field carries sub-second precision (Unix seconds as a
 // float64 with nanosecond fractional component) so callers can rely on
 // strict monotonic ordering between snapshots taken in quick succession.
 type Version struct {
-	VersionID string         `json:"version_id"`
-	Config    map[string]any `json:"config"`
-	Timestamp float64        `json:"timestamp"`
-	DateTime  string         `json:"datetime"`
-	Metadata  map[string]any `json:"metadata,omitempty"`
+	// VersionID is a stable 16-character hexadecimal identifier for this record.
+	VersionID string `json:"version_id"`
+	// Config is the materialized configuration captured by SaveVersion.
+	Config map[string]any `json:"config"`
+	// Timestamp is a strictly increasing Unix timestamp within one manager.
+	Timestamp float64 `json:"timestamp"`
+	// DateTime is Timestamp formatted as RFC3339Nano.
+	DateTime string `json:"datetime"`
+	// Metadata is caller-supplied descriptive data; it must be JSON-serializable
+	// when disk persistence is enabled.
+	Metadata map[string]any `json:"metadata,omitempty"`
 }
 
 // VersionManager manages configuration version snapshots.
@@ -45,12 +53,9 @@ type VersionManager struct {
 
 // NewVersionManager creates a new version manager.
 //
-// If storagePath is empty the manager keeps snapshots in memory only. Pass
-// an explicit directory path to opt into disk persistence; the prior default
-// of ".confii/versions" was removed because it polluted the consumer's
-// source tree when confii-go was used as a library.
-//
-// If maxVersions <= 0 it defaults to 100.
+// If storagePath is empty, snapshots remain in memory. Otherwise subsequent
+// saves create the directory with mode 0700 and records with mode 0600. A
+// non-positive maxVersions selects the default retention limit of 100.
 func NewVersionManager(storagePath string, maxVersions int) *VersionManager {
 	if maxVersions <= 0 {
 		maxVersions = 100
@@ -80,9 +85,7 @@ func (m *VersionManager) Reconfigure(storagePath string, maxVersions int) {
 
 // SaveVersion captures a snapshot of the configuration.
 //
-// JSON marshal and unmarshal failures (which previously were silently
-// dropped) are now propagated to the caller so they can detect a bad
-// snapshot rather than persist partial/empty state.
+// Serialization failures are returned and no partial snapshot is persisted.
 func (m *VersionManager) SaveVersion(config map[string]any, metadata map[string]any) (*Version, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -147,7 +150,9 @@ func (m *VersionManager) SaveVersion(config map[string]any, metadata map[string]
 	return v, nil
 }
 
-// GetVersion retrieves a version by ID.
+// GetVersion retrieves id from memory or configured disk storage. It returns
+// nil for an unknown or invalid ID, unreadable storage, or malformed record.
+// The returned record is manager-owned and must be treated as read-only.
 func (m *VersionManager) GetVersion(id string) *Version {
 	m.mu.RLock()
 	if v, ok := m.versions[id]; ok {
@@ -188,10 +193,9 @@ func (m *VersionManager) GetVersion(id string) *Version {
 
 // ListVersions returns all known versions sorted by timestamp (newest first).
 //
-// The returned slice is a defensive copy: callers may sort, filter, or
-// otherwise mutate it without affecting the manager's internal state. Disk
-// scanning (which previously ran under the read lock and mutated internal
-// state) is now performed under the write lock.
+// The returned slice may be reordered without affecting the manager, but its
+// Version elements are manager-owned and must be treated as read-only. Invalid
+// or unreadable disk records are skipped.
 func (m *VersionManager) ListVersions() []*Version {
 	m.mu.Lock()
 	m.scanDiskLocked()
@@ -207,7 +211,8 @@ func (m *VersionManager) ListVersions() []*Version {
 	return versions
 }
 
-// LatestVersion returns the most recent version.
+// LatestVersion returns the most recent known version, or nil when none exists.
+// The returned record is manager-owned and must be treated as read-only.
 func (m *VersionManager) LatestVersion() *Version {
 	versions := m.ListVersions()
 	if len(versions) == 0 {

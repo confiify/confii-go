@@ -73,7 +73,7 @@ _include:
 
 ### Single File Include
 
-You can include a single file as a string instead of a list:
+A single include may be written as a string instead of a list:
 
 ```yaml
 _include: shared/logging.yaml
@@ -168,7 +168,7 @@ server:
 
 ### Mixing Strings and Maps
 
-You can combine both forms in the same `_defaults` list:
+Both forms may appear in the same `_defaults` list:
 
 ```yaml
 _defaults:
@@ -345,8 +345,8 @@ import (
     "fmt"
     "os"
 
-    "github.com/confiify/confii-go"
-    "github.com/confiify/confii-go/loader"
+    "github.com/confiify/confii-go/v2"
+    "github.com/confiify/confii-go/v2/loader"
 )
 
 func main() {
@@ -360,7 +360,7 @@ func main() {
         loaders = append(loaders, loader.NewYAML("config/config.production.yaml"))
     }
 
-    cfg, err := confii.New[any](ctx,
+    cfg, err := confii.NewWithContext[any](ctx,
         confii.WithLoaders(loaders...),
     )
     if err != nil {

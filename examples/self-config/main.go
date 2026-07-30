@@ -16,17 +16,16 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
 
-	confii "github.com/confiify/confii-go"
+	confii "github.com/confiify/confii-go/v2"
 )
 
 func main() {
 	// With a .confii.yaml present, settings are auto-discovered.
 	// No explicit options needed — they come from the self-config file.
-	cfg, err := confii.New[any](context.Background())
+	cfg, err := confii.New[any]()
 	if err != nil {
 		log.Fatal(err)
 	}

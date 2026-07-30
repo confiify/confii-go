@@ -27,6 +27,6 @@ func TestEnvPrefixAutoLoader_NoMatches(t *testing.T) {
 	l := &envPrefixAutoLoader{prefix: "CONFII_COVERAGE_PREFIX_THAT_DOES_NOT_EXIST"}
 	got, err := l.Load(context.Background())
 	if err != nil || got != nil {
-		t.Fatalf("Load() = %#v, %v; want nil, nil", got, err)
+		t.Fatalf("Load = %#v, %v; want nil, nil", got, err)
 	}
 }

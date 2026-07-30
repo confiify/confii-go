@@ -11,14 +11,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/confiify/confii-go/selfconfig"
+	"github.com/confiify/confii-go/v2/selfconfig"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-// ---------------------------------------------------------------------------
-// stubLoader is a minimal in-memory Loader for tests.
-// ---------------------------------------------------------------------------
 
 type stubLoader struct {
 	source string
@@ -35,7 +31,6 @@ func (s *stubLoader) Load(_ context.Context) (map[string]any, error) {
 
 func (s *stubLoader) Source() string { return s.source }
 
-// helper: write a temp YAML file and return its path.
 func writeTempYAML(t *testing.T, name, content string) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -44,26 +39,21 @@ func writeTempYAML(t *testing.T, name, content string) string {
 	return p
 }
 
-// helper: create a Config[any] with stub data.
 func newTestConfig(t *testing.T, data map[string]any, opts ...Option) *Config[any] {
 	t.Helper()
 	all := []Option{
 		WithLoaders(&stubLoader{source: "stub", data: data}),
 	}
 	all = append(all, opts...)
-	cfg, err := New[any](context.Background(), all...)
+	cfg, err := NewWithContext[any](context.Background(), all...)
 	require.NoError(t, err)
 	return cfg
 }
 
-// =========================================================================
-// 1-4. Reload tests
-// =========================================================================
-
 func TestReload_Full(t *testing.T) {
-	// Use a real temp YAML file so reload re-reads from disk.
+
 	path := writeTempYAML(t, "cfg.yaml", "app:\n  name: before\n")
-	cfg, err := New[any](context.Background(),
+	cfg, err := NewWithContext[any](context.Background(),
 		WithLoaders(&fileAutoLoader{path: path}),
 	)
 	require.NoError(t, err)
@@ -72,10 +62,9 @@ func TestReload_Full(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "before", v)
 
-	// Overwrite file and do a full (non-incremental) reload.
 	require.NoError(t, os.WriteFile(path, []byte("app:\n  name: after\n"), 0644))
 
-	err = cfg.Reload(context.Background(), WithIncremental(false))
+	err = cfg.ReloadWithContext(context.Background(), WithIncremental(false))
 	require.NoError(t, err)
 
 	v, err = cfg.Get("app.name")
@@ -85,13 +74,12 @@ func TestReload_Full(t *testing.T) {
 
 func TestReload_Incremental_NoChange(t *testing.T) {
 	path := writeTempYAML(t, "cfg.yaml", "key: value\n")
-	cfg, err := New[any](context.Background(),
+	cfg, err := NewWithContext[any](context.Background(),
 		WithLoaders(&fileAutoLoader{path: path}),
 	)
 	require.NoError(t, err)
 
-	// Incremental reload with no file change should be a no-op.
-	err = cfg.Reload(context.Background(), WithIncremental(true))
+	err = cfg.ReloadWithContext(context.Background(), WithIncremental(true))
 	require.NoError(t, err)
 
 	v, err := cfg.Get("key")
@@ -101,16 +89,14 @@ func TestReload_Incremental_NoChange(t *testing.T) {
 
 func TestReload_DryRun(t *testing.T) {
 	path := writeTempYAML(t, "cfg.yaml", "key: original\n")
-	cfg, err := New[any](context.Background(),
+	cfg, err := NewWithContext[any](context.Background(),
 		WithLoaders(&fileAutoLoader{path: path}),
 	)
 	require.NoError(t, err)
 
-	// Overwrite on disk.
 	require.NoError(t, os.WriteFile(path, []byte("key: changed\n"), 0644))
 
-	// Dry-run reload should NOT apply the new value.
-	err = cfg.Reload(context.Background(), WithDryRun(true), WithIncremental(false))
+	err = cfg.ReloadWithContext(context.Background(), WithDryRun(true), WithIncremental(false))
 	require.NoError(t, err)
 
 	v, err := cfg.Get("key")
@@ -120,17 +106,16 @@ func TestReload_DryRun(t *testing.T) {
 
 func TestReload_WithValidate(t *testing.T) {
 	type AppCfg struct {
-		Key string `mapstructure:"key" validate:"required"`
+		Key string `confii:"key" validate:"required"`
 	}
 
 	path := writeTempYAML(t, "cfg.yaml", "key: hello\n")
-	cfg, err := New[AppCfg](context.Background(),
+	cfg, err := NewWithContext[AppCfg](context.Background(),
 		WithLoaders(&fileAutoLoader{path: path}),
 	)
 	require.NoError(t, err)
 
-	// Reload with validation enabled -- should succeed.
-	err = cfg.Reload(context.Background(), WithReloadValidate(true), WithIncremental(false))
+	err = cfg.ReloadWithContext(context.Background(), WithReloadValidate(true), WithIncremental(false))
 	require.NoError(t, err)
 }
 
@@ -138,14 +123,14 @@ func TestReload_Frozen(t *testing.T) {
 	cfg := newTestConfig(t, map[string]any{"a": 1})
 	cfg.Freeze()
 
-	err := cfg.Reload(context.Background())
+	err := cfg.ReloadWithContext(context.Background())
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, ErrConfigFrozen))
 }
 
 func TestReload_ChangeCallback(t *testing.T) {
 	path := writeTempYAML(t, "cfg.yaml", "key: old\n")
-	cfg, err := New[any](context.Background(),
+	cfg, err := NewWithContext[any](context.Background(),
 		WithLoaders(&fileAutoLoader{path: path}),
 	)
 	require.NoError(t, err)
@@ -156,14 +141,10 @@ func TestReload_ChangeCallback(t *testing.T) {
 	})
 
 	require.NoError(t, os.WriteFile(path, []byte("key: new\n"), 0644))
-	require.NoError(t, cfg.Reload(context.Background(), WithIncremental(false)))
+	require.NoError(t, cfg.ReloadWithContext(context.Background(), WithIncremental(false)))
 
 	assert.Contains(t, changedKeys, "key")
 }
-
-// =========================================================================
-// 5. Extend
-// =========================================================================
 
 func TestExtend(t *testing.T) {
 	cfg := newTestConfig(t, map[string]any{"a": 1})
@@ -172,7 +153,7 @@ func TestExtend(t *testing.T) {
 		source: "extra",
 		data:   map[string]any{"b": 2},
 	}
-	err := cfg.Extend(context.Background(), extra)
+	err := cfg.ExtendWithContext(context.Background(), extra)
 	require.NoError(t, err)
 
 	v, err := cfg.Get("b")
@@ -184,7 +165,7 @@ func TestExtend_Frozen(t *testing.T) {
 	cfg := newTestConfig(t, map[string]any{"a": 1})
 	cfg.Freeze()
 
-	err := cfg.Extend(context.Background(), &stubLoader{source: "x", data: map[string]any{"b": 2}})
+	err := cfg.ExtendWithContext(context.Background(), &stubLoader{source: "x", data: map[string]any{"b": 2}})
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, ErrConfigFrozen))
 }
@@ -192,26 +173,22 @@ func TestExtend_Frozen(t *testing.T) {
 func TestExtend_NilData(t *testing.T) {
 	cfg := newTestConfig(t, map[string]any{"a": 1})
 
-	err := cfg.Extend(context.Background(), &stubLoader{source: "empty", data: nil})
+	err := cfg.ExtendWithContext(context.Background(), &stubLoader{source: "empty", data: nil})
 	require.NoError(t, err)
-	// Original data still present.
+
 	assert.True(t, cfg.Has("a"))
 }
 
 func TestExtend_LoaderError(t *testing.T) {
 	cfg := newTestConfig(t, map[string]any{"a": 1})
 
-	err := cfg.Extend(context.Background(), &stubLoader{
+	err := cfg.ExtendWithContext(context.Background(), &stubLoader{
 		source: "bad",
 		err:    errors.New("boom"),
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "boom")
 }
-
-// =========================================================================
-// 6. StopWatching - should not panic when no watcher
-// =========================================================================
 
 func TestStopWatching_NoWatcher(t *testing.T) {
 	cfg := newTestConfig(t, map[string]any{"a": 1})
@@ -222,32 +199,25 @@ func TestStopWatching_NoWatcher(t *testing.T) {
 
 func TestStopWatching_AfterStart(t *testing.T) {
 	path := writeTempYAML(t, "cfg.yaml", "k: v\n")
-	cfg, err := New[any](context.Background(),
+	cfg, err := NewWithContext[any](context.Background(),
 		WithLoaders(&fileAutoLoader{path: path}),
 		WithDynamicReloading(true),
 	)
 	require.NoError(t, err)
 
-	// watcher should be set (or nil if fsnotify fails on temp paths,
-	// but StopWatching must not panic either way).
 	assert.NotPanics(t, func() {
 		cfg.StopWatching()
 	})
 }
 
-// =========================================================================
-// 7. startWatching via WithDynamicReloading(true)
-// =========================================================================
-
 func TestStartWatching_ViaOption(t *testing.T) {
 	path := writeTempYAML(t, "cfg.yaml", "k: v\n")
-	cfg, err := New[any](context.Background(),
+	cfg, err := NewWithContext[any](context.Background(),
 		WithLoaders(&fileAutoLoader{path: path}),
 		WithDynamicReloading(true),
 	)
 	require.NoError(t, err)
 
-	// Cleanup: stop the watcher so goroutines don't leak.
 	defer cfg.StopWatching()
 
 	v, err := cfg.Get("k")
@@ -255,16 +225,12 @@ func TestStartWatching_ViaOption(t *testing.T) {
 	assert.Equal(t, "v", v)
 }
 
-// =========================================================================
-// 8-13. Builder methods
-// =========================================================================
-
 func TestBuilder_AddLoaders(t *testing.T) {
 	l1 := &stubLoader{source: "s1", data: map[string]any{"a": 1}}
 	l2 := &stubLoader{source: "s2", data: map[string]any{"b": 2}}
 	cfg, err := NewBuilder[any]().
 		AddLoaders(l1, l2).
-		Build(context.Background())
+		BuildWithContext(context.Background())
 	require.NoError(t, err)
 
 	assert.True(t, cfg.Has("a"))
@@ -277,12 +243,11 @@ func TestBuilder_EnableDisableDynamicReloading(t *testing.T) {
 	cfg, err := NewBuilder[any]().
 		AddLoader(&fileAutoLoader{path: path}).
 		EnableDynamicReloading().
-		DisableDynamicReloading(). // disable overrides enable
-		Build(context.Background())
+		DisableDynamicReloading().
+		BuildWithContext(context.Background())
 	require.NoError(t, err)
 	defer cfg.StopWatching()
 
-	// watcher should be nil because we disabled dynamic reloading.
 	assert.Nil(t, cfg.watcher)
 }
 
@@ -292,18 +257,17 @@ func TestBuilder_EnableDisableEnvExpander(t *testing.T) {
 	cfg, err := NewBuilder[any]().
 		AddLoader(&stubLoader{source: "s", data: map[string]any{"k": "${LIFECYCLE_TEST_VAR}"}}).
 		EnableEnvExpander().
-		Build(context.Background())
+		BuildWithContext(context.Background())
 	require.NoError(t, err)
 
 	v, err := cfg.Get("k")
 	require.NoError(t, err)
 	assert.Equal(t, "expanded", v)
 
-	// Now with disabled env expander.
 	cfg2, err := NewBuilder[any]().
 		AddLoader(&stubLoader{source: "s", data: map[string]any{"k": "${LIFECYCLE_TEST_VAR}"}}).
 		DisableEnvExpander().
-		Build(context.Background())
+		BuildWithContext(context.Background())
 	require.NoError(t, err)
 
 	v2, err := cfg2.Get("k")
@@ -315,27 +279,27 @@ func TestBuilder_EnableDisableTypeCasting(t *testing.T) {
 	cfg, err := NewBuilder[any]().
 		AddLoader(&stubLoader{source: "s", data: map[string]any{"port": "8080"}}).
 		EnableTypeCasting().
-		Build(context.Background())
+		BuildWithContext(context.Background())
 	require.NoError(t, err)
 
 	v, err := cfg.Get("port")
 	require.NoError(t, err)
-	// With type casting enabled, "8080" should become int.
+
 	assert.Equal(t, 8080, v)
 
 	cfg2, err := NewBuilder[any]().
 		AddLoader(&stubLoader{source: "s", data: map[string]any{"port": "8080"}}).
 		DisableTypeCasting().
-		Build(context.Background())
+		BuildWithContext(context.Background())
 	require.NoError(t, err)
 
 	v2, err := cfg2.Get("port")
 	require.NoError(t, err)
-	// With type casting disabled, "8080" stays string (env expander still runs but doesn't change it).
+
 	assert.IsType(t, "", v2)
 }
 
-func TestBuilder_EnableDisableDeepMerge(t *testing.T) {
+func TestBuilder_MergeStrategies(t *testing.T) {
 	l1 := &stubLoader{source: "s1", data: map[string]any{
 		"db": map[string]any{"host": "h1", "port": 1234},
 	}}
@@ -343,20 +307,18 @@ func TestBuilder_EnableDisableDeepMerge(t *testing.T) {
 		"db": map[string]any{"host": "h2"},
 	}}
 
-	// Deep merge: port should survive.
 	cfg, err := NewBuilder[any]().
 		AddLoaders(l1, l2).
-		EnableDeepMerge().
-		Build(context.Background())
+		WithMergeStrategy(StrategyMerge).
+		BuildWithContext(context.Background())
 	require.NoError(t, err)
 
 	assert.True(t, cfg.Has("db.port"))
 
-	// Shallow merge: l2 replaces entire "db" map, so port is lost.
 	cfg2, err := NewBuilder[any]().
 		AddLoaders(l1, l2).
-		DisableDeepMerge().
-		Build(context.Background())
+		WithMergeStrategy(StrategyShallowMerge).
+		BuildWithContext(context.Background())
 	require.NoError(t, err)
 
 	assert.False(t, cfg2.Has("db.port"))
@@ -366,7 +328,7 @@ func TestBuilder_EnableDebug(t *testing.T) {
 	cfg, err := NewBuilder[any]().
 		AddLoader(&stubLoader{source: "s", data: map[string]any{"k": "v"}}).
 		EnableDebug().
-		Build(context.Background())
+		BuildWithContext(context.Background())
 	require.NoError(t, err)
 
 	assert.True(t, cfg.opts.DebugMode)
@@ -374,13 +336,13 @@ func TestBuilder_EnableDebug(t *testing.T) {
 
 func TestBuilder_WithSchemaValidation(t *testing.T) {
 	type Schema struct {
-		K string `mapstructure:"k" validate:"required"`
+		K string `confii:"k" validate:"required"`
 	}
 
 	cfg, err := NewBuilder[Schema]().
 		AddLoader(&stubLoader{source: "s", data: map[string]any{"k": "v"}}).
 		WithSchemaValidation(Schema{}, true).
-		Build(context.Background())
+		BuildWithContext(context.Background())
 	require.NoError(t, err)
 
 	assert.True(t, cfg.opts.ValidateOnLoad)
@@ -388,11 +350,7 @@ func TestBuilder_WithSchemaValidation(t *testing.T) {
 	assert.NotNil(t, cfg.opts.Schema)
 }
 
-// =========================================================================
-// 15-16. WithMergeStrategyOption / WithMergeStrategyMap
-// =========================================================================
-
-func TestWithMergeStrategyOption(t *testing.T) {
+func TestWithMergeStrategy(t *testing.T) {
 	l1 := &stubLoader{source: "s1", data: map[string]any{
 		"db": map[string]any{"host": "h1", "port": 1234},
 	}}
@@ -400,18 +358,16 @@ func TestWithMergeStrategyOption(t *testing.T) {
 		"db": map[string]any{"host": "h2"},
 	}}
 
-	cfg, err := New[any](context.Background(),
+	cfg, err := NewWithContext[any](context.Background(),
 		WithLoaders(l1, l2),
-		WithMergeStrategyOption(StrategyReplace),
+		WithMergeStrategy(StrategyReplace),
 	)
 	require.NoError(t, err)
 
-	// With Replace strategy, l2's "db" replaces l1's "db" entirely.
 	v, err := cfg.Get("db.host")
 	require.NoError(t, err)
 	assert.Equal(t, "h2", v)
 
-	// "port" should be gone because Replace replaces the entire "db" map.
 	assert.False(t, cfg.Has("db.port"))
 }
 
@@ -427,12 +383,6 @@ func TestWithMergeStrategyMap(t *testing.T) {
 	assert.True(t, opts.isSet("merge_strategy_map"))
 }
 
-// TestConfig_WithMergeStrategyMapAlone_HonoredWithoutGlobalOption pins the
-// G16 fix: supplying WithMergeStrategyMap without also calling
-// WithMergeStrategyOption must activate the advanced merger and apply
-// the per-path strategy. Previously the option was silently dropped and
-// the configuration fell back to dictutil.DeepMerge, so per-path
-// strategies like Replace on a specific section had no effect.
 func TestConfig_WithMergeStrategyMapAlone_HonoredWithoutGlobalOption(t *testing.T) {
 	l1 := &stubLoader{source: "s1", data: map[string]any{
 		"db":   map[string]any{"host": "h1", "port": 1234},
@@ -443,47 +393,26 @@ func TestConfig_WithMergeStrategyMapAlone_HonoredWithoutGlobalOption(t *testing.
 		"misc": map[string]any{"add": "from-overlay"},
 	}}
 
-	cfg, err := New[any](context.Background(),
+	cfg, err := NewWithContext[any](context.Background(),
 		WithLoaders(l1, l2),
-		// NOTE: no WithMergeStrategyOption. The per-path Replace on "db"
-		// must still take effect.
+
 		WithMergeStrategyMap(map[string]MergeStrategy{
 			"db": StrategyReplace,
 		}),
 	)
 	require.NoError(t, err)
 
-	// db.host is overridden and db.port is dropped under per-path Replace.
 	host, err := cfg.Get("db.host")
 	require.NoError(t, err)
 	assert.Equal(t, "h2", host)
 	assert.False(t, cfg.Has("db.port"), "Replace should drop base-only keys under db")
 
-	// misc has no per-path override → falls back to default deep-merge,
-	// preserving the base "keep" key alongside the overlay "add" key.
 	assert.True(t, cfg.Has("misc.keep"), "default deep-merge should preserve base-only keys outside the strategy map")
 	assert.True(t, cfg.Has("misc.add"))
 }
 
-// =========================================================================
-// 17. WithSchema / WithSchemaPath
-// =========================================================================
-
-// TestWithSchema previously only proved that the option struct field is
-// populated (`opts.Schema == s`), which is coverage theater: it does not
-// exercise schema validation. The rewritten test:
-//  1. Still asserts the option-storage invariant (the option must record
-//     that it was explicitly set, so the priority-resolution code path
-//     is not silently regressed).
-//  2. Asserts the integration contract: a JSON Schema map passed to
-//     WithSchema must be enforced at New() time, raising a typed error
-//     when the loaded data violates the schema.
-//
-// G01 (closed Wave 14): WithSchema is now wired through the
-// validate-on-load pipeline for both struct-typed schemas (existing
-// path via Typed) and inline JSON Schema maps (newly enforced).
 func TestWithSchema(t *testing.T) {
-	// 1. Option-storage invariant.
+
 	opts := defaultOptions()
 	s := struct{ Name string }{}
 	fn := WithSchema(s)
@@ -491,7 +420,6 @@ func TestWithSchema(t *testing.T) {
 	assert.Equal(t, s, opts.Schema)
 	assert.True(t, opts.isSet("schema"))
 
-	// 2. Integration contract: a JSON Schema map must be applied.
 	t.Run("inline JSON schema map is enforced at load time", func(t *testing.T) {
 		schema := map[string]any{
 			"type": "object",
@@ -503,19 +431,15 @@ func TestWithSchema(t *testing.T) {
 			},
 			"required": []any{"port"},
 		}
-		// port=80 violates minimum=1024.
+
 		l := &stubLoader{source: "s", data: map[string]any{"port": 80}}
-		_, err := New[any](context.Background(),
+		_, err := NewWithContext[any](context.Background(),
 			WithLoaders(l),
 			WithSchema(schema),
 			WithValidateOnLoad(true),
 			WithStrictValidation(true),
 		)
 		require.Error(t, err, "JSON schema violation must be surfaced")
-		// G01: the public error message is sanitized — it must not echo
-		// the raw violating value but it must be wired to ErrConfigValidation
-		// so callers can detect via errors.Is. The structured detail with
-		// the offending JSON Schema keyword lives on Context["schema_errors"].
 		assert.True(t, errors.Is(err, ErrConfigValidation),
 			"schema-violation error must wrap ErrConfigValidation")
 		var ce *ConfigError
@@ -531,25 +455,14 @@ func TestWithSchema(t *testing.T) {
 	})
 }
 
-// TestWithSchemaPath previously only proved that the option string is
-// stored; it never actually loaded a schema file or validated against it.
-// The rewritten test pins both invariants:
-//  1. Option-storage (kept).
-//  2. Integration contract: a JSON Schema file pointed at by the option
-//     must be loaded and enforced at New() time, raising a typed error
-//     for data that violates the schema.
-//
-// G01 (closed Wave 14): SchemaPath is now read at New() time and
-// reused across Reload/Extend.
 func TestWithSchemaPath(t *testing.T) {
-	// 1. Option-storage invariant.
+
 	opts := defaultOptions()
 	fn := WithSchemaPath("/some/path.json")
 	fn(&opts)
 	assert.Equal(t, "/some/path.json", opts.SchemaPath)
 	assert.True(t, opts.isSet("schema_path"))
 
-	// 2. Integration contract: a JSON Schema file must be loaded and applied.
 	t.Run("on-disk JSON schema is enforced at load time", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		schemaPath := filepath.Join(tmpDir, "schema.json")
@@ -560,7 +473,7 @@ func TestWithSchemaPath(t *testing.T) {
 		}`), 0644))
 
 		l := &stubLoader{source: "s", data: map[string]any{"port": 80}}
-		_, err := New[any](context.Background(),
+		_, err := NewWithContext[any](context.Background(),
 			WithLoaders(l),
 			WithSchemaPath(schemaPath),
 			WithValidateOnLoad(true),
@@ -581,10 +494,6 @@ func TestWithSchemaPath(t *testing.T) {
 	})
 }
 
-// =========================================================================
-// 18. WithValidateOnLoad / WithStrictValidation
-// =========================================================================
-
 func TestWithValidateOnLoad(t *testing.T) {
 	opts := defaultOptions()
 	WithValidateOnLoad(true)(&opts)
@@ -600,10 +509,6 @@ func TestWithStrictValidation(t *testing.T) {
 	assert.True(t, opts.StrictValidation)
 	assert.True(t, opts.isSet("strict_validation"))
 }
-
-// =========================================================================
-// 19. WithOnError
-// =========================================================================
 
 func TestWithOnError(t *testing.T) {
 	opts := defaultOptions()
@@ -622,7 +527,7 @@ func TestWithOnError_Ignore(t *testing.T) {
 
 func TestWithOnError_LoaderError_Warn(t *testing.T) {
 	badLoader := &stubLoader{source: "bad", err: errors.New("fail")}
-	cfg, err := New[any](context.Background(),
+	cfg, err := NewWithContext[any](context.Background(),
 		WithLoaders(badLoader),
 		WithOnError(ErrorPolicyWarn),
 	)
@@ -632,16 +537,12 @@ func TestWithOnError_LoaderError_Warn(t *testing.T) {
 
 func TestWithOnError_LoaderError_Raise(t *testing.T) {
 	badLoader := &stubLoader{source: "bad", err: errors.New("fail")}
-	_, err := New[any](context.Background(),
+	_, err := NewWithContext[any](context.Background(),
 		WithLoaders(badLoader),
 		WithOnError(ErrorPolicyRaise),
 	)
 	require.Error(t, err)
 }
-
-// =========================================================================
-// 20. WithDebugMode
-// =========================================================================
 
 func TestWithDebugMode(t *testing.T) {
 	opts := defaultOptions()
@@ -654,10 +555,6 @@ func TestWithDebugMode(t *testing.T) {
 	assert.False(t, opts.DebugMode)
 }
 
-// =========================================================================
-// 21. WithLogger
-// =========================================================================
-
 func TestWithLogger(t *testing.T) {
 	custom := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	opts := defaultOptions()
@@ -669,22 +566,18 @@ func TestWithLogger(t *testing.T) {
 
 func TestWithLogger_UsedInConfig(t *testing.T) {
 	custom := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	cfg, err := New[any](context.Background(),
+	cfg, err := NewWithContext[any](context.Background(),
 		WithLogger(custom),
 	)
 	require.NoError(t, err)
 	assert.Equal(t, custom, cfg.logger)
 }
 
-// =========================================================================
-// Edge cases / extra coverage
-// =========================================================================
-
 func TestDefaultOptions(t *testing.T) {
 	opts := defaultOptions()
 	assert.True(t, opts.UseEnvExpander)
 	assert.True(t, opts.UseTypeCasting)
-	assert.True(t, opts.DeepMerge)
+	assert.Equal(t, StrategyMerge, opts.MergeStrategy)
 	assert.Equal(t, ErrorPolicyRaise, opts.OnError)
 	assert.NotNil(t, opts.Logger)
 	assert.NotNil(t, opts.explicitlySet)
@@ -700,27 +593,26 @@ func TestOptions_IsSet(t *testing.T) {
 
 func TestReload_Incremental_WithChange(t *testing.T) {
 	path := writeTempYAML(t, "cfg.yaml", "k: v1\n")
-	cfg, err := New[any](context.Background(),
+	cfg, err := NewWithContext[any](context.Background(),
 		WithLoaders(&fileAutoLoader{path: path}),
 	)
 	require.NoError(t, err)
 
-	// Modify the file so incremental reload picks up the change.
 	require.NoError(t, os.WriteFile(path, []byte("k: v2\n"), 0644))
 
-	err = cfg.Reload(context.Background(), WithIncremental(true))
+	err = cfg.ReloadWithContext(context.Background(), WithIncremental(true))
 	require.NoError(t, err)
 
 	v, err := cfg.Get("k")
 	require.NoError(t, err)
-	// The file changed so the new value should appear.
+
 	assert.Equal(t, "v2", v)
 }
 
 func TestExtend_OverridesExisting(t *testing.T) {
 	cfg := newTestConfig(t, map[string]any{"a": 1})
 
-	err := cfg.Extend(context.Background(), &stubLoader{
+	err := cfg.ExtendWithContext(context.Background(), &stubLoader{
 		source: "override",
 		data:   map[string]any{"a": 99},
 	})
@@ -755,16 +647,12 @@ func TestWithTypeCasting_Option(t *testing.T) {
 	assert.True(t, opts.isSet("use_type_casting"))
 }
 
-func TestWithDeepMerge_Option(t *testing.T) {
+func TestWithShallowMerge_Option(t *testing.T) {
 	opts := defaultOptions()
-	WithDeepMerge(false)(&opts)
-	assert.False(t, opts.DeepMerge)
-	assert.True(t, opts.isSet("deep_merge"))
+	WithMergeStrategy(StrategyShallowMerge)(&opts)
+	assert.Equal(t, StrategyShallowMerge, opts.MergeStrategy)
+	assert.True(t, opts.isSet("merge_strategy"))
 }
-
-// =========================================================================
-// applySelfConfig tests
-// =========================================================================
 
 func TestApplySelfConfig_WithConfiiYAML(t *testing.T) {
 	dir := t.TempDir()
@@ -773,7 +661,8 @@ default_environment: staging
 env_switcher: APP_ENV
 env_prefix: MYAPP
 sysenv_fallback: true
-deep_merge: false
+merge:
+  default: shallow_merge
 use_env_expander: false
 use_type_casting: false
 validate_on_load: true
@@ -783,23 +672,22 @@ freeze_on_load: true
 debug_mode: true
 schema_path: /path/to/schema.json
 on_error: warn
-default_files:
-  - config.yaml
-  - overrides.yaml
+sources:
+  - type: yaml
+    path: config.yaml
+  - type: yaml
+    path: overrides.yaml
 `
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".confii.yaml"), []byte(confiiContent), 0644))
 
-	// Write config files referenced by default_files.
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "config.yaml"), []byte("key: value\n"), 0644))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "overrides.yaml"), []byte("key: overridden\n"), 0644))
 
-	// Save current dir, chdir to tmp, then restore.
 	origDir, err := os.Getwd()
 	require.NoError(t, err)
 	require.NoError(t, os.Chdir(dir))
 	defer func() { _ = os.Chdir(origDir) }()
 
-	// Clear the selfconfig cache so it re-reads.
 	selfconfig.ClearCache()
 	defer selfconfig.ClearCache()
 
@@ -811,7 +699,7 @@ default_files:
 	assert.Equal(t, "APP_ENV", opts.EnvSwitcher)
 	assert.Equal(t, "MYAPP", opts.EnvPrefix)
 	assert.True(t, opts.SysenvFallback)
-	assert.False(t, opts.DeepMerge)
+	assert.Equal(t, StrategyShallowMerge, opts.MergeStrategy)
 	assert.False(t, opts.UseEnvExpander)
 	assert.False(t, opts.UseTypeCasting)
 	assert.True(t, opts.ValidateOnLoad)
@@ -821,7 +709,7 @@ default_files:
 	assert.True(t, opts.DebugMode)
 	assert.Equal(t, "/path/to/schema.json", opts.SchemaPath)
 	assert.Equal(t, ErrorPolicy("warn"), opts.OnError)
-	assert.Len(t, opts.Loaders, 2)
+	assert.Len(t, opts.selfConfigSources, 2)
 }
 
 func TestApplySelfConfig_ExplicitOverridesSelfConfig(t *testing.T) {
@@ -841,7 +729,7 @@ env_prefix: FROMFILE
 	defer selfconfig.ClearCache()
 
 	opts := defaultOptions()
-	// Explicitly set env -- should NOT be overridden by self-config.
+
 	WithEnv("production")(&opts)
 	WithEnvPrefix("EXPLICIT")(&opts)
 
@@ -866,13 +754,9 @@ func TestApplySelfConfig_NoConfigFile(t *testing.T) {
 	opts := defaultOptions()
 	err = applySelfConfig(&opts)
 	require.NoError(t, err)
-	// No changes from defaults.
+
 	assert.Equal(t, "", opts.Env)
 }
-
-// =========================================================================
-// fileAutoLoader tests
-// =========================================================================
 
 func TestFileAutoLoader_YAML(t *testing.T) {
 	path := writeTempYAML(t, "test.yaml", "key: value\nnested:\n  a: 1\n")
@@ -896,17 +780,11 @@ func TestFileAutoLoader_JSON(t *testing.T) {
 }
 
 func TestFileAutoLoader_MissingFile(t *testing.T) {
-	// D07 / G19-residual: missing files are dispatched through the
-	// loader's ErrorPolicy with parity to loader.NewYAML — under
-	// ErrorPolicyIgnore the absence is silently tolerated (legacy
-	// pre-D07 behavior); under the default ErrorPolicyRaise a typed
-	// *ConfigError wrapping ErrConfigLoad is returned.
 	l := &fileAutoLoader{path: "/nonexistent/file.yaml", errorPolicy: ErrorPolicyIgnore}
 	data, err := l.Load(context.Background())
 	require.NoError(t, err)
 	assert.Nil(t, data)
 
-	// Default policy (Raise) surfaces a typed error.
 	lRaise := &fileAutoLoader{path: "/nonexistent/file.yaml", errorPolicy: ErrorPolicyRaise}
 	_, err = lRaise.Load(context.Background())
 	require.Error(t, err)
@@ -926,10 +804,6 @@ func TestFileAutoLoader_ParseError(t *testing.T) {
 }
 
 func TestFileAutoLoader_UnknownExtension(t *testing.T) {
-	// D07: unknown extensions are now a typed *ConfigError (format
-	// error) rather than a silent YAML fallback. This pins the
-	// "operator typo surfaces visibly" contract — pre-D07 a file
-	// named "config.cfg" containing YAML succeeded by accident.
 	dir := t.TempDir()
 	p := filepath.Join(dir, "config.unknownext")
 	require.NoError(t, os.WriteFile(p, []byte("key: value\n"), 0644))
@@ -940,12 +814,8 @@ func TestFileAutoLoader_UnknownExtension(t *testing.T) {
 	var ce *ConfigError
 	require.True(t, errors.As(err, &ce), "expected *ConfigError, got %T", err)
 	assert.True(t, errors.Is(err, ErrConfigFormat))
-	assert.Contains(t, err.Error(), "unsupported file format")
+	assert.Contains(t, err.Error(), "unsupported declarative file source")
 }
-
-// =========================================================================
-// copyMap tests
-// =========================================================================
 
 func TestCopyMap_DeepCopy(t *testing.T) {
 	original := map[string]any{
@@ -960,11 +830,9 @@ func TestCopyMap_DeepCopy(t *testing.T) {
 
 	copied := copyMap(original)
 
-	// Mutate original nested map.
 	original["b"].(map[string]any)["c"] = 99
 	original["b"].(map[string]any)["d"].(map[string]any)["e"] = 99
 
-	// Copied should be unchanged.
 	assert.Equal(t, 2, copied["b"].(map[string]any)["c"])
 	assert.Equal(t, 3, copied["b"].(map[string]any)["d"].(map[string]any)["e"])
 }
@@ -981,16 +849,12 @@ func TestCopyMap_Nil(t *testing.T) {
 	assert.Empty(t, copied)
 }
 
-// =========================================================================
-// Explain with override history
-// =========================================================================
-
 func TestExplain_WithOverrideHistory(t *testing.T) {
-	// Use two loaders with overlapping keys to create override history.
+
 	l1 := &stubLoader{source: "first.yaml", data: map[string]any{"key": "from-first"}}
 	l2 := &stubLoader{source: "second.yaml", data: map[string]any{"key": "from-second"}}
 
-	cfg, err := New[any](context.Background(),
+	cfg, err := NewWithContext[any](context.Background(),
 		WithLoaders(l1, l2),
 		WithDebugMode(true),
 	)
@@ -1001,10 +865,6 @@ func TestExplain_WithOverrideHistory(t *testing.T) {
 	assert.Equal(t, "key", info["key"])
 	assert.NotNil(t, info["current_value"])
 }
-
-// =========================================================================
-// GetInt with int64 type
-// =========================================================================
 
 func TestGetInt_Int64(t *testing.T) {
 	cfg := newTestConfig(t, map[string]any{"val": int64(42)})
@@ -1027,22 +887,14 @@ func TestGetFloat64_Int(t *testing.T) {
 	assert.Equal(t, float64(42), v)
 }
 
-// =========================================================================
-// Loader returning nil data (skip)
-// =========================================================================
-
 func TestLoad_NilDataLoader(t *testing.T) {
-	cfg, err := New[any](context.Background(),
+	cfg, err := NewWithContext[any](context.Background(),
 		WithLoaders(&stubLoader{source: "nil", data: nil}),
 	)
 	require.NoError(t, err)
 	assert.NotNil(t, cfg)
 	assert.Empty(t, cfg.Keys())
 }
-
-// =========================================================================
-// Secret options from root package
-// =========================================================================
 
 func TestWithVersion_And_ResolveSecretOptions(t *testing.T) {
 	opt := WithVersion("v2")
@@ -1054,10 +906,6 @@ func TestResolveSecretOptions_Empty(t *testing.T) {
 	o := ResolveSecretOptions()
 	assert.Equal(t, "", o.Version)
 }
-
-// ===========================================================================
-// Reload failure rollback (lines 645-650)
-// ===========================================================================
 
 type failOnReloadLoader struct {
 	source    string
@@ -1081,7 +929,7 @@ func TestReload_FailureRollback(t *testing.T) {
 		data:   map[string]any{"key": "original"},
 	}
 
-	cfg, err := New[any](context.Background(),
+	cfg, err := NewWithContext[any](context.Background(),
 		WithLoaders(fLoader),
 		WithOnError(ErrorPolicyRaise),
 	)
@@ -1091,11 +939,9 @@ func TestReload_FailureRollback(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "original", v)
 
-	// Reload should fail because the loader now returns an error.
-	err = cfg.Reload(context.Background(), WithIncremental(false))
+	err = cfg.ReloadWithContext(context.Background(), WithIncremental(false))
 	require.Error(t, err)
 
-	// After failed reload, the original config should be preserved (rollback).
 	v, err = cfg.Get("key")
 	require.NoError(t, err)
 	assert.Equal(t, "original", v)

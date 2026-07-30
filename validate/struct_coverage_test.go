@@ -11,16 +11,16 @@ import (
 )
 
 type ServerConfig struct {
-	Host     string `mapstructure:"host" validate:"required,hostname|ip"`
-	Port     int    `mapstructure:"port" validate:"required,min=1,max=65535"`
-	Protocol string `mapstructure:"protocol" validate:"oneof=http https"`
+	Host     string `confii:"host" validate:"required,hostname|ip"`
+	Port     int    `confii:"port" validate:"required,min=1,max=65535"`
+	Protocol string `confii:"protocol" validate:"oneof=http https"`
 }
 
 type AppConfig struct {
-	Name    string       `mapstructure:"name" validate:"required,min=1,max=100"`
-	Version string       `mapstructure:"version" validate:"required"`
-	Server  ServerConfig `mapstructure:"server"`
-	Debug   bool         `mapstructure:"debug"`
+	Name    string       `confii:"name" validate:"required,min=1,max=100"`
+	Version string       `confii:"version" validate:"required"`
+	Server  ServerConfig `confii:"server"`
+	Debug   bool         `confii:"debug"`
 }
 
 func TestStructValidator_ValidateNested(t *testing.T) {
@@ -48,7 +48,6 @@ func TestStructValidator_ValidateNestedMissingRequired(t *testing.T) {
 		"version": "1.0.0",
 		"server": map[string]any{
 			"host": "localhost",
-			// port and protocol missing
 		},
 	}
 	err := v.Validate(data)
@@ -65,7 +64,7 @@ func TestStructValidator_ValidateInvalidEnum(t *testing.T) {
 		"server": map[string]any{
 			"host":     "localhost",
 			"port":     8080,
-			"protocol": "ftp", // not in oneof
+			"protocol": "ftp",
 		},
 	}
 	err := v.Validate(data)
@@ -80,7 +79,7 @@ func TestStructValidator_ValidatePortRange(t *testing.T) {
 		"version": "1.0.0",
 		"server": map[string]any{
 			"host":     "localhost",
-			"port":     70000, // exceeds max
+			"port":     70000,
 			"protocol": "http",
 		},
 	}
@@ -111,7 +110,7 @@ func TestDecode_ExtraFields(t *testing.T) {
 }
 
 func TestDecode_WeaklyTypedInput(t *testing.T) {
-	// mapstructure's WeaklyTypedInput should handle string-to-int coercion.
+
 	data := map[string]any{
 		"database": map[string]any{
 			"host": "localhost",
@@ -176,7 +175,7 @@ func TestDecodeAndValidate_PortNegative(t *testing.T) {
 }
 
 type MinimalConfig struct {
-	Name string `mapstructure:"name" validate:"required"`
+	Name string `confii:"name" validate:"required"`
 }
 
 func TestDecodeAndValidate_MinimalStruct(t *testing.T) {
@@ -189,8 +188,8 @@ func TestDecodeAndValidate_MinimalStruct(t *testing.T) {
 }
 
 type EmailConfig struct {
-	Email string `mapstructure:"email" validate:"required,email"`
-	URL   string `mapstructure:"url" validate:"omitempty,url"`
+	Email string `confii:"email" validate:"required,email"`
+	URL   string `confii:"url" validate:"omitempty,url"`
 }
 
 func TestStructValidator_ValidateEmailAndURL(t *testing.T) {
@@ -205,7 +204,6 @@ func TestStructValidator_ValidateEmailAndURL(t *testing.T) {
 		"email": "not-an-email",
 	}))
 
-	// Empty URL is fine (omitempty).
 	assert.NoError(t, v.Validate(map[string]any{
 		"email": "user@example.com",
 	}))

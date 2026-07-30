@@ -24,10 +24,10 @@ import (
 	"log"
 	"os"
 
-	confii "github.com/confiify/confii-go"
-	"github.com/confiify/confii-go/loader/cloud"
-	"github.com/confiify/confii-go/secret"
-	secretcloud "github.com/confiify/confii-go/secret/cloud"
+	"github.com/confiify/confii-go/loader/cloud/v2"
+	secretcloud "github.com/confiify/confii-go/secret/cloud/v2"
+	confii "github.com/confiify/confii-go/v2"
+	"github.com/confiify/confii-go/v2/secret"
 )
 
 func main() {
@@ -66,9 +66,9 @@ func main() {
 	multi := secret.NewMultiStore([]confii.SecretStore{awsStore})
 
 	resolver := secret.NewResolver(multi)
-	cfg, err := confii.New[any](ctx,
+	cfg, err := confii.NewWithContext[any](ctx,
 		confii.WithLoaders(s3Loader, ssmLoader, gitLoader),
-		confii.WithDeepMerge(true),
+		confii.WithMergeStrategy(confii.StrategyMerge),
 		confii.WithSecretResolver(resolver),
 	)
 	if err != nil {

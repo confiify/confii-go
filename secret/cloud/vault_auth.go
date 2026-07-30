@@ -18,7 +18,7 @@ import (
 	"strings"
 	"time"
 
-	confii "github.com/confiify/confii-go"
+	confii "github.com/confiify/confii-go/v2"
 	"github.com/hashicorp/vault/api"
 	"github.com/pkg/browser"
 )
@@ -35,7 +35,7 @@ var ErrVaultAuthUnsupported = errors.New("vault auth method requires a consumer-
 
 // defaultK8sServiceAccountTokenPath is where Kubernetes mounts the projected
 // service-account JWT inside a pod. The Vault SDK does NOT auto-discover
-// this for you; KubernetesAuth reads it directly when JWT is empty.
+// this file; KubernetesAuth reads it directly when JWT is empty.
 const defaultK8sServiceAccountTokenPath = "/var/run/secrets/kubernetes.io/serviceaccount/token"
 
 // TokenAuth authenticates with a static token.
@@ -51,7 +51,10 @@ type TokenAuth struct {
 }
 
 // Authenticate returns the static token directly without contacting Vault.
-func (a *TokenAuth) Authenticate(client *api.Client) (string, error) {
+func (a *TokenAuth) Authenticate(ctx context.Context, _ *api.Client) (string, error) {
+	if err := vaultAuthContextError(ctx); err != nil {
+		return "", err
+	}
 	if a.Token == "" {
 		return "", fmt.Errorf("%w: TokenAuth.Token is empty", confii.ErrVaultAuth)
 	}
@@ -72,7 +75,10 @@ type AppRoleAuth struct {
 }
 
 // Authenticate logs in to Vault using the AppRole auth method with the configured role ID and secret ID.
-func (a *AppRoleAuth) Authenticate(client *api.Client) (string, error) {
+func (a *AppRoleAuth) Authenticate(ctx context.Context, client *api.Client) (string, error) {
+	if err := vaultAuthContextError(ctx); err != nil {
+		return "", err
+	}
 	if a.RoleID == "" || a.SecretID == "" {
 		return "", fmt.Errorf("%w: AppRoleAuth requires RoleID and SecretID", confii.ErrVaultAuth)
 	}
@@ -80,7 +86,7 @@ func (a *AppRoleAuth) Authenticate(client *api.Client) (string, error) {
 	if mp == "" {
 		mp = "approle"
 	}
-	secret, err := client.Logical().Write(fmt.Sprintf("auth/%s/login", mp), map[string]any{
+	secret, err := client.Logical().WriteWithContext(ctx, fmt.Sprintf("auth/%s/login", mp), map[string]any{
 		"role_id":   a.RoleID,
 		"secret_id": a.SecretID,
 	})
@@ -106,13 +112,16 @@ type LDAPAuth struct {
 	// Password is the LDAP password. Required if PasswordProvider is nil.
 	Password string
 	// PasswordProvider is invoked lazily when Password is empty.
-	PasswordProvider func() (string, error)
+	PasswordProvider func(context.Context) (string, error)
 	// MountPoint overrides the auth method mount path (default "ldap").
 	MountPoint string
 }
 
 // Authenticate logs in to Vault using LDAP credentials, optionally obtaining the password from a provider function.
-func (a *LDAPAuth) Authenticate(client *api.Client) (string, error) {
+func (a *LDAPAuth) Authenticate(ctx context.Context, client *api.Client) (string, error) {
+	if err := vaultAuthContextError(ctx); err != nil {
+		return "", err
+	}
 	if a.Username == "" {
 		return "", fmt.Errorf("%w: LDAPAuth.Username is empty", confii.ErrVaultAuth)
 	}
@@ -123,15 +132,15 @@ func (a *LDAPAuth) Authenticate(client *api.Client) (string, error) {
 	password := a.Password
 	if password == "" && a.PasswordProvider != nil {
 		var err error
-		password, err = a.PasswordProvider()
+		password, err = a.PasswordProvider(ctx)
 		if err != nil {
-			return "", fmt.Errorf("%w: ldap password provider: %v", confii.ErrVaultAuth, err)
+			return "", fmt.Errorf("%w: ldap password provider: %w", confii.ErrVaultAuth, err)
 		}
 	}
 	if password == "" {
 		return "", fmt.Errorf("%w: LDAPAuth requires Password or PasswordProvider", confii.ErrVaultAuth)
 	}
-	secret, err := client.Logical().Write(fmt.Sprintf("auth/%s/login/%s", mp, a.Username), map[string]any{
+	secret, err := client.Logical().WriteWithContext(ctx, fmt.Sprintf("auth/%s/login/%s", mp, a.Username), map[string]any{
 		"password": password,
 	})
 	if err != nil {
@@ -146,7 +155,7 @@ func (a *LDAPAuth) Authenticate(client *api.Client) (string, error) {
 // JWTAuth authenticates via the generic JWT/OIDC auth method (HCL: jwt).
 //
 // Required fields: Role and JWT. The JWT must be a serialized OIDC ID token
-// or comparable bearer JWT — this auth method does NOT mint the JWT for you.
+// or comparable bearer JWT. This auth method does not mint the JWT.
 // MountPoint defaults to "jwt"; for the OIDC variant the consumer typically
 // sets it to "oidc" along with the role configured in Vault.
 type JWTAuth struct {
@@ -159,7 +168,10 @@ type JWTAuth struct {
 }
 
 // Authenticate logs in to Vault using a JWT token and the configured role.
-func (a *JWTAuth) Authenticate(client *api.Client) (string, error) {
+func (a *JWTAuth) Authenticate(ctx context.Context, client *api.Client) (string, error) {
+	if err := vaultAuthContextError(ctx); err != nil {
+		return "", err
+	}
 	if a.Role == "" || a.JWT == "" {
 		return "", fmt.Errorf("%w: JWTAuth requires Role and JWT", confii.ErrVaultAuth)
 	}
@@ -167,7 +179,7 @@ func (a *JWTAuth) Authenticate(client *api.Client) (string, error) {
 	if mp == "" {
 		mp = "jwt"
 	}
-	secret, err := client.Logical().Write(fmt.Sprintf("auth/%s/login", mp), map[string]any{
+	secret, err := client.Logical().WriteWithContext(ctx, fmt.Sprintf("auth/%s/login", mp), map[string]any{
 		"role": a.Role,
 		"jwt":  a.JWT,
 	})
@@ -207,7 +219,10 @@ type KubernetesAuth struct {
 // Authenticate logs in to Vault using a Kubernetes service account JWT
 // token and the configured role. When JWT is empty the projected token
 // file is read from disk on each invocation.
-func (a *KubernetesAuth) Authenticate(client *api.Client) (string, error) {
+func (a *KubernetesAuth) Authenticate(ctx context.Context, client *api.Client) (string, error) {
+	if err := vaultAuthContextError(ctx); err != nil {
+		return "", err
+	}
 	if a.Role == "" {
 		return "", fmt.Errorf("%w: KubernetesAuth.Role is empty", confii.ErrVaultAuth)
 	}
@@ -219,7 +234,7 @@ func (a *KubernetesAuth) Authenticate(client *api.Client) (string, error) {
 		}
 		data, err := os.ReadFile(path)
 		if err != nil {
-			return "", fmt.Errorf("%w: read service account token %q: %v", confii.ErrVaultAuth, path, err)
+			return "", fmt.Errorf("%w: read service account token %q: %w", confii.ErrVaultAuth, path, err)
 		}
 		jwt = strings.TrimSpace(string(data))
 		if jwt == "" {
@@ -230,7 +245,7 @@ func (a *KubernetesAuth) Authenticate(client *api.Client) (string, error) {
 	if mp == "" {
 		mp = "kubernetes"
 	}
-	secret, err := client.Logical().Write(fmt.Sprintf("auth/%s/login", mp), map[string]any{
+	secret, err := client.Logical().WriteWithContext(ctx, fmt.Sprintf("auth/%s/login", mp), map[string]any{
 		"role": a.Role,
 		"jwt":  jwt,
 	})
@@ -291,7 +306,10 @@ type AWSIAMAuth struct {
 // Authenticate logs in to Vault using AWS IAM authentication. The consumer
 // is expected to have already signed the STS GetCallerIdentity request and
 // populated the IAMHTTPRequest* fields.
-func (a *AWSIAMAuth) Authenticate(client *api.Client) (string, error) {
+func (a *AWSIAMAuth) Authenticate(ctx context.Context, client *api.Client) (string, error) {
+	if err := vaultAuthContextError(ctx); err != nil {
+		return "", err
+	}
 	if a.Role == "" {
 		return "", fmt.Errorf("%w: AWSIAMAuth.Role is empty", confii.ErrVaultAuth)
 	}
@@ -315,7 +333,7 @@ func (a *AWSIAMAuth) Authenticate(client *api.Client) (string, error) {
 	if a.IAMServerIDHeader != "" {
 		data["iam_server_id_header_value"] = a.IAMServerIDHeader
 	}
-	secret, err := client.Logical().Write(fmt.Sprintf("auth/%s/login", mp), data)
+	secret, err := client.Logical().WriteWithContext(ctx, fmt.Sprintf("auth/%s/login", mp), data)
 	if err != nil {
 		return "", err
 	}
@@ -356,7 +374,10 @@ type AzureAuth struct {
 }
 
 // Authenticate logs in to Vault using an Azure AD JWT and the configured role.
-func (a *AzureAuth) Authenticate(client *api.Client) (string, error) {
+func (a *AzureAuth) Authenticate(ctx context.Context, client *api.Client) (string, error) {
+	if err := vaultAuthContextError(ctx); err != nil {
+		return "", err
+	}
 	if a.Role == "" {
 		return "", fmt.Errorf("%w: AzureAuth.Role is empty", confii.ErrVaultAuth)
 	}
@@ -387,7 +408,7 @@ func (a *AzureAuth) Authenticate(client *api.Client) (string, error) {
 	if a.ResourceGroupName != "" {
 		data["resource_group_name"] = a.ResourceGroupName
 	}
-	secret, err := client.Logical().Write(fmt.Sprintf("auth/%s/login", mp), data)
+	secret, err := client.Logical().WriteWithContext(ctx, fmt.Sprintf("auth/%s/login", mp), data)
 	if err != nil {
 		return "", err
 	}
@@ -415,7 +436,10 @@ type GCPAuth struct {
 }
 
 // Authenticate logs in to Vault using GCP IAM or GCE-issued JWT.
-func (a *GCPAuth) Authenticate(client *api.Client) (string, error) {
+func (a *GCPAuth) Authenticate(ctx context.Context, client *api.Client) (string, error) {
+	if err := vaultAuthContextError(ctx); err != nil {
+		return "", err
+	}
 	if a.Role == "" {
 		return "", fmt.Errorf("%w: GCPAuth.Role is empty", confii.ErrVaultAuth)
 	}
@@ -427,7 +451,7 @@ func (a *GCPAuth) Authenticate(client *api.Client) (string, error) {
 	if mp == "" {
 		mp = "gcp"
 	}
-	secret, err := client.Logical().Write(fmt.Sprintf("auth/%s/login", mp), map[string]any{
+	secret, err := client.Logical().WriteWithContext(ctx, fmt.Sprintf("auth/%s/login", mp), map[string]any{
 		"role": a.Role,
 		"jwt":  a.JWT,
 	})
@@ -470,11 +494,14 @@ type OIDCAuth struct {
 	// CallbackProvider replaces the built-in loopback HTTP listener. The
 	// returned string must be the complete callback URL, including state,
 	// nonce, and code query parameters.
-	CallbackProvider func(authorizationURL string) (callbackURL string, err error)
+	CallbackProvider func(ctx context.Context, authorizationURL string) (callbackURL string, err error)
 }
 
 // Authenticate completes Vault's OIDC auth_url and callback protocol.
-func (a *OIDCAuth) Authenticate(client *api.Client) (string, error) {
+func (a *OIDCAuth) Authenticate(ctx context.Context, client *api.Client) (string, error) {
+	if err := vaultAuthContextError(ctx); err != nil {
+		return "", err
+	}
 	if client == nil {
 		return "", fmt.Errorf("%w: OIDCAuth requires a Vault client", confii.ErrVaultAuth)
 	}
@@ -495,11 +522,11 @@ func (a *OIDCAuth) Authenticate(client *api.Client) (string, error) {
 	if clientNonce == "" {
 		clientNonce, err = randomOIDCNonce()
 		if err != nil {
-			return "", fmt.Errorf("%w: generate OIDC client nonce: %v", confii.ErrVaultAuth, err)
+			return "", fmt.Errorf("%w: generate OIDC client nonce: %w", confii.ErrVaultAuth, err)
 		}
 	}
 
-	var callbackURL func(string) (string, error)
+	var callbackURL func(context.Context, string) (string, error)
 	var listener net.Listener
 	if a.CallbackProvider != nil {
 		callbackURL = a.CallbackProvider
@@ -518,9 +545,9 @@ func (a *OIDCAuth) Authenticate(client *api.Client) (string, error) {
 	if a.Role != "" {
 		payload["role"] = a.Role
 	}
-	authURLSecret, err := client.Logical().Write(fmt.Sprintf("auth/%s/oidc/auth_url", mp), payload)
+	authURLSecret, err := client.Logical().WriteWithContext(ctx, fmt.Sprintf("auth/%s/oidc/auth_url", mp), payload)
 	if err != nil {
-		return "", fmt.Errorf("%w: request OIDC authorization URL: %v", confii.ErrVaultAuth, err)
+		return "", fmt.Errorf("%w: request OIDC authorization URL: %w", confii.ErrVaultAuth, err)
 	}
 	authURL, ok := secretString(authURLSecret, "auth_url")
 	if !ok {
@@ -538,7 +565,7 @@ func (a *OIDCAuth) Authenticate(client *api.Client) (string, error) {
 
 	var returnedURL string
 	if callbackURL != nil {
-		returnedURL, err = callbackURL(authURL)
+		returnedURL, err = callbackURL(ctx, authURL)
 	} else {
 		timeout := a.CallbackTimeout
 		if timeout <= 0 {
@@ -548,14 +575,14 @@ func (a *OIDCAuth) Authenticate(client *api.Client) (string, error) {
 		if opener == nil {
 			opener = browser.OpenURL
 		}
-		returnedURL, err = receiveOIDCCallback(listener, redirect.Path, authURL, opener, timeout)
+		returnedURL, err = receiveOIDCCallback(ctx, listener, redirect.Path, authURL, opener, timeout)
 	}
 	if err != nil {
-		return "", fmt.Errorf("%w: OIDC callback: %v", confii.ErrVaultAuth, err)
+		return "", fmt.Errorf("%w: OIDC callback: %w", confii.ErrVaultAuth, err)
 	}
 	callback, err := url.Parse(returnedURL)
 	if err != nil {
-		return "", fmt.Errorf("%w: invalid OIDC callback URL: %v", confii.ErrVaultAuth, err)
+		return "", fmt.Errorf("%w: invalid OIDC callback URL: %w", confii.ErrVaultAuth, err)
 	}
 	if callback.Scheme != redirect.Scheme || callback.Host != redirect.Host || callback.Path != redirect.Path {
 		return "", fmt.Errorf("%w: OIDC callback URL did not match RedirectURI", confii.ErrVaultAuth)
@@ -571,7 +598,7 @@ func (a *OIDCAuth) Authenticate(client *api.Client) (string, error) {
 		return "", fmt.Errorf("%w: OIDC callback omitted authorization code", confii.ErrVaultAuth)
 	}
 
-	secret, err := client.Logical().ReadWithData(fmt.Sprintf("auth/%s/oidc/callback", mp), map[string][]string{
+	secret, err := client.Logical().ReadWithDataWithContext(ctx, fmt.Sprintf("auth/%s/oidc/callback", mp), map[string][]string{
 		"state": {q.Get("state")},
 		// OIDC providers return state and code to the redirect URI. The nonce
 		// is retained from Vault's auth_url response and supplied during the
@@ -581,7 +608,7 @@ func (a *OIDCAuth) Authenticate(client *api.Client) (string, error) {
 		"client_nonce": {clientNonce},
 	})
 	if err != nil {
-		return "", fmt.Errorf("%w: exchange OIDC callback: %v", confii.ErrVaultAuth, err)
+		return "", fmt.Errorf("%w: exchange OIDC callback: %w", confii.ErrVaultAuth, err)
 	}
 	if secret == nil || secret.Auth == nil || secret.Auth.ClientToken == "" {
 		return "", fmt.Errorf("%w: OIDC callback returned no auth token", confii.ErrVaultAuth)
@@ -619,12 +646,12 @@ func listenOIDCCallback(redirect *url.URL) (net.Listener, error) {
 	}
 	listener, err := net.Listen("tcp", redirect.Host)
 	if err != nil {
-		return nil, fmt.Errorf("%w: listen for OIDC callback: %v", confii.ErrVaultAuth, err)
+		return nil, fmt.Errorf("%w: listen for OIDC callback: %w", confii.ErrVaultAuth, err)
 	}
 	return listener, nil
 }
 
-func receiveOIDCCallback(listener net.Listener, callbackPath, authURL string, opener func(string) error, timeout time.Duration) (string, error) {
+func receiveOIDCCallback(ctx context.Context, listener net.Listener, callbackPath, authURL string, opener func(string) error, timeout time.Duration) (string, error) {
 	result := make(chan string, 1)
 	server := &http.Server{ReadHeaderTimeout: 5 * time.Second}
 	server.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -650,7 +677,11 @@ func receiveOIDCCallback(listener net.Listener, callbackPath, authURL string, op
 	})
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- server.Serve(listener) }()
-	defer server.Shutdown(context.Background())
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = server.Shutdown(shutdownCtx)
+	}()
 
 	if err := opener(authURL); err != nil {
 		return "", fmt.Errorf("open browser: %w", err)
@@ -667,5 +698,14 @@ func receiveOIDCCallback(listener net.Listener, callbackPath, authURL string, op
 		return "", err
 	case <-timer.C:
 		return "", fmt.Errorf("timed out after %s", timeout)
+	case <-ctx.Done():
+		return "", ctx.Err()
 	}
+}
+
+func vaultAuthContextError(ctx context.Context) error {
+	if ctx == nil {
+		return fmt.Errorf("%w: nil context", confii.ErrVaultAuth)
+	}
+	return ctx.Err()
 }

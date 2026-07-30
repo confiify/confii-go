@@ -14,11 +14,17 @@ import (
 type Format string
 
 const (
-	FormatYAML    Format = "yaml"
-	FormatJSON    Format = "json"
-	FormatTOML    Format = "toml"
-	FormatINI     Format = "ini"
+	// FormatYAML identifies YAML input, including .yml files.
+	FormatYAML Format = "yaml"
+	// FormatJSON identifies JSON input.
+	FormatJSON Format = "json"
+	// FormatTOML identifies TOML input.
+	FormatTOML Format = "toml"
+	// FormatINI identifies INI input, including .cfg files.
+	FormatINI Format = "ini"
+	// FormatEnvFile identifies dotenv input.
 	FormatEnvFile Format = "env"
+	// FormatUnknown indicates that no supported format was recognized.
 	FormatUnknown Format = ""
 )
 

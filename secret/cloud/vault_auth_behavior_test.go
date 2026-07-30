@@ -3,30 +3,10 @@
 
 //go:build vault
 
-// Behavior tests for the HashiCorp Vault auth method implementations.
-//
-// Provider: HashiCorp Vault auth backends (secret/cloud/vault_auth.go).
-//
-// Fixture mechanism: protocol-level fixture via `httptest.NewServer`
-// that mimics the Vault auth REST endpoints. Each test points the Vault
-// `*api.Client` at the fixture's URL via `api.DefaultConfig()` +
-// `cfg.Address = server.URL`, then drives the auth method's
-// Authenticate method end-to-end. We assert both the request shape
-// (path, mount point, body fields) and the response handling (token
-// extraction, error wrapping).
-//
-// G26 coverage focus: the previous implementations of AWSIAMAuth,
-// AzureAuth, GCPAuth, and OIDCAuth submitted only role/resource fields
-// and did not validate that the consumer had supplied the
-// credential/assertion the SDK actually needs. This file covers each
-// auth method, including the complete OIDC auth_url/callback exchange.
-//
-// Build-tag gating: //go:build vault, same rationale as
-// vault_behavior_test.go.
-
 package cloud
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -40,7 +20,7 @@ import (
 	"strings"
 	"testing"
 
-	confii "github.com/confiify/confii-go"
+	confii "github.com/confiify/confii-go/v2"
 	"github.com/hashicorp/vault/api"
 )
 
@@ -59,7 +39,7 @@ func newAuthFixture(t *testing.T) *authFixture {
 		buf, _ := io.ReadAll(r.Body)
 		_ = r.Body.Close()
 		_ = json.Unmarshal(buf, &f.lastBody)
-		// Re-attach the body so the route handler can re-decode if needed.
+
 		r.Body = io.NopCloser(strings.NewReader(string(buf)))
 		if h, ok := f.routes[r.URL.Path]; ok {
 			h(w, r)
@@ -96,12 +76,9 @@ func writeAuthOK(w http.ResponseWriter, token string) {
 	})
 }
 
-// TestVaultAuth_TokenAuth_RejectsEmptyToken — pre-G26 the implementation
-// returned the empty string silently; after the fix it surfaces a typed
-// error.
 func TestVaultAuth_TokenAuth_RejectsEmptyToken(t *testing.T) {
 	auth := &TokenAuth{}
-	_, err := auth.Authenticate(nil)
+	_, err := auth.Authenticate(context.Background(), nil)
 	if err == nil {
 		t.Fatal("expected ErrVaultAuth, got nil")
 	}
@@ -110,8 +87,6 @@ func TestVaultAuth_TokenAuth_RejectsEmptyToken(t *testing.T) {
 	}
 }
 
-// TestVaultAuth_LDAP_HappyPath drives the LDAPAuth login through the
-// fixture and asserts the canonical mount path + payload shape.
 func TestVaultAuth_LDAP_HappyPath(t *testing.T) {
 	f := newAuthFixture(t)
 	f.handle("/v1/auth/ldap/login/alice", func(w http.ResponseWriter, _ *http.Request) {
@@ -119,7 +94,7 @@ func TestVaultAuth_LDAP_HappyPath(t *testing.T) {
 	})
 
 	auth := &LDAPAuth{Username: "alice", Password: "hunter2"}
-	got, err := auth.Authenticate(f.client(t))
+	got, err := auth.Authenticate(context.Background(), f.client(t))
 	if err != nil {
 		t.Fatalf("Authenticate: %v", err)
 	}
@@ -131,8 +106,6 @@ func TestVaultAuth_LDAP_HappyPath(t *testing.T) {
 	}
 }
 
-// TestVaultAuth_LDAP_PasswordProvider asserts that PasswordProvider is
-// consulted when Password is empty.
 func TestVaultAuth_LDAP_PasswordProvider(t *testing.T) {
 	f := newAuthFixture(t)
 	f.handle("/v1/auth/ldap/login/alice", func(w http.ResponseWriter, _ *http.Request) {
@@ -141,12 +114,12 @@ func TestVaultAuth_LDAP_PasswordProvider(t *testing.T) {
 	called := false
 	auth := &LDAPAuth{
 		Username: "alice",
-		PasswordProvider: func() (string, error) {
+		PasswordProvider: func(context.Context) (string, error) {
 			called = true
 			return "provided-password", nil
 		},
 	}
-	_, err := auth.Authenticate(f.client(t))
+	_, err := auth.Authenticate(context.Background(), f.client(t))
 	if err != nil {
 		t.Fatalf("Authenticate: %v", err)
 	}
@@ -158,11 +131,9 @@ func TestVaultAuth_LDAP_PasswordProvider(t *testing.T) {
 	}
 }
 
-// TestVaultAuth_LDAP_MissingPassword surfaces ErrVaultAuth without
-// hitting the network.
 func TestVaultAuth_LDAP_MissingPassword(t *testing.T) {
 	auth := &LDAPAuth{Username: "alice"}
-	_, err := auth.Authenticate(nil)
+	_, err := auth.Authenticate(context.Background(), nil)
 	if err == nil {
 		t.Fatal("expected ErrVaultAuth, got nil")
 	}
@@ -171,7 +142,6 @@ func TestVaultAuth_LDAP_MissingPassword(t *testing.T) {
 	}
 }
 
-// TestVaultAuth_JWT_HappyPath drives the JWTAuth login.
 func TestVaultAuth_JWT_HappyPath(t *testing.T) {
 	f := newAuthFixture(t)
 	f.handle("/v1/auth/jwt/login", func(w http.ResponseWriter, _ *http.Request) {
@@ -179,7 +149,7 @@ func TestVaultAuth_JWT_HappyPath(t *testing.T) {
 	})
 
 	auth := &JWTAuth{Role: "demo", JWT: "eyJ..."}
-	got, err := auth.Authenticate(f.client(t))
+	got, err := auth.Authenticate(context.Background(), f.client(t))
 	if err != nil {
 		t.Fatalf("Authenticate: %v", err)
 	}
@@ -191,11 +161,9 @@ func TestVaultAuth_JWT_HappyPath(t *testing.T) {
 	}
 }
 
-// TestVaultAuth_JWT_MissingFields surfaces ErrVaultAuth without hitting
-// the network.
 func TestVaultAuth_JWT_MissingFields(t *testing.T) {
 	auth := &JWTAuth{Role: "demo"}
-	_, err := auth.Authenticate(nil)
+	_, err := auth.Authenticate(context.Background(), nil)
 	if err == nil {
 		t.Fatal("expected ErrVaultAuth, got nil")
 	}
@@ -204,8 +172,6 @@ func TestVaultAuth_JWT_MissingFields(t *testing.T) {
 	}
 }
 
-// TestVaultAuth_Kubernetes_ReadsTokenFromFile asserts the in-pod token
-// file discovery: when JWT is empty, KubernetesAuth reads from TokenPath.
 func TestVaultAuth_Kubernetes_ReadsTokenFromFile(t *testing.T) {
 	dir := t.TempDir()
 	tokenFile := filepath.Join(dir, "token")
@@ -219,7 +185,7 @@ func TestVaultAuth_Kubernetes_ReadsTokenFromFile(t *testing.T) {
 	})
 
 	auth := &KubernetesAuth{Role: "demo", TokenPath: tokenFile}
-	got, err := auth.Authenticate(f.client(t))
+	got, err := auth.Authenticate(context.Background(), f.client(t))
 	if err != nil {
 		t.Fatalf("Authenticate: %v", err)
 	}
@@ -231,10 +197,9 @@ func TestVaultAuth_Kubernetes_ReadsTokenFromFile(t *testing.T) {
 	}
 }
 
-// TestVaultAuth_Kubernetes_MissingTokenFile surfaces ErrVaultAuth.
 func TestVaultAuth_Kubernetes_MissingTokenFile(t *testing.T) {
 	auth := &KubernetesAuth{Role: "demo", TokenPath: "/no/such/path/token"}
-	_, err := auth.Authenticate(nil)
+	_, err := auth.Authenticate(context.Background(), nil)
 	if err == nil {
 		t.Fatal("expected ErrVaultAuth, got nil")
 	}
@@ -243,8 +208,6 @@ func TestVaultAuth_Kubernetes_MissingTokenFile(t *testing.T) {
 	}
 }
 
-// TestVaultAuth_AWSIAM_HappyPath asserts the signed-STS payload flows
-// through to Vault when all four IAMHTTPRequest* fields are populated.
 func TestVaultAuth_AWSIAM_HappyPath(t *testing.T) {
 	f := newAuthFixture(t)
 	f.handle("/v1/auth/aws/login", func(w http.ResponseWriter, _ *http.Request) {
@@ -262,7 +225,7 @@ func TestVaultAuth_AWSIAM_HappyPath(t *testing.T) {
 		IAMHTTPRequestBody:    signedBody,
 		IAMHTTPRequestHeaders: signedHeaders,
 	}
-	got, err := auth.Authenticate(f.client(t))
+	got, err := auth.Authenticate(context.Background(), f.client(t))
 	if err != nil {
 		t.Fatalf("Authenticate: %v", err)
 	}
@@ -277,11 +240,9 @@ func TestVaultAuth_AWSIAM_HappyPath(t *testing.T) {
 	}
 }
 
-// TestVaultAuth_AWSIAM_UnsignedRequestRejected asserts that the typed
-// error is surfaced when the consumer hasn't signed the STS request.
 func TestVaultAuth_AWSIAM_UnsignedRequestRejected(t *testing.T) {
 	auth := &AWSIAMAuth{Role: "demo"}
-	_, err := auth.Authenticate(nil)
+	_, err := auth.Authenticate(context.Background(), nil)
 	if err == nil {
 		t.Fatal("expected ErrVaultAuth, got nil")
 	}
@@ -293,7 +254,6 @@ func TestVaultAuth_AWSIAM_UnsignedRequestRejected(t *testing.T) {
 	}
 }
 
-// TestVaultAuth_Azure_HappyPath drives AzureAuth with an in-hand JWT.
 func TestVaultAuth_Azure_HappyPath(t *testing.T) {
 	f := newAuthFixture(t)
 	f.handle("/v1/auth/azure/login", func(w http.ResponseWriter, _ *http.Request) {
@@ -305,7 +265,7 @@ func TestVaultAuth_Azure_HappyPath(t *testing.T) {
 		JWT:            "eyJAzure...",
 		SubscriptionID: "00000000-0000-0000-0000-000000000000",
 	}
-	got, err := auth.Authenticate(f.client(t))
+	got, err := auth.Authenticate(context.Background(), f.client(t))
 	if err != nil {
 		t.Fatalf("Authenticate: %v", err)
 	}
@@ -320,10 +280,9 @@ func TestVaultAuth_Azure_HappyPath(t *testing.T) {
 	}
 }
 
-// TestVaultAuth_Azure_MissingJWT surfaces the typed unsupported error.
 func TestVaultAuth_Azure_MissingJWT(t *testing.T) {
 	auth := &AzureAuth{Role: "demo"}
-	_, err := auth.Authenticate(nil)
+	_, err := auth.Authenticate(context.Background(), nil)
 	if err == nil {
 		t.Fatal("expected ErrVaultAuth, got nil")
 	}
@@ -335,7 +294,6 @@ func TestVaultAuth_Azure_MissingJWT(t *testing.T) {
 	}
 }
 
-// TestVaultAuth_GCP_HappyPath drives GCPAuth with a pre-signed JWT.
 func TestVaultAuth_GCP_HappyPath(t *testing.T) {
 	f := newAuthFixture(t)
 	f.handle("/v1/auth/gcp/login", func(w http.ResponseWriter, _ *http.Request) {
@@ -343,7 +301,7 @@ func TestVaultAuth_GCP_HappyPath(t *testing.T) {
 	})
 
 	auth := &GCPAuth{Role: "demo", JWT: "eyJGCP..."}
-	got, err := auth.Authenticate(f.client(t))
+	got, err := auth.Authenticate(context.Background(), f.client(t))
 	if err != nil {
 		t.Fatalf("Authenticate: %v", err)
 	}
@@ -355,10 +313,9 @@ func TestVaultAuth_GCP_HappyPath(t *testing.T) {
 	}
 }
 
-// TestVaultAuth_GCP_MissingJWT surfaces the typed unsupported error.
 func TestVaultAuth_GCP_MissingJWT(t *testing.T) {
 	auth := &GCPAuth{Role: "demo"}
-	_, err := auth.Authenticate(nil)
+	_, err := auth.Authenticate(context.Background(), nil)
 	if err == nil {
 		t.Fatal("expected ErrVaultAuth, got nil")
 	}
@@ -394,16 +351,15 @@ func TestVaultAuth_OIDC_HappyPath(t *testing.T) {
 		MountPoint:  "custom-oidc",
 		RedirectURI: "http://localhost:8250/oidc/callback",
 		ClientNonce: "client-nonce",
-		CallbackProvider: func(authURL string) (string, error) {
+		CallbackProvider: func(_ context.Context, authURL string) (string, error) {
 			if !strings.Contains(authURL, "state=vault-state") {
 				t.Errorf("authorization URL: got %q", authURL)
 			}
-			// Real OIDC providers return state and code. They do not echo the
-			// authorization-request nonce as a callback query parameter.
+
 			return "http://localhost:8250/oidc/callback?state=vault-state&code=provider-code", nil
 		},
 	}
-	token, err := auth.Authenticate(f.client(t))
+	token, err := auth.Authenticate(context.Background(), f.client(t))
 	if err != nil {
 		t.Fatalf("Authenticate: %v", err)
 	}
@@ -422,11 +378,11 @@ func TestVaultAuth_OIDC_RejectsMismatchedState(t *testing.T) {
 	})
 	auth := &OIDCAuth{
 		ClientNonce: "client-nonce",
-		CallbackProvider: func(string) (string, error) {
+		CallbackProvider: func(context.Context, string) (string, error) {
 			return "http://localhost:8250/oidc/callback?state=attacker&code=code", nil
 		},
 	}
-	_, err := auth.Authenticate(f.client(t))
+	_, err := auth.Authenticate(context.Background(), f.client(t))
 	if err == nil || !errors.Is(err, confii.ErrVaultAuth) {
 		t.Fatalf("error: got %v, want ErrVaultAuth", err)
 	}
@@ -467,7 +423,7 @@ func TestVaultAuth_OIDC_BuiltInLoopbackCallback(t *testing.T) {
 			return getErr
 		},
 	}
-	token, err := auth.Authenticate(f.client(t))
+	token, err := auth.Authenticate(context.Background(), f.client(t))
 	if err != nil {
 		t.Fatalf("Authenticate: %v", err)
 	}
@@ -476,11 +432,9 @@ func TestVaultAuth_OIDC_BuiltInLoopbackCallback(t *testing.T) {
 	}
 }
 
-// TestVaultAuth_AppRole_RejectsEmpty asserts the new validation guard
-// without contacting the network.
 func TestVaultAuth_AppRole_RejectsEmpty(t *testing.T) {
 	auth := &AppRoleAuth{}
-	_, err := auth.Authenticate(nil)
+	_, err := auth.Authenticate(context.Background(), nil)
 	if err == nil {
 		t.Fatal("expected ErrVaultAuth, got nil")
 	}

@@ -3,7 +3,9 @@
 
 package confii
 
-// Validator validates a configuration map against a schema.
+// Validator checks a materialized configuration map. Implementations must not
+// mutate data and return nil only when every configured constraint succeeds.
 type Validator interface {
+	// Validate returns a descriptive error for one or more violations.
 	Validate(data map[string]any) error
 }

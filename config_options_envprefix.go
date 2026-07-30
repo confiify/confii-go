@@ -8,13 +8,13 @@ import (
 	"os"
 	"strings"
 
-	"github.com/confiify/confii-go/internal/dictutil"
-	"github.com/confiify/confii-go/internal/typecoerce"
+	"github.com/confiify/confii-go/v2/internal/dictutil"
+	"github.com/confiify/confii-go/v2/internal/typecoerce"
 )
 
 // envPrefixAutoLoader is the [Loader] auto-installed by [WithEnvPrefix] so
 // that environment variables matching the prefix participate in the normal
-// load+merge pipeline (Wave 13 G03). It is a behavioral mirror of
+// load+merge pipeline. It is a behavioral mirror of
 // [loader.EnvironmentLoader] with the canonical "__" double-underscore
 // nesting separator, intentionally re-implemented in the root package
 // because the public `loader` subpackage imports `confii` (so the root

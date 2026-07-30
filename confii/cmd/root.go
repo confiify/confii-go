@@ -1,6 +1,8 @@
 // Copyright 2026 The Confii Contributors
 // SPDX-License-Identifier: MIT
 
+// Package cmd implements the Confii command-line interface and exposes its
+// Cobra command tree for provider-enabled distributions and tests.
 package cmd
 
 import (

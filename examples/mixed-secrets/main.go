@@ -12,12 +12,12 @@ import (
 	"fmt"
 	"log"
 
-	confii "github.com/confiify/confii-go"
+	confii "github.com/confiify/confii-go/v2"
 )
 
 func main() {
 	ctx := context.Background()
-	cfg, err := confii.New[any](ctx,
+	cfg, err := confii.NewWithContext[any](ctx,
 		confii.WithWorkingDir("examples/mixed-secrets"),
 		confii.WithEnv("production"),
 	)

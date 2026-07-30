@@ -25,16 +25,19 @@ trap 'rm -rf "$workspace_dir"' EXIT HUP INT TERM
 	# go.mod file for an explicit, not-yet-published required version while it
 	# constructs the pruned module graph. Version-specific replacements keep
 	# those graph reads local without conflicting with the workspace modules.
-	root_version=$(awk '$1 == "github.com/confiify/confii-go" { print $2; exit }' \
+	root_module=github.com/confiify/confii-go/v2
+	loader_module=github.com/confiify/confii-go/loader/cloud/v2
+	secret_module=github.com/confiify/confii-go/secret/cloud/v2
+	root_version=$(awk -v module="$root_module" '$1 == module { print $2; exit }' \
 		"$repo_root/loader/cloud/go.mod")
-	loader_version=$(awk '$1 == "github.com/confiify/confii-go/loader/cloud" { print $2; exit }' \
+	loader_version=$(awk -v module="$loader_module" '$1 == module { print $2; exit }' \
 		"$repo_root/examples/cloud/go.mod")
-	secret_version=$(awk '$1 == "github.com/confiify/confii-go/secret/cloud" { print $2; exit }' \
+	secret_version=$(awk -v module="$secret_module" '$1 == module { print $2; exit }' \
 		"$repo_root/examples/cloud/go.mod")
 	go work edit \
-		-replace="github.com/confiify/confii-go@$root_version=$repo_root" \
-		-replace="github.com/confiify/confii-go/loader/cloud@$loader_version=$repo_root/loader/cloud" \
-		-replace="github.com/confiify/confii-go/secret/cloud@$secret_version=$repo_root/secret/cloud"
+		-replace="$root_module@$root_version=$repo_root" \
+		-replace="$loader_module@$loader_version=$repo_root/loader/cloud" \
+		-replace="$secret_module@$secret_version=$repo_root/secret/cloud"
 )
 workspace_file="$workspace_dir/go.work"
 
@@ -134,9 +137,9 @@ done
 
 component_purl="pkg:golang/golang.org/x/crypto@$crypto_version"
 for product_purl in \
-	"pkg:golang/github.com/confiify/confii-go" \
-	"pkg:golang/github.com/confiify/confii-go/loader/cloud" \
-	"pkg:golang/github.com/confiify/confii-go/secret/cloud" \
+	"pkg:golang/github.com/confiify/confii-go/v2" \
+	"pkg:golang/github.com/confiify/confii-go/loader/cloud/v2" \
+	"pkg:golang/github.com/confiify/confii-go/secret/cloud/v2" \
 	"pkg:golang/github.com/confiify/confii-go/examples/cloud"
 do
 	jq -e --arg product "$product_purl" --arg component "$component_purl" '

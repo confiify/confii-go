@@ -97,7 +97,7 @@ production:
 Set the environment directly in code. This is the most common approach for applications that know their environment at startup:
 
 ```go
-cfg, err := confii.New[any](ctx,
+cfg, err := confii.NewWithContext[any](ctx,
     confii.WithLoaders(loader.NewYAML("config.yaml")),
     confii.WithEnv("production"),
 )
@@ -113,7 +113,7 @@ ssl, _ := cfg.GetBool("database.ssl")  // true (overridden by production)
 Read the environment name from an OS environment variable at runtime. This is ideal for container deployments where the environment is injected:
 
 ```go
-cfg, err := confii.New[any](ctx,
+cfg, err := confii.NewWithContext[any](ctx,
     confii.WithLoaders(loader.NewYAML("config.yaml")),
     confii.WithEnvSwitcher("APP_ENV"),  // reads os.Getenv("APP_ENV")
 )
@@ -129,7 +129,7 @@ APP_ENV=staging ./myapp
 
 ### Self-Config File
 
-You can also set a default environment in a `.confii.yaml` file:
+A `.confii.yaml` file may define the default environment:
 
 ```yaml title=".confii.yaml"
 default_environment: development
@@ -262,7 +262,7 @@ If the requested environment does not exist as a top-level key in the config:
 3. No error is returned -- the application continues with defaults.
 
 ```go
-cfg, err := confii.New[any](ctx,
+cfg, err := confii.NewWithContext[any](ctx,
     confii.WithLoaders(loader.NewYAML("config.yaml")),
     confii.WithEnv("canary"),  // not defined in config.yaml
 )
@@ -288,8 +288,8 @@ import (
     "fmt"
     "os"
 
-    "github.com/confiify/confii-go"
-    "github.com/confiify/confii-go/loader"
+    "github.com/confiify/confii-go/v2"
+    "github.com/confiify/confii-go/v2/loader"
 )
 
 func main() {
@@ -301,7 +301,7 @@ func main() {
         env = "development"
     }
 
-    cfg, err := confii.New[any](ctx,
+    cfg, err := confii.NewWithContext[any](ctx,
         confii.WithLoaders(loader.NewYAML("config.yaml")),
         confii.WithEnv(env),
     )
@@ -367,10 +367,10 @@ APP_ENV=production go run .
 
 ## Combining with Multiple Loaders
 
-Environment resolution happens **after** all loaders are merged. This means you can combine multiple config files and environment variables, and the environment section extraction applies to the final merged result:
+Environment resolution happens **after** all loaders are merged. Multiple configuration files and environment-variable sources can therefore contribute to the final result before environment-section extraction:
 
 ```go
-cfg, err := confii.New[any](ctx,
+cfg, err := confii.NewWithContext[any](ctx,
     confii.WithLoaders(
         loader.NewYAML("base.yaml"),        // base config with default/production sections
         loader.NewYAML("overrides.yaml"),    // additional overrides (also with sections)

@@ -1,43 +1,26 @@
 // Copyright 2026 The Confii Contributors
 // SPDX-License-Identifier: MIT
 
-// Package sourcekind centralizes the predicate that classifies a Loader
-// source string as either a local-filesystem path or a non-file source
-// (HTTP/HTTPS URL, env-prefix marker, cloud-store identifier, secret-store
-// identifier). Prior to D-W20-01 (Wave 22) three packages each carried their
-// own copy of the allowlist:
+// Package sourcekind classifies Loader source identifiers as local filesystem
+// paths or non-file sources. The shared predicate keeps file watching, source
+// tracking, and loader orchestration consistent.
 //
-//   - watch/watcher.go        -> nonFileSchemes
-//   - sourcetrack/filetracker -> nonFileSchemePrefixes
-//   - confii (root)           -> nonFileLoaderSchemes
-//
-// The lists drifted (sourcetrack carried "env:" but lacked "ssm:"/"git:";
-// confii lacked "env:"; watch lacked "env:") so a new Loader scheme had to
-// be registered in three places by hand or fsnotify, sourcetrack, or the
-// loader-watch wiring would silently misclassify it. This package owns the
-// canonical union and exposes a single predicate ([IsNonFileSource]) for the
-// three call sites.
-//
-// The predicate is intentionally string-prefix based (no URL parse, no
-// allocation) so it is cheap enough to be called inside the FileTracker
-// HasChanged hot path on every gate check.
+// Classification uses source-identifier prefixes because loaders may expose
+// non-URL identifiers such as "environment:APP" and "ssm:/service".
 package sourcekind
 
 import "strings"
 
-// nonFileSchemePrefixes is the canonical union of every non-file scheme or
-// marker prefix that has historically been recognized by any of the three
-// pre-D-W20-01 lists. Each entry is matched case-insensitively against the
-// start of a source string. New Loader implementations whose Source()
-// identifier is not a filesystem path MUST add their prefix here so that
-// the watch / sourcetrack / loader-watch wiring all classify the new
-// source uniformly.
+// nonFileSchemePrefixes contains source identifiers that cannot be handled as
+// local filesystem paths. Entries are matched case-insensitively. Loaders
+// that return a non-file Source identifier must add its prefix here so file
+// watching and source tracking classify it consistently.
 //
 // Recognized schemes (and the loader/store that produces each):
 //
 //   - "http://", "https://"   - HTTPLoader and similar URL-fetch loaders
-//   - "environment:"          - EnvironmentLoader / envPrefixAutoLoader (G03)
-//   - "env:"                  - alternative env-marker prefix (sourcetrack legacy)
+//   - "environment:"          - EnvironmentLoader / envPrefixAutoLoader
+//   - "env:"                  - environment-source marker
 //   - "s3://"                 - S3Loader
 //   - "ssm:"                  - SSMLoader (AWS Parameter Store)
 //   - "gs://"                 - GCSLoader
@@ -71,9 +54,7 @@ var nonFileSchemePrefixes = []string{
 // cannot be watched via fsnotify, source-tracked via os.Stat, or otherwise
 // treated as files.
 //
-// The empty string is treated as a file source (returns false) because
-// callers historically use "" as the "not yet bound to any source" sentinel
-// and we must not classify it as untrackable.
+// The empty string is treated as an unbound source and returns false.
 //
 // Comparison is case-insensitive at the prefix.
 func IsNonFileSource(source string) bool {

@@ -3,7 +3,7 @@
 
 package confii
 
-import "github.com/confiify/confii-go/merge"
+import "github.com/confiify/confii-go/v2/merge"
 
 type (
 	// MergeStrategy identifies the algorithm used when two configuration maps
@@ -18,6 +18,10 @@ type (
 const (
 	// StrategyReplace discards the base map entirely and keeps only the overlay.
 	StrategyReplace = merge.Replace
+
+	// StrategyShallowMerge preserves top-level keys without recursively
+	// combining nested maps.
+	StrategyShallowMerge = merge.ShallowMerge
 
 	// StrategyMerge recursively deep-merges the overlay into the base map,
 	// preserving base keys that do not appear in the overlay.

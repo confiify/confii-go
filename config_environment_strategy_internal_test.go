@@ -31,7 +31,7 @@ func TestEnvironmentStrategyParsing(t *testing.T) {
 }
 
 func TestResolveEnvironmentStrategyValidation(t *testing.T) {
-	environmentFiles := []map[string]any{{"type": "environment-files"}}
+	environmentFiles := []map[string]any{{"type": "environment_files"}}
 
 	tests := []struct {
 		name             string

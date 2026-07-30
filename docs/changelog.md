@@ -5,8 +5,11 @@ The canonical, release-by-release changelog is maintained in
 
 ## Upcoming release
 
-No changes are currently assigned beyond v1.4.1. Consult the Unreleased section
-of the canonical changelog as post-release work begins.
+The next release is v2.0.0. It adopts semantic import versioning, the `confii`
+mapping tag, one context-aware hook contract, error-returning snapshots and
+diffs, deterministic provider registration, canonical declarative source
+types, and hook-revision-aware typed caching. See the [v2 migration guide](v2-migration.md) and the Unreleased
+section of the canonical changelog.
 
 ## v1.4.1
 

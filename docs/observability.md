@@ -2,6 +2,10 @@
 
 Confii provides built-in observability through two systems: **metrics collection** for tracking access patterns and reload statistics, and **event emission** for reacting to configuration changes in real-time.
 
+For trace and request correlation, `OnChangeWithContext` and
+`EventEmitter.OnWithContext` receive the originating operation context. See
+[Context, cancellation, and operation lifecycles](context.md).
+
 ---
 
 ## Metrics Collection
@@ -12,7 +16,7 @@ Confii provides built-in observability through two systems: **metrics collection
 metrics := cfg.EnableObservability()
 ```
 
-`EnableObservability` returns an `*observe.Metrics` instance. Once enabled, Confii automatically records successful `Get`/`GetCtx` accesses, reloads, extensions, mutations, failures, and change events. Failed key lookups are not counted as accesses.
+`EnableObservability` returns an `*observe.Metrics` instance. Once enabled, Confii automatically records successful `Get`/`GetWithContext` accesses, reloads, extensions, mutations, failures, and change events. Failed key lookups are not counted as accesses.
 
 ### Recording Events
 
@@ -28,7 +32,7 @@ metrics.RecordChange()
 ```
 
 !!! note "Automatic recording"
-    Config operations record their own metrics automatically. Call `RecordAccess` directly only for a synthetic access that does not pass through `cfg.Get` or `cfg.GetCtx`.
+    Config operations record their own metrics automatically. Call `RecordAccess` directly only for a synthetic access that does not pass through `cfg.Get` or `cfg.GetWithContext`.
 
 ### Reading Statistics
 
@@ -134,7 +138,7 @@ emitter.Emit("custom-event", "arg1", "arg2")
 ```
 
 !!! tip "Chaining"
-    `On` returns the emitter, so you can chain registrations:
+    `On` returns the emitter and supports chained registrations:
 
     ```go
     emitter.
@@ -257,14 +261,14 @@ import (
     "log"
     "time"
 
-    confii "github.com/confiify/confii-go"
-    "github.com/confiify/confii-go/loader"
+    confii "github.com/confiify/confii-go/v2"
+    "github.com/confiify/confii-go/v2/loader"
 )
 
 func main() {
     ctx := context.Background()
 
-    cfg, err := confii.New[any](ctx,
+    cfg, err := confii.NewWithContext[any](ctx,
         confii.WithLoaders(loader.NewYAML("config.yaml")),
         confii.WithEnv("production"),
     )
@@ -291,7 +295,7 @@ func main() {
     _, _ = cfg.Get("database.port")
 
     // Trigger a reload
-    _ = cfg.Reload(ctx)
+    _ = cfg.ReloadWithContext(ctx)
 
     // Print statistics
     stats := cfg.GetMetrics()

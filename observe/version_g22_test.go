@@ -14,14 +14,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// G22 sub-fix: ListVersions used to mutate m.versions under an RLock.
-// This test runs ListVersions and SaveVersion concurrently; under
-// `go test -race` it must not produce a data-race report.
 func TestManager_ListVersions_NoMutationUnderConcurrentRead(t *testing.T) {
 	dir := t.TempDir()
 	vm := NewVersionManager(dir, 100)
 
-	// Seed a few versions so the readers have something to iterate.
 	for i := 0; i < 3; i++ {
 		_, err := vm.SaveVersion(map[string]any{"i": i}, nil)
 		require.NoError(t, err)
@@ -58,9 +54,6 @@ func TestManager_ListVersions_NoMutationUnderConcurrentRead(t *testing.T) {
 	wg.Wait()
 }
 
-// G22 sub-fix: SaveVersion previously dropped json.Marshal/Unmarshal errors
-// silently. Passing a value that cannot be JSON-encoded (channels are not
-// representable in JSON) must now propagate a non-nil error.
 func TestManager_SaveVersion_PropagatesMarshalErrors(t *testing.T) {
 	dir := t.TempDir()
 	vm := NewVersionManager(dir, 100)
@@ -74,10 +67,6 @@ func TestManager_SaveVersion_PropagatesMarshalErrors(t *testing.T) {
 	assert.Contains(t, err.Error(), "version:")
 }
 
-// G22 sub-fix: NewVersionManager with an empty storage path must NOT create
-// a `.confii/versions/` directory in the working tree. The test changes
-// CWD to a temp directory, exercises the default-construction path, and
-// asserts that no `.confii/` directory is left behind.
 func TestManager_DefaultStorage_NoSourceTreeArtifacts(t *testing.T) {
 	cwd, err := os.Getwd()
 	require.NoError(t, err)
@@ -91,20 +80,15 @@ func TestManager_DefaultStorage_NoSourceTreeArtifacts(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, v.VersionID)
 
-	// In-memory retrieval still works.
 	got := vm.GetVersion(v.VersionID)
 	require.NotNil(t, got)
 	assert.Equal(t, "value", got.Config["key"])
 
-	// No source-tree artifacts.
 	_, statErr := os.Stat(filepath.Join(tmp, ".confii"))
 	assert.True(t, os.IsNotExist(statErr),
 		"default manager must not create .confii/ in the working tree")
 }
 
-// G22 sub-fix: Timestamps used to be one-second-precision and tests allowed
-// ties. With nanosecond monotonic timestamps, back-to-back saves must
-// produce strictly increasing values.
 func TestManager_TimestampOrdering_StrictlyMonotonic(t *testing.T) {
 	dir := t.TempDir()
 	vm := NewVersionManager(dir, 100)

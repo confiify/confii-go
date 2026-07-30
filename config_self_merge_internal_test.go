@@ -10,19 +10,22 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestParseSelfConfigMergeStrategyAliases(t *testing.T) {
+func TestParseSelfConfigCanonicalMergeStrategies(t *testing.T) {
 	for input, want := range map[string]MergeStrategy{
-		"replace":      StrategyReplace,
-		"merge":        StrategyMerge,
-		"deep_merge":   StrategyMerge,
-		"deep-merge":   StrategyMerge,
-		"append":       StrategyAppend,
-		"prepend":      StrategyPrepend,
-		"intersection": StrategyIntersection,
-		"union":        StrategyUnion,
+		"replace":       StrategyReplace,
+		"shallow_merge": StrategyShallowMerge,
+		"deep_merge":    StrategyMerge,
+		"append":        StrategyAppend,
+		"prepend":       StrategyPrepend,
+		"intersection":  StrategyIntersection,
+		"union":         StrategyUnion,
 	} {
 		got, err := parseSelfConfigMergeStrategy(input)
 		require.NoError(t, err)
 		assert.Equal(t, want, got)
+	}
+	for _, removed := range []string{"merge", "deep-merge"} {
+		_, err := parseSelfConfigMergeStrategy(removed)
+		require.Error(t, err)
 	}
 }

@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	confii "github.com/confiify/confii-go"
+	confii "github.com/confiify/confii-go/v2"
 )
 
 func init() {

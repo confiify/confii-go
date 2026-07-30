@@ -86,7 +86,7 @@ func (c *Config[T]) availableEnvironments(fs environmentInventoryFS) ([]string, 
 	for _, source := range sources {
 		rawType, _ := source["type"].(string)
 		typeName := strings.ToLower(strings.TrimSpace(rawType))
-		if typeName != "environment_files" && typeName != "environment-files" {
+		if typeName != "environment_files" {
 			continue
 		}
 		cfg, err := parseEnvironmentFilesSource(source)

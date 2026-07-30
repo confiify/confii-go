@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
-	confii "github.com/confiify/confii-go"
-	"github.com/confiify/confii-go/internal/formatparse"
+	confii "github.com/confiify/confii-go/v2"
+	"github.com/confiify/confii-go/v2/internal/formatparse"
 	"gopkg.in/yaml.v3"
 )
 
@@ -25,31 +25,49 @@ type HTTPLoader struct {
 	auth    *BasicAuth
 }
 
-// BasicAuth holds HTTP basic auth credentials.
+// BasicAuth holds HTTP Basic Authentication credentials. Values are kept in
+// memory for the lifetime of the loader and must not be included in logs or a
+// loader's source identifier.
 type BasicAuth struct {
+	// Username is the Basic Authentication user name.
 	Username string
+	// Password is the Basic Authentication password.
 	Password string
 }
 
 // HTTPOption configures the HTTPLoader.
 type HTTPOption func(*HTTPLoader)
 
-// WithTimeout sets the HTTP request timeout.
+// WithTimeout sets the complete HTTP request timeout, including connection,
+// response headers, and body reading. NewHTTP defaults to 30 seconds. A
+// non-positive duration disables http.Client's timeout; callers should then
+// provide a context deadline.
 func WithTimeout(d time.Duration) HTTPOption {
 	return func(l *HTTPLoader) { l.timeout = d }
 }
 
-// WithHeaders sets HTTP headers for the request.
+// WithHeaders replaces the request headers. The map is copied when the option
+// is applied, so later caller mutation does not affect the loader. Do not place
+// secrets in header values if the loader may be retained longer than needed.
 func WithHeaders(h map[string]string) HTTPOption {
-	return func(l *HTTPLoader) { l.headers = h }
+	return func(l *HTTPLoader) {
+		l.headers = make(map[string]string, len(h))
+		for key, value := range h {
+			l.headers[key] = value
+		}
+	}
 }
 
-// WithBasicAuth sets HTTP basic auth credentials.
+// WithBasicAuth configures HTTP Basic Authentication for every request made by
+// the loader. Transport confidentiality depends on the URL; production callers
+// should use HTTPS.
 func WithBasicAuth(username, password string) HTTPOption {
 	return func(l *HTTPLoader) { l.auth = &BasicAuth{Username: username, Password: password} }
 }
 
-// NewHTTP creates a new HTTP loader for the given URL.
+// NewHTTP creates a loader that performs an HTTP GET against url. Construction
+// does not parse or contact the endpoint. Invalid URLs are reported by Load.
+// Options are applied in order, and later options override earlier settings.
 func NewHTTP(url string, opts ...HTTPOption) *HTTPLoader {
 	l := &HTTPLoader{
 		url:     url,
@@ -62,10 +80,15 @@ func NewHTTP(url string, opts ...HTTPOption) *HTTPLoader {
 	return l
 }
 
-// Source returns the identifier for this loader's configuration source.
+// Source returns the configured URL without credentials added by
+// WithBasicAuth or WithHeaders.
 func (l *HTTPLoader) Source() string { return l.url }
 
-// Load fetches configuration from the HTTP/HTTPS endpoint at the configured URL and parses the response body.
+// Load performs one GET request and accepts only HTTP 200. It detects the
+// response format from Content-Type, then the URL extension, and finally uses
+// ParseContent's JSON-then-YAML detection. Transport and status failures wrap
+// [confii.ErrConfigLoad]; parsing failures wrap [confii.ErrConfigFormat]. The
+// request honors ctx and the configured client timeout.
 func (l *HTTPLoader) Load(ctx context.Context) (map[string]any, error) {
 	client := &http.Client{Timeout: l.timeout}
 
@@ -98,38 +121,44 @@ func (l *HTTPLoader) Load(ctx context.Context) (map[string]any, error) {
 
 	// Detect format from Content-Type, then URL extension. When neither is
 	// useful, ParseContent performs deterministic JSON-then-YAML detection.
-	format := formatparse.FromContentType(resp.Header.Get("Content-Type"))
-	if format == formatparse.FormatUnknown {
-		format = formatparse.FromExtension(l.url)
+	format := FormatFromContentType(resp.Header.Get("Content-Type"))
+	if format == FormatUnknown {
+		format = FormatFromExtension(l.url)
 	}
 	return ParseContent(body, format, l.url)
 }
 
-// ParseContent parses raw bytes into a config map based on format.
-// Exported for use by cloud loaders.
+// ParseContent parses data into a configuration map according to format.
 //
 // Supported formats:
-//   - [formatparse.FormatJSON]: parsed via [encoding/json.Unmarshal].
-//   - [formatparse.FormatYAML]: parsed via [gopkg.in/yaml.v3.Unmarshal].
-//   - [formatparse.FormatTOML]: parsed via [github.com/BurntSushi/toml.Unmarshal]
-//     (G19: previously the TOML format was detected by [HTTPLoader] but had no
-//     parsing branch; it now reuses the same TOML library backing
-//     [TOMLLoader.Load], so HTTP and cloud loaders share a single parsing path).
-//   - [formatparse.FormatUnknown]: tries JSON first, then YAML. This preserves
+//   - [FormatJSON]: parsed via [encoding/json.Unmarshal].
+//   - [FormatYAML]: parsed via [gopkg.in/yaml.v3.Unmarshal].
+//   - [FormatTOML]: parsed via [github.com/BurntSushi/toml.Unmarshal], the
+//     same implementation used by [TOMLLoader.Load].
+//   - [FormatUnknown]: tries JSON first, then YAML. This preserves
 //     JSON's stricter interpretation for ambiguous payloads while supporting
 //     YAML endpoints that omit both Content-Type and a recognizable extension.
-func ParseContent(data []byte, format formatparse.Format, source string) (map[string]any, error) {
+//
+// Declared formats are hardened against obvious cross-format input: YAML and
+// TOML declarations are validated before decoding, and JSON is decoded only as
+// JSON. FormatUnknown does not auto-detect TOML. source is included in the
+// returned [confii.ConfigError] and should be stable and non-sensitive.
+func ParseContent(data []byte, format Format, source string) (map[string]any, error) {
 	var result map[string]any
 	var err error
 
 	switch format {
-	case formatparse.FormatJSON:
+	case FormatJSON:
 		err = json.Unmarshal(data, &result)
-	case formatparse.FormatYAML:
-		err = yaml.Unmarshal(data, &result)
-	case formatparse.FormatTOML:
-		err = toml.Unmarshal(data, &result)
-	case formatparse.FormatUnknown:
+	case FormatYAML:
+		if err = formatparse.ValidateDeclaredContent(formatparse.FormatYAML, data); err == nil {
+			err = yaml.Unmarshal(data, &result)
+		}
+	case FormatTOML:
+		if err = formatparse.ValidateDeclaredContent(formatparse.FormatTOML, data); err == nil {
+			err = toml.Unmarshal(data, &result)
+		}
+	case FormatUnknown:
 		jsonErr := json.Unmarshal(data, &result)
 		if jsonErr == nil {
 			return result, nil

@@ -82,7 +82,7 @@ repository:
     distribution-points:
       - uri: https://github.com/confiify/confii-go/releases
         comment: Signed source tags and compiled CLI archives.
-      - uri: https://pkg.go.dev/github.com/confiify/confii-go
+      - uri: https://pkg.go.dev/github.com/confiify/confii-go/v2
         comment: Go module documentation and version discovery.
   security:
     assessments:

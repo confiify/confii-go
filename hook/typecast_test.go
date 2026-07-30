@@ -4,6 +4,7 @@
 package hook
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -27,7 +28,9 @@ func TestTypeCastHook(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, h("key", tt.input))
+			got, err := h(context.Background(), "key", tt.input)
+			assert.NoError(t, err)
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }

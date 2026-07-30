@@ -18,6 +18,13 @@ environment are contacted; references exclusive to inactive environments are
 not. Missing or inaccessible required secrets make initialization fail without
 publishing a partially resolved `Config`.
 
+Independent top-level branches resolve concurrently (default limit: four),
+while duplicate provider/key/version requests are coalesced. Configure the
+bound with `secret_resolution_concurrency` or
+`WithSecretResolutionConcurrency`. Context cancellation always stops the
+operation, regardless of `on_error`. Declaratively created providers that
+implement `Close() error` are released by `Config.Close`.
+
 ```yaml title="config.yaml"
 database:
   host: prod-db.example.com
@@ -46,16 +53,17 @@ fields locally. A normal `Get`, `Typed`, `ToDict`, or `Export` call does not
 refresh secrets. Rotation is explicit and transactional:
 
 ```go
-if err := cfg.RefreshSecrets(ctx); err != nil {
+if err := cfg.RefreshSecretsWithContext(ctx); err != nil {
     // The previous ready configuration remains active.
 }
 ```
 
 `Reload` performs the same eager materialization after rebuilding the source
 layers. A failed provider read or validation leaves the prior configuration
-active. Imperative hooks registered *after* `New` remain access-time hooks for
-backward compatibility; applications that want startup resolution must use
-declarative `.confii.yaml` providers or `confii.WithSecretHook`.
+active. Hooks must be supplied before construction with `confii.WithSecretHook`,
+`confii.WithSecretResolver`, or the general construction-time hook options.
+The plan is frozen after `New` succeeds and every access surface observes the
+same published values. See [Hooks](hooks.md#runtime-read-behavior).
 
 ---
 
@@ -115,9 +123,8 @@ analytics_token: ${secret@gcp:analytics-token}
 ```
 
 An unqualified `${secret:key}` uses the default provider selected for the
-active environment. `secret@provider` is intentionally distinct from the
-colon-delimited key/path/version grammar, so existing references remain
-unambiguous and backward compatible.
+active environment. `secret@provider` is distinct from the colon-delimited
+key, field, and version grammar, keeping provider routing unambiguous.
 
 ---
 
@@ -128,7 +135,7 @@ unambiguous and backward compatible.
 In-memory store for testing and development. Supports versioning via `SetSecret`.
 
 ```go
-import "github.com/confiify/confii-go/secret"
+import "github.com/confiify/confii-go/v2/secret"
 
 store := secret.NewDictStore(map[string]any{
     "db/password":  "s3cret",
@@ -151,7 +158,7 @@ store.Clear()                                           // remove all
 Retrieves secrets from OS environment variables. Keys are transformed to uppercase with `/`, `.`, and `-` replaced by `_`.
 
 ```go
-import "github.com/confiify/confii-go/secret"
+import "github.com/confiify/confii-go/v2/secret"
 
 store := secret.NewEnvStore(
     secret.WithEnvPrefix("SECRET_"),    // prepend prefix
@@ -178,11 +185,10 @@ export SECRET_DB_PASSWORD_VALUE=s3cret
 Tries multiple stores in priority order. The first store that successfully returns a value wins.
 
 ```go
-import "github.com/confiify/confii-go/secret"
+import "github.com/confiify/confii-go/v2/secret"
 
 multi := secret.NewMultiStore(
     []confii.SecretStore{vaultStore, awsStore, envStore},
-    secret.WithFailOnMissing(true),   // error if no store has the key
     secret.WithWriteToFirst(true),    // writes go to first store only
 )
 ```
@@ -213,7 +219,7 @@ go build -tags aws
 ```
 
 ```go
-import "github.com/confiify/confii-go/secret/cloud"
+import "github.com/confiify/confii-go/secret/cloud/v2"
 
 store, err := cloud.NewAWSSecretsManager(ctx,
     cloud.WithAWSRegion("us-east-1"),
@@ -231,7 +237,7 @@ go build -tags azure
 ```
 
 ```go
-import "github.com/confiify/confii-go/secret/cloud"
+import "github.com/confiify/confii-go/secret/cloud/v2"
 
 // Uses DefaultAzureCredential (managed identity, env vars, CLI, etc.)
 store, err := cloud.NewAzureKeyVault(
@@ -250,7 +256,7 @@ go build -tags gcp
 ```
 
 ```go
-import "github.com/confiify/confii-go/secret/cloud"
+import "github.com/confiify/confii-go/secret/cloud/v2"
 
 store, err := cloud.NewGCPSecretManager(ctx,
     "my-gcp-project",
@@ -267,7 +273,7 @@ go build -tags vault
 ```
 
 ```go
-import "github.com/confiify/confii-go/secret/cloud"
+import "github.com/confiify/confii-go/secret/cloud/v2"
 
 store, err := cloud.NewHashiCorpVault(
     cloud.WithVaultURL("https://vault.example.com:8200"),
@@ -295,13 +301,13 @@ store, err := cloud.NewOpenBao(
 Confii's CI starts a real, digest-pinned OpenBao 2.6.1 server and verifies KV
 write, read, field extraction, list, delete, token authentication, and AppRole
 authentication. The shared implementation deliberately retains the existing
-`VaultOption` and `HashiCorpVault` names for API compatibility.
+`VaultOption`; all constructors return the vendor-neutral `VaultStore` type.
 
-Vault also supports the `"path:field"` syntax for extracting specific fields:
+Field extraction uses the provider-neutral `WithField` option:
 
 ```go
 // Fetch only the "password" field from secret/data/db/credentials
-val, _ := store.GetSecret(ctx, "db/credentials:password")
+val, _ := store.GetSecret(ctx, "db/credentials", confii.WithField("password"))
 ```
 
 ---
@@ -418,7 +424,7 @@ they can be certified in your deployment:
 
     OIDC starts a loopback callback server, opens the provider login in the default browser, validates the returned state and nonce, and exchanges the authorization code with Vault. The redirect URI must be allowed by both the Vault role and the OIDC provider. Embedded/headless applications can set `CallbackProvider` to collect and return the full callback URL themselves; `CallbackTimeout` and `OpenBrowser` customize the interactive flow.
 
-You can also use the shorthand `WithVaultAppRole` for AppRole auth:
+`WithVaultAppRole` is shorthand for AppRole authentication:
 
 ```go
 cloud.WithVaultAppRole("role-id", "secret-id")
@@ -428,7 +434,7 @@ cloud.WithVaultAppRole("role-id", "secret-id")
 
 ## Declarative Self-Config Providers
 
-Cloud stores can be wired through `.confii.yaml` when the application blank-imports `github.com/confiify/confii-go/secret/cloud` and builds with the matching tag. Each tagged package registers its provider during `init`.
+Cloud stores can be wired through `.confii.yaml` when the application blank-imports `github.com/confiify/confii-go/secret/cloud/v2` and builds with the matching tag. Each tagged package registers its provider during `init`.
 
 ```yaml
 secrets:
@@ -533,13 +539,12 @@ discards every value.
 The `Resolver` bridges a secret store with the hook system:
 
 ```go
-import "github.com/confiify/confii-go/secret"
+import "github.com/confiify/confii-go/v2/secret"
 
 resolver := secret.NewResolver(store,
-    secret.WithCache(true),                    // enable caching (default: true)
-    secret.WithCacheTTL(5 * time.Minute),      // cache expiration (0 = no expiry)
-    secret.WithResolverPrefix("prod/"),         // prepend to all keys
-    secret.WithResolverFailOnMissing(true),    // error on unresolved secrets (default: true)
+    secret.WithCache(true),               // enable caching (default: true)
+    secret.WithCacheTTL(5 * time.Minute), // cache expiration (0 = no expiry)
+    secret.WithResolverPrefix("prod/"),   // prepend to all keys
 )
 ```
 
@@ -548,7 +553,9 @@ resolver := secret.NewResolver(store,
 | `WithCache(bool)` | `true` | Enable/disable internal cache |
 | `WithCacheTTL(duration)` | `0` (no expiry) | How long cached values are valid |
 | `WithResolverPrefix(string)` | `""` | Prepended to all secret keys before lookup |
-| `WithResolverFailOnMissing(bool)` | `true` | Return error for unresolvable secrets |
+
+Missing references always return a typed error in v2; unresolved placeholders
+are never published as configuration.
 
 ### Cache Management
 
@@ -583,7 +590,7 @@ resolver := secret.NewResolver(store,
     secret.WithCacheTTL(5 * time.Minute),
 )
 
-cfg, err := confii.New[any](ctx,
+cfg, err := confii.NewWithContext[any](ctx,
     confii.WithLoaders(loader.NewYAML("config.yaml")),
     confii.WithSecretResolver(resolver),
 )
@@ -614,10 +621,10 @@ import (
     "context"
     "time"
 
-    "github.com/confiify/confii-go"
-    "github.com/confiify/confii-go/loader"
-    "github.com/confiify/confii-go/secret"
-    "github.com/confiify/confii-go/secret/cloud"
+    "github.com/confiify/confii-go/v2"
+    "github.com/confiify/confii-go/v2/loader"
+    "github.com/confiify/confii-go/v2/secret"
+    "github.com/confiify/confii-go/secret/cloud/v2"
 )
 
 func main() {
@@ -645,8 +652,7 @@ func main() {
     // Multi-store: try Vault, then AWS, then env vars
     multi := secret.NewMultiStore(
         []confii.SecretStore{vaultStore, awsStore, envStore},
-        secret.WithFailOnMissing(true),
-    )
+        secret.    )
 
     // Resolver with caching
     resolver := secret.NewResolver(multi,
@@ -655,7 +661,7 @@ func main() {
     )
 
     // Load, consolidate, and resolve before returning.
-    cfg, err := confii.New[any](ctx,
+    cfg, err := confii.NewWithContext[any](ctx,
         confii.WithLoaders(loader.NewYAML("config.yaml")),
         confii.WithEnv("production"),
         confii.WithSecretResolver(resolver),
@@ -683,9 +689,9 @@ import (
     "context"
     "time"
 
-    "github.com/confiify/confii-go"
-    "github.com/confiify/confii-go/loader"
-    "github.com/confiify/confii-go/secret"
+    "github.com/confiify/confii-go/v2"
+    "github.com/confiify/confii-go/v2/loader"
+    "github.com/confiify/confii-go/v2/secret"
 )
 
 func main() {
@@ -705,11 +711,10 @@ func main() {
     resolver := secret.NewResolver(store,
         secret.WithCache(true),
         secret.WithCacheTTL(5 * time.Minute),
-        secret.WithResolverFailOnMissing(true),
-    )
+        secret.    )
 
     // Load, resolve all effective references, and validate before returning.
-    cfg, err := confii.New[any](ctx,
+    cfg, err := confii.NewWithContext[any](ctx,
         confii.WithLoaders(loader.NewYAML("config.yaml")),
         confii.WithEnv("production"),
         confii.WithSecretResolver(resolver),

@@ -42,10 +42,10 @@ if [ "$consumer" = "$repo" ]; then
 	exit 2
 fi
 
-root_module=github.com/confiify/confii-go
-loader_module=$root_module/loader/cloud
-secret_module=$root_module/secret/cloud
-zero_version=v0.0.0-00010101000000-000000000000
+root_module=github.com/confiify/confii-go/v2
+loader_module=github.com/confiify/confii-go/loader/cloud/v2
+secret_module=github.com/confiify/confii-go/secret/cloud/v2
+zero_version=v2.0.0-00010101000000-000000000000
 
 if [ "$action" = "link" ]; then
 	(

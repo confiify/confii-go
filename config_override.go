@@ -5,10 +5,11 @@ package confii
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
-	"github.com/confiify/confii-go/internal/dictutil"
-	"github.com/confiify/confii-go/sourcetrack"
+	"github.com/confiify/confii-go/v2/internal/dictutil"
+	"github.com/confiify/confii-go/v2/sourcetrack"
 	"log/slog"
 )
 
@@ -22,48 +23,57 @@ type overrideFrame struct {
 	applied          bool
 }
 
-// Override temporarily overrides configuration values.
-// Returns a restore function that must be called (typically via defer) to revert.
+// Override temporarily applies dot-separated key/value overrides and returns
+// an idempotent restore function. Callers should normally defer restoration:
 //
-// G13 (F-G13-Override): Override fires registered OnChange callbacks
-// for every key whose value differs between the pre-override and
-// post-override flat state. Callbacks observe the deletion contract
-// uniformly with [Config.Reload] and [Config.Extend]: a key whose
-// value is replaced surfaces (oldVal, newVal); a key that did not
-// exist before but is introduced by the override surfaces
-// (nil, newVal). Callbacks fire AFTER c.mu has been released so a
-// callback that calls back into the Config cannot deadlock.
+//	restore, err := cfg.Override(map[string]any{"server.port": 9090})
+//	if err != nil { return err }
+//	defer restore()
 //
-// The restore function returned from Override likewise fires
-// OnChange callbacks for every key that the restoration mutates,
-// so observers can react symmetrically to override / restore cycles.
-// Restore-time callbacks run with c.mu released for the same
-// deadlock-safety reason.
+// Values are materialized before publication and caller-owned maps and slices
+// are copied. The operation is atomic: an invalid path, hook failure, secret
+// provider failure, or closed Config returns an error without changing the
+// current snapshot. Both application and restoration emit [Config.OnChange]
+// notifications after their respective commits.
 //
-// Override is LIFO-composable: each call pushes a frame onto an
-// internal stack, and the returned restore removes its own frame
-// regardless of stack position. While the stack is non-empty, live
-// envConfig / mergedConfig / source tracker are derived by replaying
-// remaining frames onto the captured base; a fully-drained stack
-// returns the Config to its pre-Override state. The closure is
-// idempotent — a second call is a no-op.
-//
-// Out-of-order restore (popping a non-top frame) is supported. The
-// rebuild calls TrackValue on each surviving frame, which inflates
-// OverrideCount on those keys; the alternative — per-frame inverse-
-// delta bookkeeping — was rejected as overhead for an already-rare
-// path.
-//
-// An unrestored frame keeps c.frozen = false (Override clears it to
-// permit nested overrides). Callers that have not relinquished an
-// override scope cannot Freeze the Config.
+// Overrides may be nested, and restore functions may be called in any order;
+// each restore removes only its own override while preserving later active
+// overrides. While at least one override is active, the Config remains
+// mutable, even if it was frozen before the first override. Restoring the last
+// override reinstates the original frozen state. Failing to call restore keeps
+// the override and mutable state active for the lifetime of the Config.
 func (c *Config[T]) Override(overrides map[string]any) (restore func(), err error) {
+	ctx, cancel := c.implicitOperationContext()
+	defer cancel()
+	return c.OverrideWithContext(ctx, overrides)
+}
+
+// OverrideWithContext is the context-aware form of [Config.Override]. The
+// context bounds hook and secret-provider work. A nil or canceled context
+// returns an error, and cancellation cannot leave a partially applied
+// override.
+func (c *Config[T]) OverrideWithContext(ctx context.Context, overrides map[string]any) (restore func(), err error) {
+	if ctx == nil {
+		return nil, NewInvalidError("Override", "", errors.New("nil context"))
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	c.mu.RLock()
+	closed := c.closed
+	c.mu.RUnlock()
+	if closed {
+		return nil, NewClosedError("Override")
+	}
 	// Materialize every candidate before locking or mutating live state.
 	// Provider failures reject the complete override and preserve the current
 	// ready snapshot.
 	effectiveOverrides := make(map[string]any, len(overrides))
 	for key, value := range overrides {
-		resolved, resolveErr := c.materializeEffectiveValue(context.Background(), key, value)
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		resolved, resolveErr := c.materializeEffectiveValue(ctx, key, value)
 		if resolveErr != nil {
 			return nil, &ConfigError{
 				Op:  "Override",
@@ -72,7 +82,18 @@ func (c *Config[T]) Override(overrides map[string]any) (restore func(), err erro
 		}
 		effectiveOverrides[key] = resolved
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	c.mu.Lock()
+	if err := ctx.Err(); err != nil {
+		c.mu.Unlock()
+		return nil, err
+	}
+	if c.closed {
+		c.mu.Unlock()
+		return nil, NewClosedError("Override")
+	}
 
 	wasEmpty := len(c.overrideStack) == 0
 
@@ -189,11 +210,13 @@ func (c *Config[T]) Override(overrides map[string]any) (restore func(), err erro
 	}
 	c.overrideStack = append(c.overrideStack, frame)
 	c.validatedModel = nil
+	c.revision++
 
 	// Snapshot the callback list and pre/post flat state under the
 	// write lock; iterate callbacks after release so a callback that
 	// re-enters the Config cannot deadlock on c.mu.
 	overrideCallbacks := c.snapshotChangeCallbacks()
+	overrideContextCallbacks := c.snapshotChangeContextCallbacks()
 	overrideOldFlat := dictutil.Flatten(preOverrideEnv)
 	overrideNewFlat := dictutil.Flatten(c.envConfig)
 	newEnv := copyMap(c.envConfig)
@@ -203,14 +226,15 @@ func (c *Config[T]) Override(overrides map[string]any) (restore func(), err erro
 	c.mu.Unlock()
 
 	c.notifyChangesUnlocked(overrideCallbacks, overrideOldFlat, overrideNewFlat)
+	c.notifyContextChangesUnlocked(ctx, overrideContextCallbacks, overrideOldFlat, overrideNewFlat)
 
 	if observer != nil {
 		observer.RecordOverride()
 		observer.RecordChange()
 	}
 	if emitter != nil {
-		emitter.Emit("override", overrides)
-		emitter.Emit("change", preOverrideEnv, newEnv)
+		emitter.EmitWithContext(ctx, "override", overrides)
+		emitter.EmitWithContext(ctx, "change", preOverrideEnv, newEnv)
 	}
 
 	restore = c.makeOverrideRestore(frame)
@@ -317,6 +341,7 @@ func (c *Config[T]) makeOverrideRestore(frame *overrideFrame) func() {
 			c.frozen = false
 		}
 		c.validatedModel = nil
+		c.revision++
 
 		restoreCallbacks := c.snapshotChangeCallbacks()
 		restoreOldFlat := dictutil.Flatten(preRestoreEnv)

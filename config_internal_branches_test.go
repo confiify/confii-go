@@ -14,9 +14,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/confiify/confii-go/hook"
-	"github.com/confiify/confii-go/internal/dictutil"
-	"github.com/confiify/confii-go/selfconfig"
+	"github.com/confiify/confii-go/v2/hook"
+	"github.com/confiify/confii-go/v2/internal/dictutil"
+	"github.com/confiify/confii-go/v2/selfconfig"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -35,12 +35,12 @@ func (l *refactorCoverageLoader) Load(context.Context) (map[string]any, error) {
 
 func TestConfig_LoadAndAccessFailureBranches(t *testing.T) {
 	loadErr := errors.New("load failed")
-	_, err := New[any](context.Background(),
+	_, err := NewWithContext[any](context.Background(),
 		WithLoaders(&refactorCoverageLoader{source: "broken", err: loadErr}),
 		WithOnError(ErrorPolicy("invalid")),
 	)
 	require.ErrorIs(t, err, loadErr)
-	_, err = New[any](context.Background(),
+	_, err = NewWithContext[any](context.Background(),
 		WithLoaders(&refactorCoverageLoader{source: "compose.yaml", data: map[string]any{"_include": "missing.yaml"}}),
 		WithOnError(ErrorPolicy("invalid")),
 	)
@@ -50,11 +50,10 @@ func TestConfig_LoadAndAccessFailureBranches(t *testing.T) {
 	cfg := newTestConfig(t, map[string]any{
 		"huge":    math.MaxFloat64,
 		"badbool": int64(7),
-	}, WithSysenvFallback(true))
-	cfg.HookProcessor().RegisterKeyHookCtx("refactor.missing", func(context.Context, string, any) (any, error) {
+	}, WithSysenvFallback(true), WithKeyHook("refactor.missing", func(context.Context, string, any) (any, error) {
 		return nil, errors.New("hook failed")
-	})
-	_, err = cfg.GetCtx(context.Background(), "refactor.missing")
+	}))
+	_, err = cfg.GetWithContext(context.Background(), "refactor.missing")
 	require.EqualError(t, err, "hook failed")
 
 	_, err = cfg.GetInt("huge")
@@ -66,7 +65,7 @@ func TestConfig_LoadAndAccessFailureBranches(t *testing.T) {
 	cfg.envConfig = nil
 	cfg.mergedConfig = map[string]any{"fallback": "merged"}
 	cfg.mu.Unlock()
-	got, err := cfg.ToDictCtx(context.Background())
+	got, err := cfg.ToDictWithContext(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, "merged", got["fallback"])
 }
@@ -82,7 +81,9 @@ func TestSet_RollsBackWhenMergedConfigPathFails(t *testing.T) {
 
 	err := cfg.Set("parent.child", "value")
 	require.Error(t, err)
-	assert.Empty(t, cfg.ToDict())
+	data, dictErr := cfg.ToDict()
+	require.NoError(t, dictErr)
+	assert.Empty(t, data)
 }
 
 func TestExtend_PoliciesCompositionAndSchemaRollback(t *testing.T) {
@@ -91,7 +92,7 @@ func TestExtend_PoliciesCompositionAndSchemaRollback(t *testing.T) {
 	cfg.EnableObservability()
 	cfg.EnableEvents()
 	cfg.opts.OnError = ErrorPolicy("invalid")
-	err := cfg.Extend(context.Background(), &refactorCoverageLoader{source: "broken", err: loadErr})
+	err := cfg.ExtendWithContext(context.Background(), &refactorCoverageLoader{source: "broken", err: loadErr})
 	require.ErrorIs(t, err, loadErr)
 
 	for _, policy := range []ErrorPolicy{ErrorPolicyRaise, ErrorPolicyWarn, ErrorPolicyIgnore, ErrorPolicy("invalid")} {
@@ -100,7 +101,7 @@ func TestExtend_PoliciesCompositionAndSchemaRollback(t *testing.T) {
 			candidate.EnableObservability()
 			candidate.EnableEvents()
 			candidate.opts.OnError = policy
-			err := candidate.Extend(context.Background(), &refactorCoverageLoader{
+			err := candidate.ExtendWithContext(context.Background(), &refactorCoverageLoader{
 				source: "compose.yaml",
 				data: map[string]any{
 					"_include": "missing.yaml",
@@ -117,7 +118,7 @@ func TestExtend_PoliciesCompositionAndSchemaRollback(t *testing.T) {
 
 	dependencyCfg := newTestConfig(t, map[string]any{})
 	dependencyCfg.opts.OnError = ErrorPolicyWarn
-	err = dependencyCfg.Extend(context.Background(), &refactorCoverageLoader{
+	err = dependencyCfg.ExtendWithContext(context.Background(), &refactorCoverageLoader{
 		source: "dependency.yaml",
 		data: map[string]any{
 			"_include": filepath.Join(t.TempDir(), "missing.yaml"),
@@ -132,13 +133,13 @@ func TestExtend_PoliciesCompositionAndSchemaRollback(t *testing.T) {
 			"name": map[string]any{"type": "string"},
 		},
 	}
-	validated, err := New[any](context.Background(),
+	validated, err := NewWithContext[any](context.Background(),
 		WithLoaders(&refactorCoverageLoader{source: "base", data: map[string]any{"name": "valid"}}),
 		WithSchema(schema),
 		WithValidateOnLoad(true),
 	)
 	require.NoError(t, err)
-	err = validated.Extend(context.Background(), &refactorCoverageLoader{source: "invalid", data: map[string]any{"name": 42}})
+	err = validated.ExtendWithContext(context.Background(), &refactorCoverageLoader{source: "invalid", data: map[string]any{"name": 42}})
 	require.ErrorIs(t, err, ErrConfigValidation)
 }
 
@@ -180,7 +181,7 @@ func TestOverride_FailureAndReplayBranches(t *testing.T) {
 
 func TestExportAndHookFailureBranches(t *testing.T) {
 	cfg := newTestConfig(t, map[string]any{"unsupported": make(chan int)})
-	_, err := cfg.ExportCtx(context.Background(), "json")
+	_, err := cfg.ExportWithContext(context.Background(), "json")
 	require.Error(t, err)
 
 	nilMap, err := cfg.applyHooksRecursive(context.Background(), "", nil)
@@ -188,7 +189,7 @@ func TestExportAndHookFailureBranches(t *testing.T) {
 	assert.Nil(t, nilMap)
 
 	failing := hook.NewProcessor()
-	failing.RegisterGlobalHookCtx(func(context.Context, string, any) (any, error) {
+	failing.RegisterGlobalHook(func(context.Context, string, any) (any, error) {
 		return nil, errors.New("nested hook failed")
 	})
 	cfg.hookProcessor = failing
@@ -230,12 +231,11 @@ func TestConfig_InternalHelperContracts(t *testing.T) {
 	base := defaultOptions()
 	ctx := context.Background()
 	require.Error(t, appendSelfConfigSource(ctx, &base, map[string]any{"type": "yaml"}))
-	require.NoError(t, appendSelfConfigSource(ctx, &base, map[string]any{"type": "env", "path": "app.env"}))
-	require.Error(t, appendSelfConfigSource(ctx, &base, map[string]any{"type": "env"}))
-	require.NoError(t, appendSelfConfigSource(ctx, &base, map[string]any{"type": "env", "prefix": "app"}))
-	require.NoError(t, appendSelfConfigSource(ctx, &base, map[string]any{"type": "env", "prefix": "APP"}))
+	require.NoError(t, appendSelfConfigSource(ctx, &base, map[string]any{"type": "dotenv", "path": "app.env"}))
+	require.Error(t, appendSelfConfigSource(ctx, &base, map[string]any{"type": "dotenv"}))
+	require.Error(t, appendSelfConfigSource(ctx, &base, map[string]any{"type": "env", "prefix": "app"}))
 	require.Error(t, appendSelfConfigSource(ctx, &base, map[string]any{"type": "environment"}))
-	require.NoError(t, appendSelfConfigSource(ctx, &base, map[string]any{"type": "env-vars", "prefix": "other"}))
+	require.NoError(t, appendSelfConfigSource(ctx, &base, map[string]any{"type": "environment", "prefix": "other"}))
 	require.NoError(t, appendSelfConfigSource(ctx, &base, map[string]any{"type": "environment", "prefix": "OTHER"}))
 	require.Error(t, appendSelfConfigSource(ctx, &base, map[string]any{"type": "unknown"}))
 
@@ -250,9 +250,64 @@ func TestConfig_InternalHelperContracts(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".confii.yaml"), []byte("invalid: ["), 0o600))
 	selfconfig.ClearCache()
-	_, err = New[any](context.Background(), WithWorkingDir(dir), WithLoaders())
+	_, err = NewWithContext[any](context.Background(), WithWorkingDir(dir), WithLoaders())
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrConfigLoad)
+}
+
+func TestDeclarativeSourceFormatCanonicalTypesAndExtensions(t *testing.T) {
+	valid := []struct {
+		typeName string
+		path     string
+	}{
+		{"yaml", "config.yaml"},
+		{"yaml", "config.yml"},
+		{"json", "config.json"},
+		{"toml", "config.toml"},
+		{"ini", "config.ini"},
+		{"ini", "config.cfg"},
+		{"dotenv", ".env"},
+		{"dotenv", ".env.production"},
+		{"dotenv", "secrets.env"},
+	}
+	for _, tt := range valid {
+		t.Run(tt.typeName+"/"+tt.path, func(t *testing.T) {
+			format, err := declarativeSourceFormat(tt.typeName, tt.path)
+			require.NoError(t, err)
+			assert.NotEmpty(t, format)
+		})
+	}
+
+	for _, tt := range []struct {
+		typeName string
+		path     string
+	}{
+		{"yaml", "config.json"},
+		{"json", "config.yaml"},
+		{"toml", "config.ini"},
+		{"ini", "config.toml"},
+		{"dotenv", "config.yaml"},
+	} {
+		t.Run("reject/"+tt.typeName+"/"+tt.path, func(t *testing.T) {
+			_, err := declarativeSourceFormat(tt.typeName, tt.path)
+			require.Error(t, err)
+			assert.ErrorIs(t, err, ErrConfigFormat)
+			assert.Contains(t, err.Error(), "incompatible")
+		})
+	}
+}
+
+func TestDeclarativeSourceAliasesAreRejected(t *testing.T) {
+	for _, alias := range []string{"yml", "cfg", "env", "envfile", "env-vars", "environment-files"} {
+		t.Run(alias, func(t *testing.T) {
+			opts := defaultOptions()
+			source := map[string]any{"type": alias, "path": "config.yaml", "prefix": "APP"}
+			err := appendSelfConfigSource(context.Background(), &opts, source)
+			require.Error(t, err)
+			assert.ErrorIs(t, err, ErrConfigLoad)
+			assert.Contains(t, err.Error(), "unsupported self-config source type")
+		})
+	}
 }
 
 func TestFileAutoLoader_ErrorAndFormatBranches(t *testing.T) {
@@ -265,8 +320,8 @@ func TestFileAutoLoader_ErrorAndFormatBranches(t *testing.T) {
 		return path
 	}
 
-	loop := filepath.Join(dir, "loop.yaml")
-	require.NoError(t, os.Symlink("loop.yaml", loop))
+	loop := filepath.Join(dir, "loop().yaml")
+	require.NoError(t, os.Symlink("loop().yaml", loop))
 	_, err := (&fileAutoLoader{path: loop}).Load(context.Background())
 	require.Error(t, err)
 
@@ -368,21 +423,26 @@ func TestConfig_WatchAndTypedCacheBranches(t *testing.T) {
 	assert.Nil(t, nonFile.watcher)
 
 	type typedModel struct {
-		Name string `mapstructure:"name"`
+		Name string `confii:"name"`
 	}
-	cfg, err := New[typedModel](context.Background(), WithLoaders(&refactorCoverageLoader{
-		source: "typed",
-		data:   map[string]any{"name": "from-config"},
-	}))
+	cfg, err := NewWithContext[typedModel](context.Background(),
+		WithLoaders(&refactorCoverageLoader{source: "typed", data: map[string]any{"name": "from-config"}}),
+		WithGlobalHook(func(_ context.Context, _ string, value any) (any, error) {
+			if value == "from-config" {
+				return "materialized", nil
+			}
+			return value, nil
+		}),
+	)
 	require.NoError(t, err)
-	alternate := &typedModel{Name: "from-cache"}
-	cfg.HookProcessor().RegisterGlobalHook(func(_ string, value any) any {
-		cfg.mu.Lock()
-		cfg.validatedModel = alternate
-		cfg.mu.Unlock()
-		return value
-	})
+	initial, err := cfg.Typed()
+	require.NoError(t, err)
+	assert.Equal(t, "materialized", initial.Name)
 	model, err := cfg.Typed()
 	require.NoError(t, err)
-	assert.Same(t, alternate, model)
+	assert.Equal(t, "materialized", model.Name)
+	assert.Same(t, initial, model)
+	cached, err := cfg.Typed()
+	require.NoError(t, err)
+	assert.Same(t, model, cached)
 }

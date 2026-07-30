@@ -4,7 +4,7 @@
 
 Confii provides a **complete configuration lifecycle**, not just loading and reading. While Viper and Koanf handle the basics well, Confii adds:
 
-- **Per-path merge strategies** (6 strategies) -- Viper has [known deep merge issues](https://github.com/spf13/viper/issues/181), Koanf only supports global strategy
+- **Per-path merge strategies** (7 strategies) -- Viper has [known deep merge issues](https://github.com/spf13/viper/issues/181), Koanf only supports global strategy
 - **Secret management** -- `${secret:key}` placeholder resolution from AWS, Azure, GCP, and Vault with caching
 - **Source tracking** -- `Explain("database.host")` tells you exactly which file a value came from and how many times it was overridden
 - **Diff & drift detection** -- compare configs, detect unintended changes from a baseline
@@ -20,7 +20,10 @@ If you only need to read a YAML file and access values, Viper or Koanf may be su
 
 ## Is Confii thread-safe?
 
-Yes. All public methods on `Config[T]` are protected by a `sync.RWMutex`. Multiple goroutines can safely call `Get`, `GetString`, `Has`, `Keys`, and other read methods concurrently. Write methods (`Set`, `Reload`, `Freeze`, `Override`) acquire an exclusive lock.
+Yes. Multiple goroutines can safely call read and lifecycle methods. Reload and
+Extend perform loader/provider I/O against private candidates, so readers keep
+seeing the last complete snapshot and are blocked only for the final atomic
+publish. Set, Override, refresh, and version rollback are transactional writes.
 
 ```go
 // Safe to use from multiple goroutines
@@ -87,7 +90,7 @@ func (l *ConsulLoader) Load(ctx context.Context) (map[string]any, error) {
 Then use it like any other loader:
 
 ```go
-cfg, err := confii.New[any](ctx,
+cfg, err := confii.NewWithContext[any](ctx,
     confii.WithLoaders(
         loader.NewYAML("defaults.yaml"),
         &ConsulLoader{address: "localhost:8500", prefix: "myapp"},
@@ -128,7 +131,7 @@ Register it with the secret resolver:
 ```go
 store := &RedisSecretStore{client: redisClient}
 resolver := secret.NewResolver(store, secret.WithCache(true))
-cfg, err := confii.New[any](ctx,
+cfg, err := confii.NewWithContext[any](ctx,
     confii.WithLoaders(loader.NewYAML("config.yaml")),
     confii.WithSecretResolver(resolver),
 )
@@ -138,10 +141,10 @@ cfg, err := confii.New[any](ctx,
 
 ## Can I use Confii without any config files?
 
-Yes. You can use environment variables as the sole source:
+Yes. Environment variables can be the sole configuration source:
 
 ```go
-cfg, err := confii.New[any](ctx,
+cfg, err := confii.NewWithContext[any](ctx,
     confii.WithLoaders(loader.NewEnvironment("APP")),
 )
 
@@ -151,7 +154,7 @@ cfg, err := confii.New[any](ctx,
 Or set values programmatically:
 
 ```go
-cfg, err := confii.New[any](ctx)
+cfg, err := confii.NewWithContext[any](ctx)
 cfg.Set("database.host", "localhost")
 cfg.Set("database.port", 5432)
 ```
@@ -159,7 +162,7 @@ cfg.Set("database.port", 5432)
 Or use the system environment fallback to automatically check OS env vars when a key is not found:
 
 ```go
-cfg, err := confii.New[any](ctx,
+cfg, err := confii.NewWithContext[any](ctx,
     confii.WithSysenvFallback(true),
     confii.WithEnvPrefix("APP"),
 )
@@ -208,7 +211,7 @@ It depends on the error policy:
 
 ```go
 // Continue loading even if some sources are missing
-cfg, err := confii.New[any](ctx,
+cfg, err := confii.NewWithContext[any](ctx,
     confii.WithLoaders(
         loader.NewYAML("required.yaml"),
         loader.NewYAML("optional-overrides.yaml"),
@@ -246,8 +249,7 @@ Or create a fresh config instance per test:
 
 ```go
 func TestDatabaseConfig(t *testing.T) {
-    cfg, err := confii.New[any](context.Background(),
-        confii.WithLoaders(loader.NewYAML("testdata/test-config.yaml")),
+    cfg, err := confii.New[any](confii.WithLoaders(loader.NewYAML("testdata/test-config.yaml")),
         confii.WithEnv("test"),
     )
     require.NoError(t, err)
@@ -261,7 +263,7 @@ For programmatic test configs without files:
 
 ```go
 func TestWithInlineConfig(t *testing.T) {
-    cfg, err := confii.New[any](context.Background())
+    cfg, err := confii.New[any]()
     require.NoError(t, err)
 
     cfg.Set("feature.enabled", true)

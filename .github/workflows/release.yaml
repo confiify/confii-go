@@ -51,9 +51,10 @@ jobs:
             --jq '.commit.verification.verified')" = true
 
           version="${GITHUB_REF_NAME#v}"
+          root_module="github.com/confiify/confii-go/v2"
           for manifest in loader/cloud/go.mod secret/cloud/go.mod examples/cloud/go.mod; do
-            awk -v version="v${version}" \
-              '$1 == "github.com/confiify/confii-go" && $2 == version { found = 1 } END { exit !found }' \
+            awk -v module="$root_module" -v version="v${version}" \
+              '$1 == module && $2 == version { found = 1 } END { exit !found }' \
               "$manifest"
           done
           for tag in "loader/cloud/$GITHUB_REF_NAME" "secret/cloud/$GITHUB_REF_NAME"; do

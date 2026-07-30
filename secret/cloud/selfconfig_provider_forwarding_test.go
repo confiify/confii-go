@@ -11,12 +11,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	confii "github.com/confiify/confii-go"
+	confii "github.com/confiify/confii-go/v2"
 )
-
-type versionedSelfConfigStore interface {
-	GetSecretRequest(context.Context, confii.SelfConfigSecretRequest) (any, error)
-}
 
 func TestCloudSelfConfigFactoriesForwardVersionedRequests(t *testing.T) {
 	t.Run("aws", func(t *testing.T) {
@@ -61,28 +57,24 @@ func TestCloudSelfConfigFactoriesForwardVersionedRequests(t *testing.T) {
 	})
 }
 
-func buildRegisteredCloudStore(t *testing.T, provider string, cfg map[string]any) confii.SelfConfigSecretStore {
+func buildRegisteredCloudStore(t *testing.T, provider string, cfg map[string]any) confii.SecretReader {
 	t.Helper()
 	factory, ok := confii.LookupSelfConfigSecretProvider(provider)
 	if !ok {
 		t.Fatalf("provider %s must be registered", provider)
 	}
-	store, err := factory(cfg)
+	store, err := factory(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("create %s store: %v", provider, err)
 	}
 	return store
 }
 
-func assertVersionedRequestReachesStore(t *testing.T, store confii.SelfConfigSecretStore, key string) {
+func assertVersionedRequestReachesStore(t *testing.T, store confii.SecretReader, key string) {
 	t.Helper()
-	versioned, ok := store.(versionedSelfConfigStore)
-	if !ok {
-		t.Fatalf("store %T does not support versioned secret requests", store)
-	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := versioned.GetSecretRequest(ctx, confii.SelfConfigSecretRequest{Key: key, Version: "7"})
+	_, err := store.ReadSecret(ctx, confii.SecretRequest{Key: key, Version: "7"})
 	if err == nil {
 		t.Fatal("expected canceled versioned request to fail")
 	}

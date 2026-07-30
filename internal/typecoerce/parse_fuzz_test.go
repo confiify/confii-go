@@ -6,7 +6,7 @@ package typecoerce
 import "testing"
 
 func FuzzParseScalar(f *testing.F) {
-	// Seed corpus with representative values.
+
 	seeds := []string{
 		"true", "false", "yes", "no", "on", "off",
 		"0", "1", "-1", "42", "9999999999999999999",
@@ -23,7 +23,7 @@ func FuzzParseScalar(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, input string) {
-		// Must not panic for any input.
+
 		result := ParseScalar(input, false)
 		if result == nil {
 			t.Fatal("ParseScalar returned nil")

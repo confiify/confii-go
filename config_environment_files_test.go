@@ -11,9 +11,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	confii "github.com/confiify/confii-go"
-	"github.com/confiify/confii-go/loader"
-	"github.com/confiify/confii-go/selfconfig"
+	confii "github.com/confiify/confii-go/v2"
+	"github.com/confiify/confii-go/v2/loader"
+	"github.com/confiify/confii-go/v2/selfconfig"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -45,7 +45,7 @@ sources:
 		"config/production.yaml": "server:\n  host: config-production\n",
 	})
 
-	cfg, err := confii.New[any](context.Background(), confii.WithWorkingDir(root))
+	cfg, err := confii.NewWithContext[any](context.Background(), confii.WithWorkingDir(root))
 	require.NoError(t, err)
 
 	assert.Equal(t, "production", cfg.Env())
@@ -70,7 +70,7 @@ sources:
 		"config/staging.yaml": "name: staging\n",
 	})
 
-	cfg, err := confii.New[any](context.Background(), confii.WithWorkingDir(root))
+	cfg, err := confii.NewWithContext[any](context.Background(), confii.WithWorkingDir(root))
 	require.NoError(t, err)
 	assert.Equal(t, "staging", cfg.Env())
 	assert.Equal(t, "staging", cfg.GetStringOr("name", ""))
@@ -90,7 +90,7 @@ sources:
 		"config/base.yml":     "shared: config\n",
 	})
 
-	cfg, err := confii.New[any](context.Background(), confii.WithWorkingDir(root))
+	cfg, err := confii.NewWithContext[any](context.Background(), confii.WithWorkingDir(root))
 	require.NoError(t, err)
 	assert.Equal(t, "qa", cfg.GetStringOr("value", ""))
 	assert.Equal(t, "settings", cfg.GetStringOr("shared", ""))
@@ -106,7 +106,7 @@ sources:
 		"config/production.yaml": "server:\n  host: api.example.com\n",
 	})
 
-	cfg, err := confii.New[any](context.Background(), confii.WithWorkingDir(root))
+	cfg, err := confii.NewWithContext[any](context.Background(), confii.WithWorkingDir(root))
 	require.NoError(t, err)
 	assert.Equal(t, "nested-config-value", cfg.GetStringOr("production.endpoint", ""))
 	assert.Equal(t, 8080, cfg.GetIntOr("server.port", 0))
@@ -126,7 +126,7 @@ sources:
 		"config/production.yaml": "server:\n  host: api.example.com\n",
 	})
 
-	cfg, err := confii.New[any](context.Background(), confii.WithWorkingDir(root))
+	cfg, err := confii.NewWithContext[any](context.Background(), confii.WithWorkingDir(root))
 	require.NoError(t, err)
 	assert.Equal(t, "api.example.com", cfg.GetStringOr("server.host", ""))
 	assert.Equal(t, 9090, cfg.GetIntOr("server.port", 0))
@@ -138,7 +138,7 @@ sources:
   - type: environment_files
 `, map[string]string{"config/default.yaml": "enabled: true\n"})
 
-	cfg, err := confii.New[any](context.Background(), confii.WithWorkingDir(root))
+	cfg, err := confii.NewWithContext[any](context.Background(), confii.WithWorkingDir(root))
 	require.NoError(t, err)
 	assert.Empty(t, cfg.Env())
 	assert.True(t, cfg.GetBoolOr("enabled", false))
@@ -152,7 +152,7 @@ sources:
   - type: environment_files
 `, map[string]string{"config/default.yaml": "value: default\n"})
 
-		_, err := confii.New[any](context.Background(), confii.WithWorkingDir(root))
+		_, err := confii.NewWithContext[any](context.Background(), confii.WithWorkingDir(root))
 		require.Error(t, err)
 		assert.ErrorIs(t, err, confii.ErrConfigLoad)
 		assert.Contains(t, err.Error(), `required environment "production" file`)
@@ -165,7 +165,7 @@ sources:
     default_required: true
 `, nil)
 
-		_, err := confii.New[any](context.Background(), confii.WithWorkingDir(root))
+		_, err := confii.NewWithContext[any](context.Background(), confii.WithWorkingDir(root))
 		require.Error(t, err)
 		assert.ErrorIs(t, err, confii.ErrConfigLoad)
 		assert.Contains(t, err.Error(), "required default file")
@@ -178,10 +178,10 @@ sources:
   - type: environment_files
 `, map[string]string{"config/default.yaml": "value: default\n"})
 
-		_, err := confii.New[any](context.Background(), confii.WithWorkingDir(root))
+		_, err := confii.NewWithContext[any](context.Background(), confii.WithWorkingDir(root))
 		require.Error(t, err)
 		assert.ErrorIs(t, err, confii.ErrConfigLoad)
-		assert.Contains(t, err.Error(), "unsafe environment name")
+		assert.Contains(t, err.Error(), "invalid self-config environment")
 	})
 
 	t.Run("invalid template", func(t *testing.T) {
@@ -192,7 +192,7 @@ sources:
     environment_file: production.yaml
 `, nil)
 
-		_, err := confii.New[any](context.Background(), confii.WithWorkingDir(root))
+		_, err := confii.NewWithContext[any](context.Background(), confii.WithWorkingDir(root))
 		require.Error(t, err)
 		assert.ErrorIs(t, err, confii.ErrConfigLoad)
 		assert.Contains(t, err.Error(), "must contain the {environment} placeholder")
@@ -217,7 +217,7 @@ sources:
 		require.NoError(t, os.Chdir(root))
 		t.Cleanup(func() { _ = os.Chdir(original) })
 
-		cfg, err := confii.New[any](context.Background(), confii.WithWorkingDir(root))
+		cfg, err := confii.NewWithContext[any](context.Background(), confii.WithWorkingDir(root))
 		require.NoError(t, err)
 		assert.Equal(t, 8080, cfg.GetIntOr("port", 0))
 		assert.Equal(t, "api.example.com", cfg.GetStringOr("host", ""))
@@ -236,7 +236,7 @@ sources:
 			"explicit.yaml":          "value: explicit\n",
 		})
 
-		cfg, err := confii.New[any](context.Background(),
+		cfg, err := confii.NewWithContext[any](context.Background(),
 			confii.WithWorkingDir(root),
 			confii.WithLoaders(loader.NewYAML(filepath.Join(root, "explicit.yaml"))),
 		)
@@ -256,10 +256,10 @@ sources:
 		"config/production.yaml": "value: before\n",
 	})
 
-	cfg, err := confii.New[any](context.Background(), confii.WithWorkingDir(root))
+	cfg, err := confii.NewWithContext[any](context.Background(), confii.WithWorkingDir(root))
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(root, "config", "production.yaml"), []byte("value: after\n"), 0o600))
-	require.NoError(t, cfg.Reload(context.Background()))
+	require.NoError(t, cfg.ReloadWithContext(context.Background()))
 	assert.Equal(t, "after", cfg.GetStringOr("value", ""))
 }
 
@@ -281,7 +281,7 @@ sources:
 	require.NoError(t, os.Chdir(root))
 	t.Cleanup(func() { _ = os.Chdir(original) })
 
-	_, err = confii.New[any](context.Background(), confii.WithWorkingDir(root))
+	_, err = confii.NewWithContext[any](context.Background(), confii.WithWorkingDir(root))
 	require.Error(t, err)
 	assert.ErrorIs(t, err, confii.ErrConfigLoad)
 	assert.Contains(t, err.Error(), `environment_strategy "named_files"`)
@@ -306,7 +306,7 @@ sources:
 	require.NoError(t, os.Chdir(root))
 	t.Cleanup(func() { _ = os.Chdir(original) })
 
-	cfg, err := confii.New[any](context.Background(), confii.WithWorkingDir(root))
+	cfg, err := confii.NewWithContext[any](context.Background(), confii.WithWorkingDir(root))
 	require.NoError(t, err)
 	assert.True(t, cfg.GetBoolOr("feature.enabled", false))
 	assert.Equal(t, 8080, cfg.GetIntOr("server.port", 0))
@@ -339,7 +339,7 @@ sources:
 	require.NoError(t, os.Chdir(root))
 	t.Cleanup(func() { _ = os.Chdir(original) })
 
-	cfg, err := confii.New[any](context.Background(), confii.WithWorkingDir(root))
+	cfg, err := confii.NewWithContext[any](context.Background(), confii.WithWorkingDir(root))
 	require.NoError(t, err)
 	assert.Equal(t, 8080, cfg.GetIntOr("server.port", 0))
 	assert.Equal(t, "api.example.com", cfg.GetStringOr("server.host", ""))
@@ -372,7 +372,7 @@ sources:
 		require.NoError(t, os.Chdir(root))
 		t.Cleanup(func() { _ = os.Chdir(original) })
 
-		_, err = confii.New[any](context.Background(), confii.WithWorkingDir(root))
+		_, err = confii.NewWithContext[any](context.Background(), confii.WithWorkingDir(root))
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "hybrid environment sources write the same keys")
 		assert.Contains(t, err.Error(), "server.host")
@@ -394,7 +394,7 @@ sources:
 		require.NoError(t, os.Chdir(root))
 		t.Cleanup(func() { _ = os.Chdir(original) })
 
-		cfg, err := confii.New[any](context.Background(), confii.WithWorkingDir(root))
+		cfg, err := confii.NewWithContext[any](context.Background(), confii.WithWorkingDir(root))
 		require.NoError(t, err)
 		assert.Equal(t, 8080, cfg.GetIntOr("server.port", 0))
 		assert.Equal(t, "named.example.com", cfg.GetStringOr("server.host", ""))
@@ -432,7 +432,7 @@ sources:
 
 		var logs bytes.Buffer
 		logger := slog.New(slog.NewTextHandler(&logs, nil))
-		cfg, err := confii.New[any](context.Background(),
+		cfg, err := confii.NewWithContext[any](context.Background(),
 			confii.WithWorkingDir(root),
 			confii.WithLogger(logger),
 		)
@@ -457,7 +457,7 @@ sources:
 		require.NoError(t, os.Chdir(root))
 		t.Cleanup(func() { _ = os.Chdir(original) })
 
-		cfg, err := confii.New[any](context.Background(), confii.WithWorkingDir(root))
+		cfg, err := confii.NewWithContext[any](context.Background(), confii.WithWorkingDir(root))
 		require.NoError(t, err)
 		assert.Equal(t, 7000, cfg.GetIntOr("server.port", 0))
 		assert.Equal(t, "application.example.com", cfg.GetStringOr("server.host", ""))
@@ -482,7 +482,7 @@ sources:
 		require.NoError(t, os.Chdir(root))
 		t.Cleanup(func() { _ = os.Chdir(original) })
 
-		cfg, err := confii.New[any](context.Background(), confii.WithWorkingDir(root))
+		cfg, err := confii.NewWithContext[any](context.Background(), confii.WithWorkingDir(root))
 		require.NoError(t, err)
 		assert.Equal(t, 7000, cfg.GetIntOr("server.port", 0))
 		assert.True(t, cfg.GetBoolOr("feature.enabled", false))
@@ -559,7 +559,7 @@ sources:
 			require.NoError(t, os.Chdir(root))
 			t.Cleanup(func() { _ = os.Chdir(original) })
 
-			_, err = confii.New[any](context.Background(), confii.WithWorkingDir(root))
+			_, err = confii.NewWithContext[any](context.Background(), confii.WithWorkingDir(root))
 			require.Error(t, err)
 			assert.ErrorIs(t, err, confii.ErrConfigLoad)
 			assert.Contains(t, err.Error(), tt.message)

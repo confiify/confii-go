@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/confiify/confii-go/selfconfig"
+	"github.com/confiify/confii-go/v2/selfconfig"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -41,7 +41,7 @@ production:
 	require.NoError(t, err)
 	assert.Equal(t, "9090\n", out)
 
-	out, err = execCobra(NewGetCmd(), []string{"production", "server.port"})
+	out, err = execCobra(NewGetCmd(), []string{"server.port", "--environment", "production"})
 	require.NoError(t, err)
 	assert.Equal(t, "80\n", out)
 

@@ -10,20 +10,20 @@ import (
 	"os"
 
 	"github.com/BurntSushi/toml"
-	confii "github.com/confiify/confii-go"
+	confii "github.com/confiify/confii-go/v2"
+	"github.com/confiify/confii-go/v2/internal/formatparse"
 )
 
 // TOMLLoader loads configuration from a TOML file.
 //
 // Absence of the configured file is governed by the loader's
-// [confii.ErrorPolicy] (default [confii.ErrorPolicyRaise]) (G07):
+// [confii.ErrorPolicy] (default [confii.ErrorPolicyRaise]):
 //
 //   - ErrorPolicyRaise:  Load returns a typed [*confii.ConfigError]
 //     wrapping [confii.ErrConfigLoad].
 //   - ErrorPolicyWarn:   the missing file is logged via the configured
 //     [*slog.Logger] and Load returns (nil, nil).
-//   - ErrorPolicyIgnore: the missing file is silently skipped (legacy
-//     pre-G07 behavior).
+//   - ErrorPolicyIgnore: the missing file is silently skipped.
 type TOMLLoader struct {
 	source      string
 	errorPolicy confii.ErrorPolicy
@@ -41,7 +41,7 @@ func WithTOMLErrorPolicy(p confii.ErrorPolicy) TOMLOption {
 }
 
 // WithTOMLLogger sets the logger used when the error policy is
-// [confii.ErrorPolicyWarn]. Nil is ignored. Defaults to [slog.Default].
+// [confii.ErrorPolicyWarn]. Nil is ignored. Defaults to [slog.Default()].
 func WithTOMLLogger(logger *slog.Logger) TOMLOption {
 	return func(l *TOMLLoader) {
 		if logger != nil {
@@ -65,12 +65,14 @@ func NewTOML(path string, opts ...TOMLOption) *TOMLLoader {
 	return l
 }
 
-// Source returns the identifier for this loader's configuration source.
+// Source returns the configured path exactly as supplied to NewTOML.
 func (l *TOMLLoader) Source() string { return l.source }
 
-// Load reads and parses the TOML file at the configured path, returning
-// the parsed configuration as a map. Failures are dispatched through the
-// loader's [confii.ErrorPolicy]; see [TOMLLoader] for details.
+// Load reads one TOML document from the configured path. Cross-format content
+// is rejected before decoding. File errors wrap [confii.ErrConfigLoad] and
+// decoding errors wrap [confii.ErrConfigFormat], subject to the configured
+// missing-file policy. Local reads are synchronous; ctx is accepted for Loader
+// compatibility but is not observed.
 func (l *TOMLLoader) Load(_ context.Context) (map[string]any, error) {
 	data, err := os.ReadFile(l.source)
 	if err != nil {
@@ -78,6 +80,9 @@ func (l *TOMLLoader) Load(_ context.Context) (map[string]any, error) {
 			return l.handleMissing(err)
 		}
 		return nil, confii.NewLoadError(l.source, err)
+	}
+	if err := formatparse.ValidateDeclaredContent(formatparse.FormatTOML, data); err != nil {
+		return nil, confii.NewFormatError(l.source, "toml", err)
 	}
 
 	var result map[string]any

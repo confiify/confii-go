@@ -13,22 +13,37 @@ import (
 type DiffType string
 
 const (
-	Added    DiffType = "added"
-	Removed  DiffType = "removed"
+	// Added identifies a key present only in the second configuration.
+	Added DiffType = "added"
+	// Removed identifies a key present only in the first configuration.
+	Removed DiffType = "removed"
+	// Modified identifies a key present in both configurations with unequal values.
 	Modified DiffType = "modified"
 )
 
-// ConfigDiff represents a single difference between two configurations.
+// ConfigDiff describes one difference between two configurations. Key is the
+// key at the current level, while Path is its complete dot-separated path.
+// Modified map values include recursively populated NestedDiffs.
 type ConfigDiff struct {
-	Key         string       `json:"key"`
-	Type        DiffType     `json:"type"`
-	OldValue    any          `json:"old_value,omitempty"`
-	NewValue    any          `json:"new_value,omitempty"`
-	Path        string       `json:"path"`
+	// Key is the key name relative to the containing map.
+	Key string `json:"key"`
+	// Type classifies the difference as Added, Removed, or Modified.
+	Type DiffType `json:"type"`
+	// OldValue is populated for Removed and Modified entries.
+	OldValue any `json:"old_value,omitempty"`
+	// NewValue is populated for Added and Modified entries.
+	NewValue any `json:"new_value,omitempty"`
+	// Path is the complete dot-separated path from the comparison root.
+	Path string `json:"path"`
+	// NestedDiffs contains child differences when both values are maps.
 	NestedDiffs []ConfigDiff `json:"nested_diffs,omitempty"`
 }
 
-// Diff compares two configuration maps and returns a list of differences.
+// Diff compares config1 with config2. Results are ordered lexicographically by
+// key at every map level. Values are compared by their JSON representation;
+// types that JSON cannot distinguish may therefore compare equal. Inputs are
+// not mutated, but values in the returned entries may refer to input maps or
+// slices and should be treated as read-only.
 func Diff(config1, config2 map[string]any) []ConfigDiff {
 	return diffMaps(config1, config2, "")
 }
@@ -93,7 +108,9 @@ func equal(a, b any) bool {
 	return string(ja) == string(jb)
 }
 
-// Summary returns a count summary of diffs.
+// Summary recursively counts diffs and returns keys "total", "added",
+// "removed", and "modified". Parent Modified entries and their nested
+// differences are each included in total and modified counts.
 func Summary(diffs []ConfigDiff) map[string]int {
 	s := map[string]int{"total": 0, "added": 0, "removed": 0, "modified": 0}
 	countDiffs(diffs, s)
@@ -110,7 +127,8 @@ func countDiffs(diffs []ConfigDiff, s map[string]int) {
 	}
 }
 
-// ToJSON serializes diffs to JSON.
+// ToJSON serializes diffs as indented JSON. It returns an error when a value in
+// OldValue or NewValue cannot be represented by encoding/json.
 func ToJSON(diffs []ConfigDiff) (string, error) {
 	data, err := json.MarshalIndent(diffs, "", "  ")
 	if err != nil {

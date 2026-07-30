@@ -6,75 +6,25 @@ package confii
 import (
 	"context"
 	"fmt"
-	"github.com/confiify/confii-go/internal/dictutil"
-	"github.com/confiify/confii-go/observe"
-	"github.com/confiify/confii-go/validate"
 	"log/slog"
 	"time"
+
+	"github.com/confiify/confii-go/v2/internal/dictutil"
+	"github.com/confiify/confii-go/v2/observe"
+	"github.com/confiify/confii-go/v2/validate"
 )
 
 // Extend adds an additional loader at runtime and merges its config into
 // the live state.
 //
-// Extend's lifecycle mirrors [Config.Reload]'s seven-phase pipeline so
-// that runtime extension and reload share the same composition,
-// environment resolution, file tracking, validation, snapshot/rollback,
-// and observability semantics. Pre-G15, Extend was a partial merge path
-// that bypassed all of those — calling Extend with a YAML file that
-// contained a top-level "default:" map or "_include:" directive
-// silently dropped the directive instead of resolving it. Post-G15:
-//
-//  1. Snapshot: live envConfig, mergedConfig, and source tracker are
-//     captured so any failure restores them in lockstep (D05 / G14).
-//  2. Load: l.Load(ctx) is invoked. Errors are dispatched through
-//     c.opts.OnError (Raise → return, Warn → log+skip, Ignore →
-//     silent-skip) exactly like the [Config.load] pipeline.
-//  3. Compose: composition directives ("_include", "_defaults",
-//     "_merge_strategy") in the loaded data are processed via
-//     c.composer.Compose. Errors flow through the same OnError
-//     dispatch as the loader phase.
-//  4. Env-resolve: c.envHandler.Resolve folds env-keyed sections
-//     (default + active env) so Extend honors the same flat-vs-env
-//     contract that [Config.load] does. Pre-G15, an env-keyed file
-//     passed to Extend would surface its raw "default:"/"production:"
-//     branches directly into envConfig.
-//  5. Merge: the resolved overlay is merged into both mergedConfig
-//     and envConfig (envConfig because the overlay is already env-
-//     resolved and should apply on top of the resolved state).
-//  6. Validate: when c.opts.ValidateOnLoad is true and a schema is
-//     configured, the new state is decoded into T and validated.
-//     Failure rolls back every snapshot and returns a typed
-//     [ErrConfigValidation].
-//  7. Commit: only after every preceding phase succeeds do we append
-//     to c.loaders, register the source with c.fileTracker (file-based
-//     loaders only; non-file sources are silently skipped, pending the
-//     G20 source-capability model), invalidate c.validatedModel,
-//     update c.sourceTracker with the resolved overlay, emit the
-//     "extend" metric and event, run change callbacks, and emit
-//     "change". A "change" event paired with the extend overlay
-//     payload allows operators to subscribe to runtime extensions
-//     uniformly with reloads.
-//
-// On any failure path inside phases 2–6, c.observer.RecordExtendFailed
-// is called and the "extend_failed" event is emitted; the original
-// error is returned to the caller.
-//
-// G11 cache invalidation contract: c.validatedModel is set to nil only
-// on commit. A failed Extend leaves the previous validated model
-// reachable for [Config.Typed].
-//
-// G13 callback semantics: change callbacks are invoked AFTER c.mu has
-// been released. A snapshot of the callback list, the pre-extend flat
-// state, and the post-extend flat state is taken under the write lock
-// in the commit phase; the lock is then dropped before
-// notifyChangesUnlocked iterates the snapshots. This guarantees a
-// callback that calls back into the Config (Get/Set/Reload/Extend/etc.)
-// cannot deadlock against the write lock Extend held during the
-// pipeline. Removed keys are reported uniformly with the Reload path
-// (oldVal != nil, newVal == nil).
-func (c *Config[T]) Extend(ctx context.Context, l Loader) error {
+// The loader output is composed, resolved for the active environment,
+// materialized, and validated before publication. Any failure preserves the
+// previous configuration, source metadata, and typed snapshot. Successful
+// extension emits the extend and change signals. Callbacks run without the
+// configuration lock and may safely call Config methods.
+func (c *Config[T]) extendCandidate(ctx context.Context, l Loader) error {
 	c.mu.Lock()
-	// G13: see Reload for the rationale behind the manual unlock flag.
+	// Use a manual unlock flag because callbacks run after the lock is released.
 	// Failure paths fall through the deferred fallback; the success
 	// path manually unlocks before invoking change callbacks so
 	// callbacks may call back into the Config without deadlocking.
@@ -94,8 +44,11 @@ func (c *Config[T]) Extend(ctx context.Context, l Loader) error {
 	if c.frozen {
 		return NewFrozenError("Extend")
 	}
+	if c.closed {
+		return NewClosedError("Extend")
+	}
 
-	// Phase 1: Snapshot live state for rollback. Mirrors Reload phase 3.
+	// Snapshot live state for transactional rollback.
 	oldEnv := copyMap(c.envConfig)
 	oldUnresolvedEnv := copyMap(c.unresolvedEnvConfig)
 	oldMerged := copyMap(c.mergedConfig)
@@ -104,10 +57,8 @@ func (c *Config[T]) Extend(ctx context.Context, l Loader) error {
 	oldDependencies := copyLoaderDependencies(c.loaderDependencies)
 	start := time.Now()
 
-	// rollback restores every snapshot taken in phase 1 and drives the
-	// failure-path observability hooks. It is a closure so every
-	// failure exit (load, compose, validate) shares the same restoration
-	// logic, matching the Reload rollback pattern.
+	// rollback restores the complete transaction state before reporting a
+	// load, composition, materialization, or validation failure.
 	rollback := func(failureErr error) {
 		c.envConfig = oldEnv
 		c.unresolvedEnvConfig = oldUnresolvedEnv
@@ -124,9 +75,13 @@ func (c *Config[T]) Extend(ctx context.Context, l Loader) error {
 		failureEmitter = c.eventEmitter
 	}
 
-	// Phase 2: Load.
+	// Load the new source.
 	data, err := l.Load(ctx)
 	if err != nil {
+		if cancellation := operationCancellation(ctx, err); cancellation != nil {
+			rollback(cancellation)
+			return cancellation
+		}
 		switch c.opts.OnError {
 		case ErrorPolicyRaise:
 			rollback(err)
@@ -139,7 +94,7 @@ func (c *Config[T]) Extend(ctx context.Context, l Loader) error {
 			)
 			// Warn skips the loader: nothing to commit, but no failure
 			// either. Snapshots are not restored because nothing was
-			// mutated; we simply return without commit-time observability.
+			// mutated; return without commit-time observability.
 			return nil
 		case ErrorPolicyIgnore:
 			// Silent: distinct from Warn, do not emit a log record.
@@ -158,10 +113,14 @@ func (c *Config[T]) Extend(ctx context.Context, l Loader) error {
 		return nil
 	}
 
-	// Phase 3: Compose. Process _include / _defaults / _merge_strategy
-	// directives. Errors flow through OnError, mirroring c.load.
-	composed, dependencies, err := c.composer.ComposeWithDependencies(data, l.Source())
+	// Process _include, _defaults, and _merge_strategy directives. Composition
+	// errors follow the configured error policy.
+	composed, dependencies, err := c.composer.ComposeWithDependenciesWithContext(ctx, data, l.Source())
 	if err != nil {
+		if cancellation := operationCancellation(ctx, err); cancellation != nil {
+			rollback(cancellation)
+			return cancellation
+		}
 		switch c.opts.OnError {
 		case ErrorPolicyRaise:
 			rollback(err)
@@ -183,14 +142,11 @@ func (c *Config[T]) Extend(ctx context.Context, l Loader) error {
 		}
 	}
 
-	// Phase 4: Env-resolve. The composer output may carry env-keyed
-	// sections (default / <env>); honor them through the same handler
-	// c.load uses so Extend and load agree on the env-handling contract.
+	// Resolve default and active-environment sections using the same handler as
+	// initial loading.
 	resolved := c.envHandler.Resolve(composed, c.env)
 
-	// Phase 5: Merge into live state. Compute the new envConfig /
-	// mergedConfig as candidates so a later validation failure can be
-	// rolled back via the snapshot taken in phase 1.
+	// Merge into candidate state. A later failure restores the snapshot.
 	c.mergedConfig = c.merger.Merge(c.mergedConfig, composed)
 	rawBase := c.unresolvedEnvConfig
 	if rawBase == nil {
@@ -206,12 +162,9 @@ func (c *Config[T]) Extend(ctx context.Context, l Loader) error {
 		return materializeErr
 	}
 
-	// Phase 6: Validate. When validate-on-load is configured AND a
-	// schema is present, decode and validate the new state. Pre-G15
-	// Extend skipped this entirely, so an extension that violated the
-	// validator was silently committed.
+	// Validate the candidate when validation-on-load is enabled.
 	//
-	// G01: a JSON Schema (inline map or compiled file path) is now
+	// A JSON Schema (inline map or compiled file path) is
 	// honored in addition to the struct path. Schema violations roll
 	// back via the shared closure with a sanitized public message and
 	// the structured violation list on Context["schema_errors"].
@@ -243,9 +196,10 @@ func (c *Config[T]) Extend(ctx context.Context, l Loader) error {
 		}
 	}
 
-	// Phase 7: Commit. Only now do we mutate non-rollback-protected
+	// Commit only after the candidate has loaded, composed, and validated.
+	// The commit updates non-rollback-protected
 	// state (loaders slice, file tracker, source tracker for the new
-	// loader, validated-model cache invalidation) and emit commit-time
+	// loader and validated-model cache invalidation) and emits commit-time
 	// observability.
 	c.loaders = append(c.loaders, l)
 	c.loaderLayers = append(c.loaderLayers, copyMap(composed))
@@ -253,8 +207,7 @@ func (c *Config[T]) Extend(ctx context.Context, l Loader) error {
 
 	// Track the source with the file tracker so subsequent Reload calls
 	// can detect changes to it. Non-file sources (HTTP, env, etc.)
-	// produce a Stat error which we silently ignore — the G20 source-
-	// capability model will replace this best-effort approach.
+	// produce a Stat error which we record only at debug level.
 	if ferr := c.fileTracker.Track(l.Source()); ferr != nil {
 		c.logger.Debug(
 			"extend: source not tracked for incremental reload",
@@ -273,15 +226,14 @@ func (c *Config[T]) Extend(ctx context.Context, l Loader) error {
 	c.sourceTracker.TrackConfig(resolved, l.Source(), loaderType, c.env, "")
 
 	c.validatedModel = nil
+	c.revision++
 	duration := time.Since(start)
 	if c.observer != nil {
 		c.observer.RecordExtend(duration)
 	}
 
-	// G13: snapshot callbacks + flat state under the write lock, then
-	// release the lock before iterating callbacks. Mirrors the Reload
-	// commit phase so the deadlock and deletion-miss fix applies
-	// symmetrically to runtime extension.
+	// Snapshot callbacks and flattened state under the write lock, then release
+	// the lock before dispatching callbacks.
 	callbacks := c.snapshotChangeCallbacks()
 	oldFlat := dictutil.Flatten(oldEnv)
 	newFlat := dictutil.Flatten(c.envConfig)

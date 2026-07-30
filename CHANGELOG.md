@@ -6,6 +6,47 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- Adopt Go semantic import versioning for the v2 API. The core module is now
+  `github.com/confiify/confii-go/v2`; the independently versioned cloud modules
+  are `github.com/confiify/confii-go/loader/cloud/v2` and
+  `github.com/confiify/confii-go/secret/cloud/v2`.
+- Replace the split legacy/context hook surfaces with one context-aware,
+  error-returning contract. Hook operations capture immutable execution plans,
+  provider and condition failures propagate to callers, and hook registration
+  invalidates the effective typed-model cache. Value-hook matching now occurs
+  at its documented pipeline stage, after key hooks, so a key transformation
+  can select a value hook in the same operation.
+- Make `Config.ToDict`, `Config.Diff`, and `Config.DetectDrift` return errors so
+  hook failures can no longer be silently discarded.
+- Reject empty, nil, and duplicate declarative provider registrations instead
+  of silently accepting ambiguous process-global state.
+- Use the Confii-owned `confii` struct tag for configuration mapping. The v2
+  typed decoder no longer treats `mapstructure` as a Confii mapping contract;
+  independent `validate` tags continue to work unchanged.
+- Standardize every paired explicit-context API on the unambiguous
+  `OperationWithContext` form. This includes construction, builders, access,
+  mutation, snapshots, composition, watchers, events, and Vault/OpenBao
+  constructors; the v2 surface no longer mixes `Ctx`, `OperationContext`, and
+  `ContextOperation` naming.
+- Canonicalize overlapping core source types to `yaml`, `json`, `toml`, `ini`,
+  `dotenv`, `environment`, and declarative `environment_files`; explicit CLI
+  loaders retain the separate `http` transport. Remove ambiguous v1 aliases,
+  make the declared local-file type authoritative, and reject paths whose
+  format contradicts that declaration while retaining `.yml` and `.cfg` as
+  valid filename extensions. Reject complete JSON documents presented through
+  a selected YAML, TOML, INI, or dotenv parser instead of accepting or
+  reinterpreting cross-format content.
+
+### Added
+
+- Add a v2 migration guide covering module paths, struct tags, hooks,
+  error-returning snapshots/diffs, provider registration, and typed-hook cache
+  behavior.
+- Add `Config.GetFloat64Or`, completing the default-returning typed getter set
+  already documented by the project.
+
 ## [1.4.1] - 2026-07-30
 
 ### Fixed
@@ -267,8 +308,8 @@ public functions extend the self-config secret provider story.
 
 ### Fixed
 
-- **Re-entrant hook deadlocks.** `GetCtx`, `ToDictCtx`, `ExportCtx`, and
-  `TypedCtx` now snapshot configuration under lock and execute user hooks
+- **Re-entrant hook deadlocks.** `GetWithContext`, `ToDictWithContext`, `ExportWithContext`, and
+  `TypedWithContext` now snapshot configuration under lock and execute user hooks
   after releasing it. Hooks may call back into Config APIs, and slow secret
   resolution no longer blocks unrelated writers. Typed-cache publication is
   skipped when a hook changed live state while resolving the snapshot.
@@ -281,7 +322,7 @@ public functions extend the self-config secret provider story.
 - **Contradictory module CI gates.** Core and cloud integrations now have
   independent module manifests, and CI verifies that every manifest is tidy
   before exercising cloud-tag builds through a consumer fixture.
-- **Atomic rollback in `Config.Reload`.** A Phase 5/6/7 failure now
+- **Atomic rollback in `Config.Reload`.** A load, validation, or dry-run failure now
   restores `fileTracker` alongside `envConfig`, `mergedConfig`, and
   the source tracker. Previously the file tracker carried the
   malformed-content hash forward, so the next incremental Reload
@@ -348,10 +389,10 @@ public functions extend the self-config secret provider story.
 - Cloud loaders: AWS S3, SSM, Azure Blob, GCS, IBM COS, Git repositories
 - Secret management with `${secret:key}` placeholder resolution
 - Cloud secret stores: AWS Secrets Manager, Azure Key Vault, GCP Secret Manager, and a Vault-compatible layer with nine implemented auth flows (Token and AppRole live-tested against OpenBao; other flows protocol-tested and provider-configured)
-- 6 merge strategies (replace, merge, append, prepend, intersection, union) with per-path overrides
+- Merge strategies (replace, merge, append, prepend, intersection, union) with per-path overrides
 - Hydra-style config composition via `_include` and `_defaults` directives
 - Environment resolution with automatic default + environment-specific merging
-- 4-type hook system (key, value, condition, global) for value transformation
+- Key, value, condition, and global hooks for value transformation
 - Struct tag validation via go-playground/validator and JSON Schema validation
 - Full introspection: Explain(), Layers(), Schema(), source tracking, override history
 - Config diff, drift detection, versioning with rollback
@@ -360,7 +401,7 @@ public functions extend the self-config secret provider story.
 - Documentation generation (markdown, JSON)
 - Export to JSON, YAML, TOML
 - Self-configuration via `.confii.yaml` auto-discovery
-- CLI tool with 10 commands: load, get, validate, export, diff, debug, explain, lint, docs, migrate
-- 19 focused runnable examples
+- CLI commands for loading, inspecting, validating, exporting, comparing, and migrating configuration
+- Focused runnable examples
 - GitHub Actions CI/CD: test matrix, CodeQL, govulncheck, OSSF Scorecard
 - Broad unit, integration, race, fuzz, and cross-platform test coverage

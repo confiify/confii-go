@@ -10,7 +10,8 @@ import (
 	"context"
 	"log"
 
-	secretcloud "github.com/confiify/confii-go/secret/cloud"
+	secretcloud "github.com/confiify/confii-go/secret/cloud/v2"
+	confii "github.com/confiify/confii-go/v2"
 )
 
 func main() {
@@ -28,5 +29,5 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	_, _ = store.GetSecret(ctx, "apps/confii/database:password")
+	_, _ = store.GetSecret(ctx, "apps/confii/database", confii.WithField("password"))
 }

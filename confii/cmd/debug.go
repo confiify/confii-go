@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	confii "github.com/confiify/confii-go"
+	confii "github.com/confiify/confii-go/v2"
 	"github.com/spf13/cobra"
 )
 
@@ -29,7 +29,7 @@ func NewPlanCmd() *cobra.Command {
 			if len(args) > 0 {
 				env = args[0]
 			}
-			cfg, err := buildConfig(env, loaders)
+			cfg, err := buildConfigWithContext(c.Context(), env, loaders)
 			if err != nil {
 				return err
 			}
@@ -65,7 +65,7 @@ func NewPlanCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringSliceVarP(&loaders, "loader", "l", nil, "Loader spec (type:source)")
+	cmd.Flags().StringSliceVarP(&loaders, "loader", "l", nil, loaderSpecHelp)
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output the source plan as JSON")
 	return cmd
 }
@@ -91,7 +91,7 @@ func NewDebugCmd() *cobra.Command {
 				return err
 			}
 
-			cfg, err := confii.New[any](context.Background(),
+			cfg, err := confii.NewWithContext[any](c.Context(),
 				confii.WithLoaders(ll...),
 				confii.WithEnv(env),
 				confii.WithDebugMode(true),
@@ -113,7 +113,7 @@ func NewDebugCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringSliceVarP(&loaders, "loader", "l", nil, "Loader spec (type:source)")
+	cmd.Flags().StringSliceVarP(&loaders, "loader", "l", nil, loaderSpecHelp)
 	cmd.Flags().StringVar(&key, "key", "", "Specific key to debug")
 	cmd.Flags().StringVar(&exportReport, "export-report", "", "Export debug report to JSON file")
 	return cmd
@@ -142,7 +142,7 @@ func NewExplainCmd() *cobra.Command {
 				return err
 			}
 
-			cfg, err := confii.New[any](context.Background(),
+			cfg, err := confii.NewWithContext[any](c.Context(),
 				confii.WithLoaders(ll...),
 				confii.WithEnv(env),
 				confii.WithDebugMode(true),
@@ -159,7 +159,7 @@ func NewExplainCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringSliceVarP(&loaders, "loader", "l", nil, "Loader spec (type:source)")
+	cmd.Flags().StringSliceVarP(&loaders, "loader", "l", nil, loaderSpecHelp)
 	cmd.Flags().StringVar(&key, "key", "", "Key to explain")
 	return cmd
 }
@@ -187,14 +187,17 @@ func NewLintCmd() *cobra.Command {
 				env = args[0]
 			}
 
-			cfg, err := buildConfig(env, loaders)
+			cfg, err := buildConfigWithContext(c.Context(), env, loaders)
 			if err != nil {
 				return err
 			}
 
 			out := c.OutOrStdout()
 			issues := 0
-			data := cfg.ToDict()
+			data, err := cfg.ToDict()
+			if err != nil {
+				return err
+			}
 
 			// Check for nil values.
 			for _, k := range cfg.Keys() {
@@ -230,7 +233,7 @@ func NewLintCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringSliceVarP(&loaders, "loader", "l", nil, "Loader spec (type:source)")
+	cmd.Flags().StringSliceVarP(&loaders, "loader", "l", nil, loaderSpecHelp)
 	cmd.Flags().BoolVar(&strict, "strict", false, "Return a non-zero exit code if issues are found")
 	return cmd
 }
@@ -255,7 +258,7 @@ func NewDocsCmd() *cobra.Command {
 				return err
 			}
 
-			cfg, err := confii.New[any](context.Background(),
+			cfg, err := confii.NewWithContext[any](c.Context(),
 				confii.WithLoaders(ll...),
 				confii.WithEnv(env),
 				confii.WithDebugMode(true),
@@ -277,7 +280,7 @@ func NewDocsCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringSliceVarP(&loaders, "loader", "l", nil, "Loader spec (type:source)")
+	cmd.Flags().StringSliceVarP(&loaders, "loader", "l", nil, loaderSpecHelp)
 	cmd.Flags().StringVarP(&format, "format", "f", "markdown", "Output format (markdown, json)")
 	cmd.Flags().StringVarP(&output, "output", "o", "", "Output file")
 	return cmd
@@ -286,32 +289,21 @@ func NewDocsCmd() *cobra.Command {
 // migrateSupportedSources lists the source-type values the migrate
 // command knows how to dispatch on.
 var migrateSupportedSources = []string{
-	"auto", "dotenv", "env", "yaml", "yml", "dynaconf", "hydra", "omegaconf",
+	"dotenv", "yaml", "dynaconf", "hydra", "omegaconf",
 }
 
 // loadMigrateSource builds a *confii.Config[any] for the migrate
-// command, dispatching on sourceType. An empty sourceType (or "auto")
-// preserves the legacy YAML-then-env-file auto-detect behaviour.
+// command, dispatching on an explicit sourceType.
 func loadMigrateSource(sourceType, configFile string) (*confii.Config[any], error) {
+	return loadMigrateSourceContext(context.Background(), sourceType, configFile)
+}
+
+func loadMigrateSourceContext(ctx context.Context, sourceType, configFile string) (*confii.Config[any], error) {
 	switch sourceType {
-	case "", "auto":
-		// Legacy behaviour: try YAML first, fall back to env-file.
-		cfg, err := buildConfig("", []string{"yaml:" + configFile})
-		if err != nil {
-			cfg, err = buildConfig("", []string{"env_file:" + configFile})
-			if err != nil {
-				return nil, fmt.Errorf("could not auto-detect %s: %w", configFile, err)
-			}
-		}
-		return cfg, nil
 	case "dotenv":
-		return buildConfig("", []string{"env_file:" + configFile})
-	case "env":
-		// "env" loaders read process environment; the configFile arg is
-		// treated as the variable prefix.
-		return buildConfig("", []string{"env:" + configFile})
-	case "yaml", "yml":
-		return buildConfig("", []string{"yaml:" + configFile})
+		return buildConfigWithContext(ctx, "", []string{"dotenv:" + configFile})
+	case "yaml":
+		return buildConfigWithContext(ctx, "", []string{"yaml:" + configFile})
 	case "dynaconf":
 		// Dynaconf commonly uses settings.toml, settings.yaml, or JSON.
 		// Preserve its environment sections and values; Confii's normal
@@ -319,18 +311,18 @@ func loadMigrateSource(sourceType, configFile string) (*confii.Config[any], erro
 		ext := strings.ToLower(filepath.Ext(configFile))
 		switch ext {
 		case ".toml":
-			return buildConfig("", []string{"toml:" + configFile})
+			return buildConfigWithContext(ctx, "", []string{"toml:" + configFile})
 		case ".json":
-			return buildConfig("", []string{"json:" + configFile})
+			return buildConfigWithContext(ctx, "", []string{"json:" + configFile})
 		default:
-			return buildConfig("", []string{"yaml:" + configFile})
+			return buildConfigWithContext(ctx, "", []string{"yaml:" + configFile})
 		}
 	case "hydra", "omegaconf":
 		// Both tools serialize standalone/materialized configuration as
 		// YAML. This imports that data faithfully; resolving Hydra config
 		// groups or executing OmegaConf resolvers remains the source tool's
 		// responsibility before migration.
-		return buildConfig("", []string{"yaml:" + configFile})
+		return buildConfigWithContext(ctx, "", []string{"yaml:" + configFile})
 	default:
 		return nil, fmt.Errorf(
 			"migrate: unknown source type %q; supported: %v",
@@ -343,51 +335,30 @@ func loadMigrateSource(sourceType, configFile string) (*confii.Config[any], erro
 //
 // Error contract: this command returns a non-nil error from RunE when
 // the source type is unknown, and when the underlying load/export fails. It
-// does NOT silently fall back from one source type to another; the
-// only auto-detect path is the explicit "auto" / empty source type,
-// preserved for backwards compatibility.
+// never reinterprets a file as a different source type after a parse
+// failure.
 //
 // Dispatch is implemented in loadMigrateSource so the policy is
 // directly testable without spinning up the full Cobra command.
 func NewMigrateCmd() *cobra.Command {
-	var output, targetFormat, sourceTypeFlag string
+	var output, targetFormat string
 
 	cmd := &cobra.Command{
 		Use:   "migrate [source-type] <config-file>",
 		Short: "Migrate configuration from other tools",
 		Long: "Migrate configuration from another tool's config file into a Confii-supported format.\n" +
 			"\n" +
-			"Supported source types (positional or via --source-type):\n" +
-			"  auto      - try YAML first, fall back to .env (legacy default)\n" +
+			"Supported source types:\n" +
 			"  dotenv    - .env file\n" +
-			"  env       - process environment variables (config-file is the prefix)\n" +
-			"  yaml,yml  - YAML config file\n" +
+			"  yaml      - YAML config file (.yaml or .yml)\n" +
 			"  dynaconf  - Dynaconf YAML, TOML, or JSON settings\n" +
 			"  hydra     - materialized Hydra YAML\n" +
 			"  omegaconf - materialized OmegaConf YAML\n",
-		Args: cobra.RangeArgs(1, 2),
+		Args: cobra.ExactArgs(2),
 		RunE: func(c *cobra.Command, args []string) error {
-			var sourceType, configFile string
-			switch len(args) {
-			case 1:
-				// Positional: just <config-file>; source comes from --source-type
-				// (empty means auto-detect).
-				sourceType = sourceTypeFlag
-				configFile = args[0]
-			case 2:
-				// Positional: <source-type> <config-file>. The flag, if set,
-				// must agree with the positional value to avoid surprises.
-				sourceType = args[0]
-				configFile = args[1]
-				if sourceTypeFlag != "" && sourceTypeFlag != sourceType {
-					return fmt.Errorf(
-						"migrate: --source-type=%q conflicts with positional source %q",
-						sourceTypeFlag, sourceType,
-					)
-				}
-			}
+			sourceType, configFile := args[0], args[1]
 
-			cfg, err := loadMigrateSource(sourceType, configFile)
+			cfg, err := loadMigrateSourceContext(c.Context(), sourceType, configFile)
 			if err != nil {
 				return err
 			}
@@ -396,7 +367,7 @@ func NewMigrateCmd() *cobra.Command {
 				targetFormat = "yaml"
 			}
 
-			data, err := cfg.Export(targetFormat)
+			data, err := cfg.ExportWithContext(c.Context(), targetFormat)
 			if err != nil {
 				return err
 			}
@@ -411,6 +382,5 @@ func NewMigrateCmd() *cobra.Command {
 
 	cmd.Flags().StringVarP(&output, "output", "o", "", "Output file")
 	cmd.Flags().StringVar(&targetFormat, "target-format", "yaml", "Target format (yaml, json, toml)")
-	cmd.Flags().StringVar(&sourceTypeFlag, "source-type", "", "Source type (dotenv, env, yaml, dynaconf, hydra, omegaconf, or auto)")
 	return cmd
 }

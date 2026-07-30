@@ -5,19 +5,22 @@ package confii
 
 import "context"
 
-// Loader loads configuration from a source.
-// Implementations should return (nil, nil) when the source does not exist
-// (graceful absence) and (nil, error) on actual failures.
+// Loader supplies one configuration layer. Confii invokes Load with the
+// initialization, reload, or extension context and merges the returned map at
+// the loader's configured position.
 //
-// Both pointer and value receiver implementations are supported; the
-// framework introspects the loader's type via reflect.Indirect so a
-// non-pointer Loader will not trigger a reflection panic during source
-// tracking, layer enumeration, or runtime extension.
+// Implementations must honor context cancellation for blocking work. Return
+// (nil, nil) only when absence is an intentional, non-error result; return a
+// non-nil error for malformed data, authorization failures, transport errors,
+// or other conditions that should be handled by [WithOnError]. Source must be
+// stable and must not contain credentials or secret values because it appears
+// in diagnostics and source-tracking output.
 type Loader interface {
-	// Load reads configuration and returns it as a map.
+	// Load reads and parses the source into a string-keyed configuration map.
+	// The returned map becomes owned by Confii and may be copied or normalized.
 	Load(ctx context.Context) (map[string]any, error)
 
-	// Source returns a human-readable identifier for this loader
-	// (e.g., file path, URL, "environment:APP").
+	// Source returns a non-sensitive identifier such as a file path, URL, or
+	// "environment:APP" marker.
 	Source() string
 }

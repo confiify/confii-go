@@ -28,7 +28,6 @@ func TestFileTracker_Track(t *testing.T) {
 	err := ft.Track(f)
 	require.NoError(t, err)
 
-	// File should be in tracked set.
 	ft.mu.RLock()
 	_, exists := ft.files[f]
 	ft.mu.RUnlock()
@@ -72,7 +71,6 @@ func TestFileTracker_HasChanged_Modified(t *testing.T) {
 	ft := NewFileTracker()
 	require.NoError(t, ft.Track(f))
 
-	// Ensure mtime differs (some filesystems have 1s granularity).
 	time.Sleep(50 * time.Millisecond)
 	require.NoError(t, os.WriteFile(f, []byte("key: changed"), 0644))
 
@@ -81,7 +79,7 @@ func TestFileTracker_HasChanged_Modified(t *testing.T) {
 
 func TestFileTracker_HasChanged_NewFile(t *testing.T) {
 	ft := NewFileTracker()
-	// An untracked file should be reported as changed.
+
 	assert.True(t, ft.HasChanged("/some/untracked/path"))
 }
 
@@ -93,12 +91,10 @@ func TestFileTracker_Update(t *testing.T) {
 	ft := NewFileTracker()
 	require.NoError(t, ft.Track(f))
 
-	// Modify file.
 	time.Sleep(50 * time.Millisecond)
 	require.NoError(t, os.WriteFile(f, []byte("v2"), 0644))
 	assert.True(t, ft.HasChanged(f))
 
-	// Update should re-snapshot.
 	require.NoError(t, ft.Update(f))
 	assert.False(t, ft.HasChanged(f))
 }
@@ -114,7 +110,6 @@ func TestFileTracker_GetChangedFiles(t *testing.T) {
 	require.NoError(t, ft.Track(f1))
 	require.NoError(t, ft.Track(f2))
 
-	// Modify only f1.
 	time.Sleep(50 * time.Millisecond)
 	require.NoError(t, os.WriteFile(f1, []byte("a-changed"), 0644))
 
@@ -138,6 +133,5 @@ func TestFileTracker_Clear(t *testing.T) {
 	ft.mu.RUnlock()
 	assert.Equal(t, 0, count)
 
-	// After clear, the file should be reported as changed (untracked).
 	assert.True(t, ft.HasChanged(f))
 }

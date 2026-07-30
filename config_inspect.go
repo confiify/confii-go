@@ -12,22 +12,22 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
-	"github.com/confiify/confii-go/internal/dictutil"
-	"github.com/confiify/confii-go/sourcetrack"
+	"github.com/confiify/confii-go/v2/internal/dictutil"
+	"github.com/confiify/confii-go/v2/sourcetrack"
 	"gopkg.in/yaml.v3"
 )
 
 const redactedSecretValue = "[REDACTED: secret-backed value]"
 
-// Explain returns detailed resolution information for a key.
+// Explain returns source and override metadata for keyPath. For an existing
+// key the result contains exists, key, value, current_value, source,
+// loader_type, environment, override_count, and—when recorded—
+// override_history. For a missing key it contains exists=false, key, and the
+// available_keys inventory.
 //
-// D08 (Wave 13): every value embedded in the returned map is defensively
-// deep-copied via [dictutil.DeepCopyValue] so a caller mutating the
-// result cannot bleed into envConfig or into the tracker's *SourceInfo.
-// info.History is already a fresh slice (D06 GetSourceInfo defensive
-// copy), but the per-entry Value field is shallow-copied at the
-// SourceInfo layer; this method copies it again on the way out so the
-// override_history payload is fully isolated.
+// Values originating from secret references are replaced with a redaction
+// marker. The returned map and nested values are independent copies and may be
+// safely retained or modified by the caller.
 func (c *Config[T]) Explain(keyPath string) map[string]any {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -72,7 +72,7 @@ func (c *Config[T]) Explain(keyPath string) map[string]any {
 	}
 
 	// Current value from live config — deep-copied so a caller mutating
-	// the returned map cannot leak into envConfig (D08 / G10 parity).
+	// the returned map cannot leak into envConfig.
 	if val, ok := dictutil.GetNested(c.envConfig, keyPath); ok {
 		if secretBacked {
 			result["current_value"] = redactedSecretValue
@@ -84,11 +84,9 @@ func (c *Config[T]) Explain(keyPath string) map[string]any {
 	return result
 }
 
-// Schema returns schema information for a key.
-//
-// D08 (Wave 13): the embedded "value" is deep-copied via
-// [dictutil.DeepCopyValue] so a caller mutating the returned map cannot
-// alias envConfig (G10 parity on the introspection axis).
+// Schema reports the runtime shape of keyPath. The result always includes key
+// and exists; an existing key also includes type and value. Secret-backed
+// values are redacted. Returned maps and nested values are independent copies.
 func (c *Config[T]) Schema(keyPath string) map[string]any {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -112,12 +110,10 @@ func (c *Config[T]) Schema(keyPath string) map[string]any {
 	return result
 }
 
-// Layers returns the layer stack showing each source and its keys.
-//
-// D08 (Wave 13): the per-layer map and its "keys" slice are freshly
-// allocated on every call. Keys come from [sourcetrack.Tracker.FindKeysFromSource]
-// which already returns a fresh []string. Mutations on any layer map
-// returned here cannot bleed into tracker or envConfig state.
+// Layers returns the distinct configured sources in precedence order. Each
+// entry contains source, loader_type, keys, and key_count. Duplicate source
+// identifiers are represented once. The returned slice, maps, and key lists
+// are independent copies.
 func (c *Config[T]) Layers() []map[string]any {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -135,12 +131,8 @@ func (c *Config[T]) Layers() []map[string]any {
 		loaderType := loaderTypeName(l)
 
 		keys := c.sourceTracker.FindKeysFromSource(source)
-		// Defensive copy of the layer map: each successive call returns
-		// a freshly-allocated map literal so the audit-flagged aliasing
-		// hazard cannot reproduce. The "keys" slice is already a fresh
-		// allocation from FindKeysFromSource; we copy the header into a
-		// new []string so a caller appending or rewriting it cannot
-		// reach across calls.
+		// Return independent key slices so callers cannot mutate subsequent
+		// inspection results.
 		keysCopy := append([]string(nil), keys...)
 		layers = append(layers, map[string]any{
 			"source":      source,
@@ -173,8 +165,7 @@ func (c *Config[T]) SecretProvider() string {
 }
 
 // SecretProviders returns the configured declarative provider aliases in
-// deterministic order. It exposes no credentials or backend options. For a
-// legacy single-provider configuration the result contains that provider.
+// deterministic order. It exposes no credentials or backend options.
 func (c *Config[T]) SecretProviders() []string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -296,47 +287,66 @@ func collectSecretReferenceProviders(value any, defaultProvider string, found ma
 	}
 }
 
-// GetSourceInfo returns source tracking info for a key.
+// GetSourceInfo returns an independent copy of the source metadata for keyPath,
+// or nil when the key has not been tracked.
 func (c *Config[T]) GetSourceInfo(keyPath string) *sourcetrack.SourceInfo {
 	return c.sourceTracker.GetSourceInfo(keyPath)
 }
 
-// GetOverrideHistory returns the override history for a key.
+// GetOverrideHistory returns the earlier values and sources recorded for
+// keyPath, oldest first. It returns nil when no history is available. Complete
+// history requires [WithDebugMode](true); returned entries are independent
+// copies.
 func (c *Config[T]) GetOverrideHistory(keyPath string) []sourcetrack.OverrideEntry {
 	return c.sourceTracker.GetOverrideHistory(keyPath)
 }
 
-// GetConflicts returns all keys that have been overridden.
+// GetConflicts returns independently copied source records for keys whose
+// values were written more than once. An empty map means no overrides were
+// observed.
 func (c *Config[T]) GetConflicts() map[string]*sourcetrack.SourceInfo {
 	return c.sourceTracker.GetConflicts()
 }
 
-// GetSourceStatistics returns aggregated source statistics.
+// GetSourceStatistics returns total_keys, total_overrides, and counts grouped
+// under sources and loader_types. The returned maps are independent copies.
 func (c *Config[T]) GetSourceStatistics() map[string]any {
 	return c.sourceTracker.GetSourceStatistics()
 }
 
-// FindKeysFromSource returns keys from sources matching the pattern.
+// FindKeysFromSource returns keys whose source identifier contains pattern.
+// Matching is case-sensitive and the returned slice may be empty.
 func (c *Config[T]) FindKeysFromSource(pattern string) []string {
 	return c.sourceTracker.FindKeysFromSource(pattern)
 }
 
-// PrintDebugInfo returns formatted debug info for a key (or all keys if empty).
+// PrintDebugInfo returns a human-readable source report for keyPath. An empty
+// keyPath includes every tracked key; an unknown key produces a not-found line.
+// The report can contain configuration values, including resolved values, and
+// must therefore be handled as sensitive operational output.
 func (c *Config[T]) PrintDebugInfo(keyPath string) string {
 	return c.sourceTracker.PrintDebugInfo(keyPath)
 }
 
-// ExportDebugReport writes a full debug report as JSON.
+// ExportDebugReport writes all tracked source records and override histories as
+// indented JSON; newly created files use mode 0600. The report can contain
+// configuration values, including resolved values, and must be stored and
+// transmitted as sensitive data. Filesystem and encoding failures are returned.
 func (c *Config[T]) ExportDebugReport(outputPath string) error {
 	return c.sourceTracker.ExportDebugReport(outputPath)
 }
 
-// SourceTracker returns the source tracker for advanced inspection.
+// SourceTracker returns the Config's concurrency-safe source tracker. Callers
+// may use its read methods for advanced inspection; mutating methods affect
+// subsequent introspection and should normally be left to Config.
 func (c *Config[T]) SourceTracker() *sourcetrack.Tracker {
 	return c.sourceTracker
 }
 
-// GenerateDocs generates configuration documentation in the given format ("markdown" or "json").
+// GenerateDocs renders the current key inventory as "markdown" or "json".
+// Entries contain the key, Go type, current value, and source. Secret-backed
+// values are redacted. The format name is case-sensitive; unsupported formats
+// return an error.
 func (c *Config[T]) GenerateDocs(format string) (string, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -394,39 +404,28 @@ func (c *Config[T]) GenerateDocs(format string) (string, error) {
 	}
 }
 
-// Export serializes the config to the given format ("json", "yaml", "toml").
-// If outputPath is provided, also writes to that file.
+// Export serializes the effective snapshot as "json", "yaml", or "toml". The
+// returned bytes always contain the serialized result. When a non-empty
+// outputPath is supplied, the first path is also written; newly created files
+// use mode 0600.
 //
-// Export is equivalent to [Config.ExportCtx] with [context.Background].
-// Hook errors raised by context-aware hooks are propagated to the
-// caller and no file write is attempted.
-//
-// G11: prior to Wave 8 Export marshaled the raw `c.envConfig` without
-// applying hooks, leaking unresolved `${secret:…}` placeholders into
-// exported artifacts. Export now applies the hook pipeline to a deep
-// copy of the config before serializing, so exported JSON/YAML/TOML
-// reflects the same effective values seen by [Config.Get] and
-// [Config.Typed].
-//
-// G10 (Wave 12): Export takes its deep-copy snapshot while c.mu.RLock
-// is held and releases the lock once the snapshot is owned privately.
-// Hooks and marshaling then run against the private snapshot rather
-// than against live envConfig, which closes the historical
-// "unlocks-before-marshaling" race that let a concurrent Set tear the
-// JSON/YAML output. The lock is released BEFORE hooks and marshaling so
-// slow or re-entrant user code cannot block or deadlock writers.
+// Export uses the implicit runtime context bounded by [WithOperationTimeout].
+// Export serializes resolved values, including secrets. Treat the bytes and any
+// output file as sensitive. Unsupported formats, serialization failures, and
+// file-write failures are returned; a write failure may be accompanied by the
+// successfully serialized bytes.
 func (c *Config[T]) Export(format string, outputPath ...string) ([]byte, error) {
-	return c.ExportCtx(context.Background(), format, outputPath...)
+	ctx, cancel := c.implicitOperationContext()
+	defer cancel()
+	return c.ExportWithContext(ctx, format, outputPath...)
 }
 
-// ExportCtx serializes the config to the given format ("json", "yaml",
-// "toml"), threading ctx through any registered context-aware hooks.
-// If outputPath is provided, also writes to that file.
-//
-// Hook errors raised by context-aware hooks are propagated to the
-// caller and no serialization or file write is attempted.
-func (c *Config[T]) ExportCtx(ctx context.Context, format string, outputPath ...string) ([]byte, error) {
-	data, err := c.ToDictCtx(ctx)
+// ExportWithContext is the context-aware form of [Config.Export]. A nil or
+// canceled context is returned before serialization. The method exports the
+// already-materialized snapshot and therefore performs no provider I/O or hook
+// execution during a successful read. Resolved secret values are not redacted.
+func (c *Config[T]) ExportWithContext(ctx context.Context, format string, outputPath ...string) ([]byte, error) {
+	data, err := c.ToDictWithContext(ctx)
 	if err != nil {
 		return nil, err
 	}

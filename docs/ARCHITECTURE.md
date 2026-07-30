@@ -25,7 +25,7 @@ production bug than as a CI failure.
 
 ## 0. Root Package Layout
 
-The module root is the public `github.com/confiify/confii-go` package. Go
+The module root is the public `github.com/confiify/confii-go/v2` package. Go
 packages are directory-based, so the public facade and its package tests stay
 at the repository root. Files are divided by responsibility; moving a public
 type into a subdirectory would create a different import path and is therefore
@@ -55,10 +55,10 @@ the behavior that owns it unless several transaction paths genuinely share it.
 
 Root tests follow the same rule. Public contract tests use `package
 confii_test` by default. Tests use `package confii` only when they must inspect
-private state or exercise an internal failure path. Regression identifiers
-from historical audits belong in comments, while filenames and test function
-names describe the behavior being guaranteed. Cross-package end-to-end tests
-belong under `integration/`; there is no generic top-level `tests/` package.
+private state or exercise an internal failure path. Test names and comments
+describe the behavior and contract being verified without relying on internal
+audit identifiers. Cross-package end-to-end tests belong under `integration/`;
+there is no generic top-level `tests/` package.
 
 ---
 
@@ -168,7 +168,7 @@ two public entry points:
 | Boundary | Direction | Entry point |
 |---|---|---|
 | `Config.Set` / `Config.Override` | caller → Config | `DeepCopyValue` on the value before storage |
-| `Config.Get` / `Config.GetCtx` | Config → caller | `DeepCopyValue` on the hook-processor output |
+| `Config.Get` / `Config.GetWithContext` | Config → caller | `DeepCopyValue` on the published snapshot value |
 | `Config.Export*` | Config → external | `DeepCopy` on a snapshot taken under lock |
 | `sourcetrack.Tracker.Snapshot` | live → snapshot | `cloneSourceInfo` calls `DeepCopyValue` on each `Value` |
 | `sourcetrack.Tracker.Get*` (`SourceInfo`, `OverrideHistory`, `Conflicts`) | live → caller | same |
@@ -274,8 +274,8 @@ position**:
    reshaped the tree) are logged and skipped — best-effort under
    concurrent mutation.
 
-After step 4 or 5, invalidate `validatedModel`, release the lock,
-and fire OnChange callbacks against the diff between pre-restore and
+After rebuilding the override stack, invalidate `validatedModel`, release the
+lock, and fire OnChange callbacks against the diff between pre-restore and
 rebuilt state.
 
 ### Why "rebuild from base" instead of "apply inverse delta"
@@ -352,11 +352,10 @@ loader is rejected before loading begins.
 
 **Source:** [`config_secret_self.go`](https://github.com/confiify/confii-go/blob/main/config_secret_self.go).
 
-The library supports a declarative `secrets:` block in self-config. The legacy
-shape wires `${secret:key}` to one provider. The named shape configures several
-provider aliases, selects a default globally or by active environment, and
-routes `${secret@provider:key}` explicitly. The set of available provider
-types is open-ended and varies with build configuration.
+The declarative `secrets:` block configures named provider aliases, selects a
+default globally or by active environment, and routes
+`${secret@provider:key}` explicitly. The available provider types vary with
+build configuration and registered provider factories.
 
 ### The constraint
 
@@ -379,18 +378,22 @@ functions in the relevant packages.
 
 ```go
 // Public API in root:
-type SelfConfigSecretProviderFactory func(cfg map[string]any) (SelfConfigSecretStore, error)
+type SelfConfigSecretProviderFactory func(
+    context.Context,
+    map[string]any,
+) (SecretReader, error)
 
 func RegisterSelfConfigSecretProvider(name string, factory SelfConfigSecretProviderFactory)
 func LookupSelfConfigSecretProvider(name string) (SelfConfigSecretProviderFactory, bool)
 
-type SelfConfigSecretStore interface {
-    GetSecret(ctx context.Context, key string) (any, error)
+type SecretRequest struct {
+    Key     string
+    Field   string
+    Version string
 }
 
-// Optional extension for version-aware declarative reads.
-type SelfConfigSecretRequestStore interface {
-    GetSecretRequest(context.Context, SelfConfigSecretRequest) (any, error)
+type SecretReader interface {
+    ReadSecret(context.Context, SecretRequest) (any, error)
 }
 ```
 
@@ -402,9 +405,9 @@ within that materialization session, so multiple JSON paths share one backend
 fetch. The unresolved selected snapshot is retained for provider attribution
 and explicit `RefreshSecrets`; ordinary access uses the resolved snapshot.
 JSON-path extraction is performed uniformly after the store read;
-version-capable adapters receive the requested version through
-`SelfConfigSecretRequestStore`. Legacy custom providers remain source
-compatible and fail clearly if asked for a versioned read they cannot support.
+every adapter receives the same request-aware contract, including an optional
+version and field. There is no runtime capability detection or legacy
+key-only provider interface in v2.
 
 Three providers are pre-registered by root's own `init()`:
 
@@ -423,11 +426,15 @@ External providers register themselves at import time:
 
 package cloud
 
-import confii "github.com/confiify/confii-go"
+import (
+    "context"
+
+    confii "github.com/confiify/confii-go/v2"
+)
 
 func init() {
-    confii.RegisterSelfConfigSecretProvider("aws", func(cfg map[string]any) (confii.SelfConfigSecretStore, error) {
-        store, err := NewAWSSecretsManager(context.Background(), optionsFrom(cfg)...)
+    confii.RegisterSelfConfigSecretProvider("aws", func(ctx context.Context, cfg map[string]any) (confii.SecretReader, error) {
+        store, err := NewAWSSecretsManager(ctx, optionsFrom(cfg)...)
         if err != nil { return nil, err }
         return readOnlySelfConfigAdapter(store), nil
     })
@@ -438,7 +445,7 @@ The user opts in with a blank import:
 
 ```go
 import (
-    _ "github.com/confiify/confii-go/secret/cloud" // selected by build tag
+    _ "github.com/confiify/confii-go/secret/cloud/v2" // selected by build tag
 )
 ```
 
@@ -447,7 +454,7 @@ package's `init()` runs and registers the factory. When the tag is
 absent, the cloud package compiles out and the provider name is not
 in the registry.
 
-### Error UX for build-tag debugging
+### Build-tag configuration errors
 
 `buildSelfConfigSecretHook` lists the currently-registered names in
 the unsupported-provider error:
@@ -457,21 +464,21 @@ self-config secrets provider "aws" unsupported (registered: dict, env, file);
 cloud providers must be opted in via a build-tagged blank import of secret/cloud
 ```
 
-An operator running `go build` without `-tags=aws` and then trying
-`provider: aws` in `.confii.yaml` sees both the available providers
+An operator running `go build` without `-tags=aws` and then declaring an AWS
+provider under `secrets.providers` sees both the available providers
 and the path to opt in.
 
 ### Writing a new provider
 
 Three contracts must hold:
 
-1. **Factory signature.** `func(map[string]any) (SelfConfigSecretStore, error)`.
-   In the legacy shape the map is the `secrets:` sub-map. In the named shape it
-   is one entry under `secrets.providers`. Validate required fields
+1. **Factory signature.**
+   `func(context.Context, map[string]any) (SecretReader, error)`. The map is
+   one provider entry under `secrets.providers`. Validate required fields
    (e.g. `base_dir`) and return a typed error from the factory if
    they are missing — `buildSelfConfigSecretHook` wraps that error
    into a `*ConfigError`.
-2. **`GetSecret` is read-only and goroutine-safe.** It runs from
+2. **`ReadSecret` is read-only and goroutine-safe.** It runs from
    the hook pipeline under no particular caller lock. Cache or
    fetch on demand behind `sync.RWMutex` or `sync.Map`.
 3. **Path-traversal-safe key handling.** If your store interprets

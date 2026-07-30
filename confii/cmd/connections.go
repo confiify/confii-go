@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	confii "github.com/confiify/confii-go"
+	confii "github.com/confiify/confii-go/v2"
 	"github.com/spf13/cobra"
 )
 
@@ -39,10 +39,9 @@ type connectionReport struct {
 // are registered in the containing binary.
 func NewConnectionsCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "connections",
-		Aliases: []string{"connection", "connect"},
-		Short:   "Test configured source and secret-provider connections",
-		Args:    cobra.NoArgs,
+		Use:   "connections",
+		Short: "Test configured source and secret-provider connections",
+		Args:  cobra.NoArgs,
 	}
 	cmd.AddCommand(newConnectionsTestCmd())
 	return cmd
@@ -83,7 +82,7 @@ func newConnectionsTestCmd() *cobra.Command {
 				}
 			}
 			for _, key := range checkKeys {
-				if _, err := cfg.GetCtx(ctx, key); err != nil {
+				if _, err := cfg.GetWithContext(ctx, key); err != nil {
 					return connectionFailure("resolve configuration key", err)
 				}
 			}
@@ -115,7 +114,7 @@ func newConnectionsTestCmd() *cobra.Command {
 			return printConnectionReport(c, report)
 		},
 	}
-	cmd.Flags().StringSliceVarP(&loaders, "loader", "l", nil, "Loader spec (type:source)")
+	cmd.Flags().StringSliceVarP(&loaders, "loader", "l", nil, loaderSpecHelp)
 	cmd.Flags().StringSliceVar(&keys, "key", nil, "Resolve only this configuration key (repeatable)")
 	cmd.Flags().DurationVar(&timeout, "timeout", 15*time.Second, "Deadline for context-aware source loads and value reads")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output machine-readable JSON without configuration values")

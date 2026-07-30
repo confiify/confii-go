@@ -5,12 +5,6 @@ package sourcekind
 
 import "testing"
 
-// TestIsNonFileSource_KnownNonFileSchemes pins the canonical allowlist
-// (D-W20-01): every scheme that any of the three pre-Wave-22 lists
-// recognized must be classified as non-file by the consolidated predicate.
-// Each entry asserts a distinct OBSERVABLE: misclassifying any of these as
-// file-backed would re-introduce the drift between watch/sourcetrack/confii
-// that this package exists to eliminate.
 func TestIsNonFileSource_KnownNonFileSchemes(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -30,7 +24,7 @@ func TestIsNonFileSource_KnownNonFileSchemes(t *testing.T) {
 		{"vault_double_slash", "vault://path"},
 		{"vault_colon", "vault:path"},
 		{"file_remote", "file://example/etc/foo.yaml"},
-		// Case-insensitivity: callers may emit upper-case schemes.
+
 		{"https_uppercase", "HTTPS://example.com"},
 		{"environment_mixedcase", "Environment:APP"},
 	}
@@ -43,11 +37,6 @@ func TestIsNonFileSource_KnownNonFileSchemes(t *testing.T) {
 	}
 }
 
-// TestIsNonFileSource_FilePathInputs asserts the negative observable:
-// real filesystem paths (absolute, relative, with/without extension) and
-// the empty sentinel must NOT be classified as non-file. Misclassifying a
-// real path here would silently disable fsnotify watching and the G14
-// incremental Reload optimization.
 func TestIsNonFileSource_FilePathInputs(t *testing.T) {
 	cases := []struct {
 		name   string

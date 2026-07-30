@@ -6,7 +6,7 @@
 project's `go.mod` and `go.sum`. From the root of an existing module:
 
 ```bash
-go get github.com/confiify/confii-go@latest
+go get github.com/confiify/confii-go/v2@latest
 ```
 
 Requires **Go 1.25+**.
@@ -17,7 +17,7 @@ From an empty directory, create the module first:
 mkdir my-service
 cd my-service
 go mod init example.com/my-service
-go get github.com/confiify/confii-go@latest
+go get github.com/confiify/confii-go/v2@latest
 ```
 
 Use the repository's real module path instead of `example.com/my-service`.
@@ -41,8 +41,8 @@ Install one or both cloud modules, depending on which APIs your application
 uses:
 
 ```bash
-go get github.com/confiify/confii-go/loader/cloud@latest
-go get github.com/confiify/confii-go/secret/cloud@latest
+go get github.com/confiify/confii-go/loader/cloud/v2@latest
+go get github.com/confiify/confii-go/secret/cloud/v2@latest
 ```
 
 The cloud modules declare and checksum their supported SDK versions. You do
@@ -100,7 +100,7 @@ The CLI is a separate executable. Unlike `go get`, this version-qualified
 application's `go.mod`:
 
 ```bash
-go install github.com/confiify/confii-go/confii@latest
+go install github.com/confiify/confii-go/v2/confii@latest
 ```
 
 Verify the installation:
@@ -138,11 +138,10 @@ make install-dev
 confii --version
 ```
 
-The installed version is commit-aware, for example
-`dev-18eba047d69b` or `dev-18eba047d69b-dirty`. The `-dirty` suffix means tracked
-working-tree changes were present, so test reports can identify builds that do
-not correspond exactly to a commit. `make install` remains an alias for
-`make install-dev`.
+The installed version identifies the source commit as `dev-<commit>`. A
+`-dirty` suffix indicates tracked working-tree changes, allowing test reports
+to distinguish reproducible commit builds from local modifications. `make
+install` remains an alias for `make install-dev`.
 
 By default, the goal installs to `GOBIN`, or to `$(go env GOPATH)/bin` when
 `GOBIN` is unset. To test without replacing an existing `confii` executable on
@@ -173,10 +172,10 @@ revision as a pseudo-version in the consumer project's `go.mod`:
 ```bash
 CONFII_DEV_REF="$(git -C /path/to/confii-go rev-parse HEAD)"
 cd /path/to/consumer
-go get "github.com/confiify/confii-go@${CONFII_DEV_REF}"
+go get "github.com/confiify/confii-go/v2@${CONFII_DEV_REF}"
 go mod tidy
 go test ./...
-go list -m github.com/confiify/confii-go
+go list -m github.com/confiify/confii-go/v2
 ```
 
 The commit must already exist on the remote. `go.mod` records an immutable
@@ -191,9 +190,9 @@ Applications importing the optional cloud modules must select the same branch
 for all three independently versioned modules:
 
 ```bash
-go get "github.com/confiify/confii-go@${CONFII_DEV_REF}"
-go get "github.com/confiify/confii-go/loader/cloud@${CONFII_DEV_REF}"
-go get "github.com/confiify/confii-go/secret/cloud@${CONFII_DEV_REF}"
+go get "github.com/confiify/confii-go/v2@${CONFII_DEV_REF}"
+go get "github.com/confiify/confii-go/loader/cloud/v2@${CONFII_DEV_REF}"
+go get "github.com/confiify/confii-go/secret/cloud/v2@${CONFII_DEV_REF}"
 go mod tidy
 ```
 
@@ -219,7 +218,7 @@ The goals add standard Go `replace` directives but deliberately do not run
 cd /absolute/path/to/consumer
 go mod tidy
 go test ./...
-go list -m -json github.com/confiify/confii-go
+go list -m -json github.com/confiify/confii-go/v2
 ```
 
 The `Replace.Dir` field in the final command should point at the local Confii
@@ -233,7 +232,7 @@ the consumer:
 cd /path/to/confii-go
 make consumer-unlink-dev \
   CONSUMER_DIR=/absolute/path/to/consumer \
-  CONFII_VERSION=v1.4.1
+  CONFII_VERSION=v2.0.0
 cd /absolute/path/to/consumer
 go mod tidy
 go test -tags "aws,vault" ./... # select only the providers the consumer imports

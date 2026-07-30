@@ -10,30 +10,31 @@ Struct tag validation uses [go-playground/validator](https://github.com/go-playg
 
 ### Basic Setup
 
-Define validation rules using the `validate` struct tag:
+Use `confii` to map configuration keys to fields and define validation rules
+with the independent `validate` struct tag:
 
 ```go
 type AppConfig struct {
     App struct {
-        Name    string `mapstructure:"name"     validate:"required"`
-        Port    int    `mapstructure:"port"     validate:"required,min=1024,max=65535"`
-        Version string `mapstructure:"version"  validate:"semver"`
-    } `mapstructure:"app"`
+        Name    string `confii:"name"     validate:"required"`
+        Port    int    `confii:"port"     validate:"required,min=1024,max=65535"`
+        Version string `confii:"version"  validate:"semver"`
+    } `confii:"app"`
 
     Database struct {
-        Host     string `mapstructure:"host"     validate:"required,hostname"`
-        Port     int    `mapstructure:"port"     validate:"required,min=1,max=65535"`
-        Name     string `mapstructure:"name"     validate:"required,min=1,max=63"`
-        User     string `mapstructure:"user"     validate:"required"`
-        PoolSize int    `mapstructure:"pool_size" validate:"min=1,max=200"`
-        SSL      bool   `mapstructure:"ssl"`
-    } `mapstructure:"database"`
+        Host     string `confii:"host"     validate:"required,hostname"`
+        Port     int    `confii:"port"     validate:"required,min=1,max=65535"`
+        Name     string `confii:"name"     validate:"required,min=1,max=63"`
+        User     string `confii:"user"     validate:"required"`
+        PoolSize int    `confii:"pool_size" validate:"min=1,max=200"`
+        SSL      bool   `confii:"ssl"`
+    } `confii:"database"`
 
     Email struct {
-        From string `mapstructure:"from" validate:"required,email"`
-        SMTP string `mapstructure:"smtp" validate:"required,hostname"`
-        Port int    `mapstructure:"port" validate:"required,oneof=25 465 587"`
-    } `mapstructure:"email"`
+        From string `confii:"from" validate:"required,email"`
+        SMTP string `confii:"smtp" validate:"required,hostname"`
+        Port int    `confii:"port" validate:"required,oneof=25 465 587"`
+    } `confii:"email"`
 }
 ```
 
@@ -42,7 +43,7 @@ type AppConfig struct {
 Validate immediately when the config is created. If validation fails, `New` returns an error:
 
 ```go
-cfg, err := confii.New[AppConfig](ctx,
+cfg, err := confii.NewWithContext[AppConfig](ctx,
     confii.WithLoaders(loader.NewYAML("config.yaml")),
     confii.WithValidateOnLoad(true),
 )
@@ -57,7 +58,7 @@ if err != nil {
 By default, validation failures on load produce a **warning** log and allow construction to proceed. With strict validation, failures become hard errors:
 
 ```go
-cfg, err := confii.New[AppConfig](ctx,
+cfg, err := confii.NewWithContext[AppConfig](ctx,
     confii.WithLoaders(loader.NewYAML("config.yaml")),
     confii.WithValidateOnLoad(true),
     confii.WithStrictValidation(true), // fail hard on validation errors
@@ -84,10 +85,10 @@ if err != nil {
 
 ### Manual Validation via Typed()
 
-You can also validate on demand by calling `Typed()`, which decodes the config map into your struct and validates it:
+`Typed()` performs on-demand decoding and validation:
 
 ```go
-cfg, _ := confii.New[AppConfig](ctx,
+cfg, _ := confii.NewWithContext[AppConfig](ctx,
     confii.WithLoaders(loader.NewYAML("config.yaml")),
     // No WithValidateOnLoad -- validate later
 )
@@ -149,14 +150,18 @@ For schema-driven validation that is language-agnostic and shareable, use JSON S
 ### From a Schema File
 
 ```go
-import "github.com/confiify/confii-go/validate"
+import "github.com/confiify/confii-go/v2/validate"
 
 v, err := validate.NewJSONSchemaValidatorFromFile("schema.json")
 if err != nil {
     log.Fatal(err)
 }
 
-err = v.Validate(cfg.ToDict())
+snapshot, err := cfg.ToDict()
+if err != nil {
+    log.Fatal(err)
+}
+err = v.Validate(snapshot)
 if err != nil {
     log.Fatal("Schema validation failed:", err)
 }
@@ -211,7 +216,7 @@ if err != nil {
 Build the schema programmatically in Go:
 
 ```go
-import "github.com/confiify/confii-go/validate"
+import "github.com/confiify/confii-go/v2/validate"
 
 schema := map[string]any{
     "type":     "object",
@@ -240,7 +245,11 @@ if err != nil {
     log.Fatal(err)
 }
 
-err = v.Validate(cfg.ToDict())
+snapshot, err := cfg.ToDict()
+if err != nil {
+    log.Fatal(err)
+}
+err = v.Validate(snapshot)
 if err != nil {
     log.Fatal(err)
 }
@@ -255,12 +264,12 @@ Use both approaches for defense in depth -- struct tags catch type-level issues 
 ```go
 type AppConfig struct {
     Database struct {
-        Host string `mapstructure:"host" validate:"required,hostname"`
-        Port int    `mapstructure:"port" validate:"required,min=1,max=65535"`
-    } `mapstructure:"database"`
+        Host string `confii:"host" validate:"required,hostname"`
+        Port int    `confii:"port" validate:"required,min=1,max=65535"`
+    } `confii:"database"`
 }
 
-cfg, err := confii.New[AppConfig](ctx,
+cfg, err := confii.NewWithContext[AppConfig](ctx,
     confii.WithLoaders(loader.NewYAML("config.yaml")),
     confii.WithValidateOnLoad(true),
     confii.WithStrictValidation(true),
@@ -275,7 +284,11 @@ if err != nil {
     log.Fatal(err)
 }
 
-if err := schemaValidator.Validate(cfg.ToDict()); err != nil {
+snapshot, err := cfg.ToDict()
+if err != nil {
+    log.Fatal("Configuration hooks failed:", err)
+}
+if err := schemaValidator.Validate(snapshot); err != nil {
     log.Fatal("Schema validation failed:", err)
 }
 
@@ -309,7 +322,12 @@ if err != nil {
 JSON Schema errors include the instance path and error kind:
 
 ```go
-err := schemaValidator.Validate(cfg.ToDict())
+snapshot, err := cfg.ToDict()
+if err != nil {
+    fmt.Println(err)
+    return
+}
+err = schemaValidator.Validate(snapshot)
 if err != nil {
     // "JSON Schema validation failed: /database/port: minimum;
     //  /database/host: type"
@@ -322,7 +340,7 @@ if err != nil {
 When reloading with `WithReloadValidate(true)`, validation failures cause the reload to **roll back** -- the config reverts to its pre-reload state:
 
 ```go
-err := cfg.Reload(ctx, confii.WithReloadValidate(true))
+err := cfg.ReloadWithContext(ctx, confii.WithReloadValidate(true))
 if err != nil {
     // Reload failed validation -- config is unchanged
     log.Println("reload rejected:", err)
@@ -341,36 +359,36 @@ import (
     "fmt"
     "log"
 
-    "github.com/confiify/confii-go"
-    "github.com/confiify/confii-go/loader"
-    "github.com/confiify/confii-go/validate"
+    "github.com/confiify/confii-go/v2"
+    "github.com/confiify/confii-go/v2/loader"
+    "github.com/confiify/confii-go/v2/validate"
 )
 
 type ServerConfig struct {
     Server struct {
-        Host    string `mapstructure:"host"    validate:"required,ip|hostname"`
-        Port    int    `mapstructure:"port"    validate:"required,min=1,max=65535"`
-        TLS     bool   `mapstructure:"tls"`
-    } `mapstructure:"server"`
+        Host    string `confii:"host"    validate:"required,ip|hostname"`
+        Port    int    `confii:"port"    validate:"required,min=1,max=65535"`
+        TLS     bool   `confii:"tls"`
+    } `confii:"server"`
 
     Database struct {
-        Host     string `mapstructure:"host"     validate:"required,hostname"`
-        Port     int    `mapstructure:"port"     validate:"required,min=1,max=65535"`
-        Name     string `mapstructure:"name"     validate:"required,alphanum"`
-        MaxConns int    `mapstructure:"max_conns" validate:"min=1,max=500"`
-    } `mapstructure:"database"`
+        Host     string `confii:"host"     validate:"required,hostname"`
+        Port     int    `confii:"port"     validate:"required,min=1,max=65535"`
+        Name     string `confii:"name"     validate:"required,alphanum"`
+        MaxConns int    `confii:"max_conns" validate:"min=1,max=500"`
+    } `confii:"database"`
 
     Logging struct {
-        Level  string `mapstructure:"level"  validate:"required,oneof=debug info warn error"`
-        Format string `mapstructure:"format" validate:"required,oneof=json text"`
-    } `mapstructure:"logging"`
+        Level  string `confii:"level"  validate:"required,oneof=debug info warn error"`
+        Format string `confii:"format" validate:"required,oneof=json text"`
+    } `confii:"logging"`
 }
 
 func main() {
     ctx := context.Background()
 
-    // Step 1: Create config with struct validation
-    cfg, err := confii.New[ServerConfig](ctx,
+    // Create configuration with struct validation.
+    cfg, err := confii.NewWithContext[ServerConfig](ctx,
         confii.WithLoaders(loader.NewYAML("config.yaml")),
         confii.WithEnv("production"),
         confii.WithValidateOnLoad(true),
@@ -380,16 +398,20 @@ func main() {
         log.Fatalf("Config validation failed: %v", err)
     }
 
-    // Step 2: Additional JSON Schema validation
+    // Apply additional JSON Schema validation.
     sv, err := validate.NewJSONSchemaValidatorFromFile("schema.json")
     if err != nil {
         log.Fatalf("Failed to load schema: %v", err)
     }
-    if err := sv.Validate(cfg.ToDict()); err != nil {
+    snapshot, err := cfg.ToDict()
+    if err != nil {
+        log.Fatalf("Configuration hooks failed: %v", err)
+    }
+    if err := sv.Validate(snapshot); err != nil {
         log.Fatalf("Schema validation failed: %v", err)
     }
 
-    // Step 3: Use validated config
+    // Use the validated typed configuration.
     model, _ := cfg.Typed()
     fmt.Printf("Server: %s:%d (TLS: %v)\n",
         model.Server.Host, model.Server.Port, model.Server.TLS)

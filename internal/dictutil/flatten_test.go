@@ -62,7 +62,7 @@ func TestFlatKeysWithPrefix_EmptyPrefix(t *testing.T) {
 	}
 	keys := FlatKeysWithPrefix(data, "")
 	sort.Strings(keys)
-	// With empty prefix, all keys should be returned.
+
 	assert.Equal(t, []string{"database.host", "database.port", "debug"}, keys)
 }
 

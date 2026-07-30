@@ -1,15 +1,19 @@
 // Copyright 2026 The Confii Contributors
 // SPDX-License-Identifier: MIT
 
+// Command confii loads, inspects, validates, and manages Confii projects.
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"runtime/debug"
+	"syscall"
 
-	"github.com/confiify/confii-go/confii/cmd"
+	"github.com/confiify/confii-go/v2/confii/cmd"
 	"github.com/spf13/cobra"
 )
 
@@ -35,8 +39,10 @@ func newRootCommand(out, errOut io.Writer) *cobra.Command {
 }
 
 func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 	root := newRootCommand(os.Stdout, os.Stderr)
-	if err := root.Execute(); err != nil {
+	if err := root.ExecuteContext(ctx); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

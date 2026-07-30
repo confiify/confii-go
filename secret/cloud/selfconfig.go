@@ -7,27 +7,53 @@ package cloud
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
 
-	confii "github.com/confiify/confii-go"
+	confii "github.com/confiify/confii-go/v2"
 )
 
 type selfConfigStoreAdapter struct {
 	get func(context.Context, string, ...confii.SecretOption) (any, error)
 }
 
-func (s selfConfigStoreAdapter) GetSecret(ctx context.Context, key string) (any, error) {
-	return s.get(ctx, key)
-}
-
-func (s selfConfigStoreAdapter) GetSecretRequest(ctx context.Context, request confii.SelfConfigSecretRequest) (any, error) {
+func (s selfConfigStoreAdapter) ReadSecret(ctx context.Context, request confii.SecretRequest) (any, error) {
 	var opts []confii.SecretOption
 	if request.Version != "" {
 		opts = append(opts, confii.WithVersion(request.Version))
 	}
-	return s.get(ctx, request.Key, opts...)
+	value, err := s.get(ctx, request.Key, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return extractDeclarativeSecretField(value, request.Field)
+}
+
+func extractDeclarativeSecretField(value any, field string) (any, error) {
+	if field == "" {
+		return value, nil
+	}
+	if encoded, ok := value.(string); ok {
+		var decoded any
+		if err := json.Unmarshal([]byte(encoded), &decoded); err != nil {
+			return nil, fmt.Errorf("%w: cannot traverse field %q in non-structured secret value", confii.ErrSecretValidation, field)
+		}
+		value = decoded
+	}
+	current := value
+	for _, part := range strings.Split(field, ".") {
+		mapping, ok := current.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("%w: cannot traverse field %q in non-map secret value", confii.ErrSecretValidation, field)
+		}
+		current, ok = mapping[part]
+		if !ok {
+			return nil, fmt.Errorf("%w: field %q not found in secret", confii.ErrSecretValidation, field)
+		}
+	}
+	return current, nil
 }
 
 func selfString(cfg map[string]any, keys ...string) string {

@@ -8,7 +8,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/confiify/confii-go/internal/dictutil"
+	"github.com/confiify/confii-go/v2/internal/dictutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -50,7 +50,7 @@ func TestEagerMutationsSupportLegacyMissingRawSnapshot(t *testing.T) {
 	cfg.mu.Lock()
 	cfg.unresolvedEnvConfig = nil
 	cfg.mu.Unlock()
-	require.NoError(t, cfg.Extend(context.Background(), &refactorCoverageLoader{
+	require.NoError(t, cfg.ExtendWithContext(context.Background(), &refactorCoverageLoader{
 		source: "extension", data: map[string]any{"extended": true},
 	}))
 	assert.True(t, cfg.GetBoolOr("extended", false))
@@ -58,7 +58,7 @@ func TestEagerMutationsSupportLegacyMissingRawSnapshot(t *testing.T) {
 
 func TestEagerExtendRollsBackResolutionFailure(t *testing.T) {
 	cfg := newTestConfig(t, map[string]any{"stable": "ready"}, WithSecretHook(failSelectedSecret))
-	err := cfg.Extend(context.Background(), &refactorCoverageLoader{
+	err := cfg.ExtendWithContext(context.Background(), &refactorCoverageLoader{
 		source: "extension", data: map[string]any{"new_secret": "${secret:fail}"},
 	})
 	require.Error(t, err)

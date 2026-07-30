@@ -11,21 +11,21 @@ import (
 	"time"
 )
 
-// AccessMetric tracks per-key access statistics.
+// AccessMetric is a point-in-time per-key access summary.
 type AccessMetric struct {
-	AccessCount     int
-	FirstAccess     time.Time
-	LastAccess      time.Time
+	// AccessCount is the number of recorded reads.
+	AccessCount int
+	// FirstAccess is the timestamp of the first recorded read.
+	FirstAccess time.Time
+	// LastAccess is the timestamp of the most recent recorded read.
+	LastAccess time.Time
+	// TotalAccessTime is the sum of recorded read durations.
 	TotalAccessTime time.Duration
 }
 
-// Metrics tracks overall configuration metrics.
-//
-// All counter and map fields are protected by mu. The enabled flag is
-// kept as an atomic.Bool so that hot-path readers (RecordAccess) can
-// short-circuit without contending on the mutex, and Enable/Disable
-// can flip the flag from any goroutine without taking the lock. See
-// gap G21 and the concurrency regression tests for the underlying race.
+// Metrics collects bounded, in-process configuration counters and timings. It
+// is safe for concurrent use. Metrics are process-local and are not exported to
+// an external telemetry backend automatically.
 type Metrics struct {
 	mu                sync.RWMutex
 	totalKeys         int
@@ -39,12 +39,7 @@ type Metrics struct {
 	lastExtend        time.Time
 	extendFailedCount int
 	lastExtendFailed  time.Time
-	// G12 runtime-mutation observability: counters for committed
-	// Config.Set / Config.Override invocations and for the inverse
-	// restore step. Failed Set / Override calls (path-traversal errors)
-	// are reported via setFailedCount / overrideFailedCount so callers
-	// can distinguish "mutation requested" from "mutation committed",
-	// mirroring the reload / extend success-vs-failure split.
+	// Mutation counters distinguish published changes from rejected operations.
 	setCount              int
 	lastSet               time.Time
 	setFailedCount        int
@@ -79,12 +74,8 @@ func NewMetrics(totalKeys int) *Metrics {
 	return m
 }
 
-// RecordAccess records a key access with the given duration.
-//
-// Safe for concurrent use. When the metrics tracker is disabled the
-// method short-circuits after a single atomic load, so callers on the
-// hot path do not pay any mutex cost. Once enabled, the access map
-// is updated under the writer lock.
+// RecordAccess records one successful read of key and its duration. It is a
+// no-op while collection is disabled.
 func (m *Metrics) RecordAccess(key string, duration time.Duration) {
 	if !m.enabled.Load() {
 		return
@@ -102,14 +93,8 @@ func (m *Metrics) RecordAccess(key string, duration time.Duration) {
 	am.TotalAccessTime += duration
 }
 
-// RecordReload records a reload event with duration.
-//
-// Per the G14 reload-lifecycle ordering contract, callers must invoke
-// RecordReload only after a reload has *committed* — that is, after the
-// load, validation, and dry-run apply phases have all succeeded and the
-// new state is the live state. Failed reloads (loader, composer, or
-// validation errors that triggered rollback) must be reported via
-// [Metrics.RecordReloadFailed] instead.
+// RecordReload records one successfully committed reload and its duration.
+// Use [Metrics.RecordReloadFailed] for rejected or rolled-back attempts.
 func (m *Metrics) RecordReload(duration time.Duration) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -123,7 +108,7 @@ func (m *Metrics) RecordReload(duration time.Duration) {
 
 // RecordReloadFailed records a reload attempt that did not commit.
 //
-// Introduced in G14 so observability can distinguish a successful reload
+// This lets observability distinguish a successful reload
 // from a rolled-back one. The duration is the wall-clock time spent
 // inside [confii.Config.Reload] up to and including the rollback. The
 // reloadCount counter is left unchanged — callers querying
@@ -138,14 +123,11 @@ func (m *Metrics) RecordReloadFailed(duration time.Duration) {
 }
 
 // RecordExtend records a successful runtime extension that committed a
-// new loader's data into the live configuration (G15).
+// new loader's data into the live configuration.
 //
-// Extend's lifecycle mirrors Reload's seven-phase pipeline (snapshot →
-// load → compose → env-resolve → merge → validate → commit). Like
-// [Metrics.RecordReload], this counter MUST be incremented only on a
-// committed extension; failed extensions go through
-// [Metrics.RecordExtendFailed]. The duration is the wall-clock time
-// from the start of the Extend call to commit.
+// The counter is incremented only after an extension commits. Failed
+// extensions are recorded by [Metrics.RecordExtendFailed]. Duration is the
+// wall-clock time from the start of Extend through publication.
 func (m *Metrics) RecordExtend(duration time.Duration) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -154,9 +136,9 @@ func (m *Metrics) RecordExtend(duration time.Duration) {
 	_ = duration // duration is reserved for future histogram support.
 }
 
-// RecordExtendFailed records an Extend attempt that did not commit (G15).
+// RecordExtendFailed records an Extend attempt that did not commit.
 //
-// Introduced alongside G15 so observability distinguishes a successful
+// This lets observability distinguish a successful
 // runtime extension from a rolled-back one. Failures may originate in
 // the loader itself (under ErrorPolicyRaise), in composition, in env
 // resolution (no current failure mode but reserved), in validation, or
@@ -180,7 +162,7 @@ func (m *Metrics) RecordChange() {
 }
 
 // RecordSet records a successful runtime [confii.Config.Set] mutation
-// that committed a new value into the live configuration (G12).
+// that committed a new value into the live configuration.
 //
 // Like [Metrics.RecordReload] and [Metrics.RecordExtend], this counter
 // is incremented only on a *committed* Set; calls that returned a
@@ -193,7 +175,7 @@ func (m *Metrics) RecordSet() {
 	m.lastSet = time.Now()
 }
 
-// RecordSetFailed records a Set attempt that did not commit (G12),
+// RecordSetFailed records a Set attempt that did not commit,
 // typically because the requested key path traversed through a
 // non-map intermediate. setCount stays unchanged so [Metrics.Statistics]
 // reports committed Set calls in set_count and rejected ones in
@@ -207,7 +189,7 @@ func (m *Metrics) RecordSetFailed() {
 
 // RecordOverride records a successful runtime [confii.Config.Override]
 // invocation that committed an override payload into the live
-// configuration (G12). Failed Override calls (path errors during
+// configuration. Failed Override calls (path errors during
 // SetNested) are reported via [Metrics.RecordOverrideFailed].
 func (m *Metrics) RecordOverride() {
 	m.mu.Lock()
@@ -217,7 +199,7 @@ func (m *Metrics) RecordOverride() {
 }
 
 // RecordOverrideFailed records an Override attempt that did not commit
-// (G12), typically because one of the override keys traversed through
+// typically because one of the override keys traversed through
 // a non-map intermediate. overrideCount stays unchanged so
 // [Metrics.Statistics] reports committed Overrides in override_count
 // and rejected ones in override_failed_count.
@@ -229,7 +211,7 @@ func (m *Metrics) RecordOverrideFailed() {
 }
 
 // RecordOverrideRestored records a successful invocation of the
-// restore function returned by [confii.Config.Override] (G12). Pairing
+// restore function returned by [confii.Config.Override]. Pairing
 // override / override_restored counters lets observers detect
 // Override leaks where a restore was never invoked.
 func (m *Metrics) RecordOverrideRestored() {
@@ -239,7 +221,9 @@ func (m *Metrics) RecordOverrideRestored() {
 	m.lastOverrideRestored = time.Now()
 }
 
-// Statistics returns a summary of collected metrics.
+// Statistics returns a detached map containing operation counters, last-event
+// timestamps, average reload time, access rate, and up to ten most-accessed
+// keys. Mutating the returned map does not alter the collector.
 func (m *Metrics) Statistics() map[string]any {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -345,7 +329,8 @@ func (m *Metrics) Enable() { m.enabled.Store(true) }
 // passed the atomic gate.
 func (m *Metrics) Disable() { m.enabled.Store(false) }
 
-// Reset clears all collected metrics.
+// Reset clears counters, timings, and access history without changing whether
+// collection is enabled or the configured total key count.
 func (m *Metrics) Reset() {
 	m.mu.Lock()
 	defer m.mu.Unlock()

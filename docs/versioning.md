@@ -24,7 +24,7 @@ vm := cfg.EnableVersioning("/tmp/config-versions", 100)
 
 ## Saving a Version
 
-`SaveVersion` captures an immutable snapshot of the current configuration state. You can attach arbitrary metadata (author, environment, deployment ID, etc.):
+`SaveVersion` captures an immutable snapshot of the current configuration state and accepts arbitrary metadata such as author, environment, and deployment ID:
 
 ```go
 v1, err := cfg.SaveVersion(map[string]any{
@@ -206,14 +206,14 @@ import (
     "fmt"
     "log"
 
-    confii "github.com/confiify/confii-go"
-    "github.com/confiify/confii-go/loader"
+    confii "github.com/confiify/confii-go/v2"
+    "github.com/confiify/confii-go/v2/loader"
 )
 
 func main() {
     ctx := context.Background()
 
-    cfg, err := confii.New[any](ctx,
+    cfg, err := confii.NewWithContext[any](ctx,
         confii.WithLoaders(loader.NewYAML("config.yaml")),
         confii.WithEnv("production"),
     )

@@ -5,16 +5,20 @@ package loader
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strings"
 
-	"github.com/confiify/confii-go/internal/dictutil"
-	"github.com/confiify/confii-go/internal/typecoerce"
+	confii "github.com/confiify/confii-go/v2"
+	"github.com/confiify/confii-go/v2/internal/dictutil"
+	"github.com/confiify/confii-go/v2/internal/typecoerce"
 )
 
-// EnvironmentLoader loads configuration from environment variables matching a prefix.
-// Variables are stripped of the prefix, split on the separator to create nested keys,
-// and lowercased.
+// EnvironmentLoader loads process variables named PREFIX_KEY. PREFIX is
+// uppercased, key components are split by the configured separator and
+// lowercased, and values are conservatively converted to bool, int, or float.
+// For example, NewEnvironment("TODO") maps TODO_SERVER__PORT=8080 to
+// server.port with the default "__" separator.
 type EnvironmentLoader struct {
 	prefix    string
 	separator string
@@ -36,7 +40,9 @@ func NewEnvironment(prefix string, opts ...EnvLoaderOption) *EnvironmentLoader {
 // EnvLoaderOption configures the EnvironmentLoader.
 type EnvLoaderOption func(*EnvironmentLoader)
 
-// WithSeparator sets the nesting separator (default "__").
+// WithSeparator sets the nesting separator. The default is "__". An empty
+// separator is rejected by Load; callers should provide a stable separator
+// that cannot occur within key parts.
 func WithSeparator(sep string) EnvLoaderOption {
 	return func(l *EnvironmentLoader) { l.separator = sep }
 }
@@ -46,8 +52,14 @@ func (l *EnvironmentLoader) Source() string {
 	return "environment:" + l.prefix
 }
 
-// Load reads environment variables matching the configured prefix and parses them into a nested configuration map.
+// Load snapshots matching process variables into a new nested map. It returns
+// nil, nil when none match. The context is accepted for Loader compatibility;
+// reading the process environment is synchronous and does not observe
+// cancellation.
 func (l *EnvironmentLoader) Load(_ context.Context) (map[string]any, error) {
+	if l.separator == "" {
+		return nil, confii.NewLoadError(l.Source(), fmt.Errorf("environment separator must not be empty"))
+	}
 	envPrefix := l.prefix + "_"
 	result := make(map[string]any)
 
@@ -73,7 +85,9 @@ func (l *EnvironmentLoader) Load(_ context.Context) (map[string]any, error) {
 
 		// Build nested path using dot notation.
 		keyPath := strings.Join(parts, ".")
-		_ = dictutil.SetNested(result, keyPath, parsed)
+		if err := dictutil.SetNested(result, keyPath, parsed); err != nil {
+			return nil, confii.NewLoadError(l.Source(), err)
+		}
 	}
 
 	if len(result) == 0 {

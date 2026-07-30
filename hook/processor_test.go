@@ -11,169 +11,146 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-func TestProcessor_ContextHookRegistrationAndOrder(t *testing.T) {
+func passthrough(_ context.Context, _ string, value any) (any, error) {
+	return value, nil
+}
+
+func TestProcessor_ContextAndExecutionOrder(t *testing.T) {
 	type contextKey struct{}
 	ctx := context.WithValue(context.Background(), contextKey{}, "request-42")
 	p := NewProcessor()
-
-	appendStage := func(stage string) FuncCtx {
+	appendStage := func(stage string) Func {
 		return func(gotCtx context.Context, _ string, value any) (any, error) {
 			assert.Equal(t, "request-42", gotCtx.Value(contextKey{}))
 			return value.(string) + stage, nil
 		}
 	}
-
-	p.RegisterKeyHookCtx("key", appendStage("-key"))
-	p.RegisterValueHookCtx("start", appendStage("-value"))
-	p.RegisterConditionHookCtx(
-		func(key string, _ any) bool { return key == "key" },
+	p.RegisterKeyHook("key", appendStage("-key"))
+	p.RegisterValueHook("start-key", appendStage("-value"))
+	p.RegisterConditionHook(func(_ context.Context, key string, _ any) (bool, error) { return key == "key", nil },
 		appendStage("-condition"),
 	)
-	p.RegisterGlobalHookCtx(appendStage("-global"))
+	p.RegisterGlobalHook(appendStage("-global"))
 
-	got, err := p.ProcessCtx(ctx, "key", "start")
-	assert.NoError(t, err)
+	got, err := p.Process(ctx, "key", "start")
+	require.NoError(t, err)
 	assert.Equal(t, "start-key-value-condition-global", got)
 }
 
-func TestProcessor_GlobalHook(t *testing.T) {
+func TestProcessor_HookKinds(t *testing.T) {
 	p := NewProcessor()
-	p.RegisterGlobalHook(func(_ string, v any) any {
-		if s, ok := v.(string); ok {
-			return strings.ToUpper(s)
+	p.RegisterKeyHook("database.host", func(_ context.Context, _ string, _ any) (any, error) {
+		return "overridden", nil
+	})
+	p.RegisterValueHook("secret_placeholder", func(_ context.Context, _ string, _ any) (any, error) {
+		return "resolved_secret", nil
+	})
+	p.RegisterConditionHook(func(_ context.Context, _ string, value any) (bool, error) {
+		s, ok := value.(string)
+		return ok && strings.HasPrefix(s, "env:"), nil
+	},
+		func(_ context.Context, _ string, value any) (any, error) {
+			return strings.TrimPrefix(value.(string), "env:"), nil
+		},
+	)
+	p.RegisterGlobalHook(func(_ context.Context, _ string, value any) (any, error) {
+		if s, ok := value.(string); ok {
+			return strings.ToUpper(s), nil
 		}
-		return v
+		return value, nil
 	})
 
-	result := p.Process("key", "hello")
-	assert.Equal(t, "HELLO", result)
+	got, err := p.Process(context.Background(), "database.host", "localhost")
+	require.NoError(t, err)
+	assert.Equal(t, "OVERRIDDEN", got)
+	got, err = p.Process(context.Background(), "other", "secret_placeholder")
+	require.NoError(t, err)
+	assert.Equal(t, "RESOLVED_SECRET", got)
+	got, err = p.Process(context.Background(), "other", "env:value")
+	require.NoError(t, err)
+	assert.Equal(t, "VALUE", got)
 }
 
-func TestProcessor_KeyHook(t *testing.T) {
-	p := NewProcessor()
-	p.RegisterKeyHook("database.host", func(_ string, _ any) any {
-		return "overridden"
-	})
-
-	assert.Equal(t, "overridden", p.Process("database.host", "localhost"))
-	assert.Equal(t, "localhost", p.Process("other.key", "localhost"))
-}
-
-func TestProcessor_ValueHook(t *testing.T) {
-	p := NewProcessor()
-	p.RegisterValueHook("secret_placeholder", func(_ string, _ any) any {
-		return "resolved_secret"
-	})
-
-	assert.Equal(t, "resolved_secret", p.Process("key", "secret_placeholder"))
-	assert.Equal(t, "other", p.Process("key", "other"))
-}
-
-func TestProcessor_ConditionHook(t *testing.T) {
-	p := NewProcessor()
-	p.RegisterConditionHook(
-		func(_ string, v any) bool {
-			s, ok := v.(string)
-			return ok && strings.HasPrefix(s, "env:")
-		},
-		func(_ string, v any) any {
-			return strings.TrimPrefix(v.(string), "env:")
-		},
-	)
-
-	assert.Equal(t, "VALUE", p.Process("key", "env:VALUE"))
-	assert.Equal(t, "plain", p.Process("key", "plain"))
-}
-
-func TestProcessor_ExecutionOrder(t *testing.T) {
-	p := NewProcessor()
-	var order []string
-
-	p.RegisterKeyHook("k", func(_ string, v any) any {
-		order = append(order, "key")
-		return v
-	})
-	p.RegisterValueHook("val", func(_ string, v any) any {
-		order = append(order, "value")
-		return v
-	})
-	p.RegisterConditionHook(
-		func(_ string, _ any) bool { return true },
-		func(_ string, v any) any {
-			order = append(order, "condition")
-			return v
-		},
-	)
-	p.RegisterGlobalHook(func(_ string, v any) any {
-		order = append(order, "global")
-		return v
-	})
-
-	p.Process("k", "val")
-	assert.Equal(t, []string{"key", "value", "condition", "global"}, order)
-}
-
-func TestProcessor_ConcurrentSafety(t *testing.T) {
-	p := NewProcessor()
-	p.RegisterGlobalHook(func(_ string, v any) any { return v })
-
-	var wg sync.WaitGroup
-	for i := 0; i < 100; i++ {
-		wg.Add(2)
-		go func() {
-			defer wg.Done()
-			p.Process("key", "value")
-		}()
-		go func() {
-			defer wg.Done()
-			p.RegisterGlobalHook(func(_ string, v any) any { return v })
-		}()
-	}
-	wg.Wait()
-}
-
-func TestProcessor_ContextErrorsStopEachStage(t *testing.T) {
+func TestProcessor_ErrorsStopEveryStage(t *testing.T) {
 	boom := errors.New("hook failed")
 	tests := []struct {
 		name     string
 		register func(*Processor)
 	}{
 		{"key", func(p *Processor) {
-			p.RegisterKeyHookCtx("key", func(context.Context, string, any) (any, error) { return "key", boom })
+			p.RegisterKeyHook("key", func(context.Context, string, any) (any, error) { return "key", boom })
 		}},
 		{"value", func(p *Processor) {
-			p.RegisterValueHookCtx("value", func(context.Context, string, any) (any, error) { return "value", boom })
+			p.RegisterValueHook("value", func(context.Context, string, any) (any, error) { return "value", boom })
 		}},
 		{"condition", func(p *Processor) {
-			p.RegisterConditionHookCtx(func(string, any) bool { return true }, func(context.Context, string, any) (any, error) { return "condition", boom })
+			p.RegisterConditionHook(func(context.Context, string, any) (bool, error) { return false, boom }, passthrough)
 		}},
 		{"global", func(p *Processor) {
-			p.RegisterGlobalHookCtx(func(context.Context, string, any) (any, error) { return "global", boom })
+			p.RegisterGlobalHook(func(context.Context, string, any) (any, error) { return "global", boom })
 		}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			p := NewProcessor()
 			tc.register(p)
-			got, err := p.ProcessCtx(context.Background(), "key", "value")
+			_, err := p.Process(context.Background(), "key", "value")
 			assert.ErrorIs(t, err, boom)
-			assert.Equal(t, tc.name, got)
 		})
 	}
 }
 
-func TestProcessor_NonComparableValueAndEmptyEntry(t *testing.T) {
+func TestProcessor_SnapshotIsImmutableAndRevisioned(t *testing.T) {
 	p := NewProcessor()
-	p.valueHooks["unused"] = []hookEntry{{}}
-	p.globalHooks = []hookEntry{{}}
-	value := []string{"not", "comparable"}
-	got, err := p.ProcessCtx(context.Background(), "key", value)
-	assert.NoError(t, err)
-	assert.Equal(t, value, got)
+	p.RegisterGlobalHook(func(_ context.Context, _ string, value any) (any, error) {
+		return value.(string) + "-one", nil
+	})
+	plan := p.Snapshot()
+	p.RegisterGlobalHook(func(_ context.Context, _ string, value any) (any, error) {
+		return value.(string) + "-two", nil
+	})
 
-	got, err = (hookEntry{}).run(context.Background(), "key", "value")
-	assert.NoError(t, err)
-	assert.Equal(t, "value", got)
+	oldValue, err := plan.Process(context.Background(), "key", "start")
+	require.NoError(t, err)
+	newValue, err := p.Process(context.Background(), "key", "start")
+	require.NoError(t, err)
+	assert.Equal(t, "start-one", oldValue)
+	assert.Equal(t, "start-one-two", newValue)
+	assert.Less(t, plan.Revision(), p.Revision())
+}
+
+func TestProcessor_ValueHookSupportsNonComparableValues(t *testing.T) {
+	p := NewProcessor()
+	p.RegisterValueHook([]any{"a", "b"}, func(_ context.Context, _ string, _ any) (any, error) {
+		return "matched", nil
+	})
+	got, err := p.Process(context.Background(), "key", []any{"a", "b"})
+	require.NoError(t, err)
+	assert.Equal(t, "matched", got)
+}
+
+func TestProcessor_ConcurrentSafety(t *testing.T) {
+	p := NewProcessor()
+	p.RegisterGlobalHook(passthrough)
+	var wg sync.WaitGroup
+	for range 100 {
+		wg.Add(2)
+		go func() { defer wg.Done(); _, _ = p.Process(context.Background(), "key", "value") }()
+		go func() { defer wg.Done(); p.RegisterGlobalHook(passthrough) }()
+	}
+	wg.Wait()
+}
+
+func TestProcessor_RejectsNilRegistrations(t *testing.T) {
+	p := NewProcessor()
+	assert.Panics(t, func() { p.RegisterKeyHook("key", nil) })
+	assert.Panics(t, func() { p.RegisterValueHook("value", nil) })
+	assert.Panics(t, func() { p.RegisterConditionHook(nil, passthrough) })
+	assert.Panics(t, func() {
+		p.RegisterConditionHook(func(context.Context, string, any) (bool, error) { return true, nil }, nil)
+	})
+	assert.Panics(t, func() { p.RegisterGlobalHook(nil) })
 }

@@ -12,14 +12,14 @@ import (
 	"strings"
 	"time"
 
-	confii "github.com/confiify/confii-go"
+	confii "github.com/confiify/confii-go/v2"
 )
 
 func init() {
 	confii.RegisterSelfConfigSecretProvider("vault", newSelfConfigVault)
 }
 
-func newSelfConfigVault(cfg map[string]any) (confii.SelfConfigSecretStore, error) {
+func newSelfConfigVault(ctx context.Context, cfg map[string]any) (confii.SecretReader, error) {
 	address := selfString(cfg, "address", "url")
 	if address == "" {
 		address = os.Getenv("VAULT_ADDR")
@@ -61,7 +61,7 @@ func newSelfConfigVault(cfg map[string]any) (confii.SelfConfigSecretStore, error
 		}
 		opts = append(opts, WithVaultAuth(auth))
 	}
-	store, err := NewHashiCorpVault(opts...)
+	store, err := NewHashiCorpVaultWithContext(ctx, opts...)
 	if err != nil {
 		return nil, err
 	}

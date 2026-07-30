@@ -8,7 +8,7 @@ import (
 	"errors"
 	"testing"
 
-	confii "github.com/confiify/confii-go"
+	confii "github.com/confiify/confii-go/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -17,23 +17,19 @@ func TestDictStore_CRUD(t *testing.T) {
 	s := NewDictStore(map[string]any{"key1": "value1"})
 	ctx := context.Background()
 
-	// Get existing.
 	val, err := s.GetSecret(ctx, "key1")
 	require.NoError(t, err)
 	assert.Equal(t, "value1", val)
 
-	// Set new.
 	require.NoError(t, s.SetSecret(ctx, "key2", "value2"))
 	val, err = s.GetSecret(ctx, "key2")
 	require.NoError(t, err)
 	assert.Equal(t, "value2", val)
 
-	// Delete.
 	require.NoError(t, s.DeleteSecret(ctx, "key1"))
 	_, err = s.GetSecret(ctx, "key1")
 	assert.True(t, errors.Is(err, confii.ErrSecretNotFound))
 
-	// Len.
 	assert.Equal(t, 1, s.Len())
 }
 
@@ -45,15 +41,12 @@ func TestDictStore_Versioning(t *testing.T) {
 	_ = s.SetSecret(ctx, "key", "v2")
 	_ = s.SetSecret(ctx, "key", "v3")
 
-	// Latest.
 	val, _ := s.GetSecret(ctx, "key")
 	assert.Equal(t, "v3", val)
 
-	// Version 0.
 	val, _ = s.GetSecret(ctx, "key", confii.WithVersion("0"))
 	assert.Equal(t, "v1", val)
 
-	// Version 1.
 	val, _ = s.GetSecret(ctx, "key", confii.WithVersion("1"))
 	assert.Equal(t, "v2", val)
 }

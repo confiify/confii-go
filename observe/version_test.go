@@ -21,7 +21,6 @@ func TestVersionManager_SaveAndGet(t *testing.T) {
 	assert.Equal(t, "localhost", v.Config["database"].(map[string]any)["host"])
 	assert.Equal(t, "test", v.Metadata["author"])
 
-	// Retrieve.
 	got := vm.GetVersion(v.VersionID)
 	require.NotNil(t, got)
 	assert.Equal(t, v.VersionID, got.VersionID)
@@ -37,7 +36,7 @@ func TestVersionManager_ListVersions(t *testing.T) {
 
 	versions := vm.ListVersions()
 	assert.Len(t, versions, 3)
-	// Newest first.
+
 	assert.True(t, versions[0].Timestamp >= versions[1].Timestamp)
 }
 
@@ -50,7 +49,7 @@ func TestVersionManager_Eviction(t *testing.T) {
 	_, _ = vm.SaveVersion(map[string]any{"v": 3}, nil)
 
 	versions := vm.ListVersions()
-	assert.Len(t, versions, 2) // oldest evicted
+	assert.Len(t, versions, 2)
 }
 
 func TestVersionManager_LatestVersion(t *testing.T) {

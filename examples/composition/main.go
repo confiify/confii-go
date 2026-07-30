@@ -7,18 +7,15 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
 
-	confii "github.com/confiify/confii-go"
-	"github.com/confiify/confii-go/loader"
+	confii "github.com/confiify/confii-go/v2"
+	"github.com/confiify/confii-go/v2/loader"
 )
 
 func main() {
-	cfg, err := confii.New[any](context.Background(),
-		confii.WithLoaders(loader.NewYAML("app.yaml")),
-	)
+	cfg, err := confii.New[any](confii.WithLoaders(loader.NewYAML("app.yaml")))
 	if err != nil {
 		log.Fatal(err)
 	}

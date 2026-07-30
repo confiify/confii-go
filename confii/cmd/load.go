@@ -24,12 +24,16 @@ func NewLoadCmd() *cobra.Command {
 				env = args[0]
 			}
 
-			cfg, err := buildConfig(env, loaders)
+			cfg, err := buildConfigWithContext(c.Context(), env, loaders)
 			if err != nil {
 				return err
 			}
 
-			data, err := json.MarshalIndent(cfg.ToDict(), "", "  ")
+			dict, err := cfg.ToDictWithContext(c.Context())
+			if err != nil {
+				return err
+			}
+			data, err := json.MarshalIndent(dict, "", "  ")
 			if err != nil {
 				return err
 			}
@@ -38,6 +42,6 @@ func NewLoadCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringSliceVarP(&loaders, "loader", "l", nil, "Loader spec (type:source)")
+	cmd.Flags().StringSliceVarP(&loaders, "loader", "l", nil, loaderSpecHelp)
 	return cmd
 }

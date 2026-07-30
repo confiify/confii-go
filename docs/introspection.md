@@ -87,7 +87,7 @@ Source: APP (EnvironmentLoader) - 3 keys
 Enable `WithDebugMode(true)` to track the full override history for every key. Without it, Confii tracks sources and override counts but not the history chain.
 
 ```go
-cfg, err := confii.New[any](ctx,
+cfg, err := confii.NewWithContext[any](ctx,
     confii.WithLoaders(
         loader.NewYAML("base.yaml"),
         loader.NewYAML("prod.yaml"),
@@ -312,14 +312,14 @@ import (
     "fmt"
     "log"
 
-    confii "github.com/confiify/confii-go"
-    "github.com/confiify/confii-go/loader"
+    confii "github.com/confiify/confii-go/v2"
+    "github.com/confiify/confii-go/v2/loader"
 )
 
 func main() {
     ctx := context.Background()
 
-    cfg, err := confii.New[any](ctx,
+    cfg, err := confii.NewWithContext[any](ctx,
         confii.WithLoaders(
             loader.NewYAML("base.yaml"),
             loader.NewYAML("prod.yaml"),

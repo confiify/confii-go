@@ -6,9 +6,10 @@
 package cloud
 
 import (
+	"context"
 	"testing"
 
-	confii "github.com/confiify/confii-go"
+	confii "github.com/confiify/confii-go/v2"
 )
 
 func TestVaultSelfConfigProviderRegistered(t *testing.T) {
@@ -16,7 +17,7 @@ func TestVaultSelfConfigProviderRegistered(t *testing.T) {
 	if !ok {
 		t.Fatal("vault self-config secret provider was not registered")
 	}
-	store, err := factory(map[string]any{
+	store, err := factory(context.Background(), map[string]any{
 		"address": "http://127.0.0.1:8200",
 		"token":   "test-token",
 	})

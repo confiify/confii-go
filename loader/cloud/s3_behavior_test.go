@@ -3,22 +3,6 @@
 
 //go:build aws
 
-// Behavior tests for the AWS S3 configuration loader.
-//
-// Provider: AWS S3 object storage (loader/cloud/s3.go).
-//
-// Fixture mechanism: protocol-level fixture through an explicit endpoint and
-// path-style addressing, the same options used for LocalStack and other
-// S3-compatible services.
-//
-// Build-tag gating: this file is gated by `//go:build aws`; the cloud module
-// owns the required AWS SDK versions. Upstream CI exercises it through the
-// same temporary consumer shape users install.
-//
-// Running locally as a consumer:
-//
-//	go test -tags aws -count=1 ./...
-
 package cloud
 
 import (
@@ -30,11 +14,9 @@ import (
 	"strings"
 	"testing"
 
-	confii "github.com/confiify/confii-go"
+	confii "github.com/confiify/confii-go/v2"
 )
 
-// TestS3Loader_NewS3_HappyPath_ParsesURL exercises the constructor's
-// happy path: a well-formed s3:// URL is split into bucket and key.
 func TestS3Loader_NewS3_HappyPath_ParsesURL(t *testing.T) {
 	l, err := NewS3("s3://my-bucket/path/to/config.yaml")
 	if err != nil {
@@ -51,8 +33,6 @@ func TestS3Loader_NewS3_HappyPath_ParsesURL(t *testing.T) {
 	}
 }
 
-// TestS3Loader_NewS3_RejectsNonS3Scheme verifies that the constructor
-// surfaces a typed error when the URL scheme is not "s3".
 func TestS3Loader_NewS3_RejectsNonS3Scheme(t *testing.T) {
 	_, err := NewS3("https://my-bucket/path/to/config.yaml")
 	if err == nil {
@@ -63,10 +43,8 @@ func TestS3Loader_NewS3_RejectsNonS3Scheme(t *testing.T) {
 	}
 }
 
-// TestS3Loader_NewS3_RejectsMalformedURL verifies that parse errors
-// from the URL parser are wrapped and returned.
 func TestS3Loader_NewS3_RejectsMalformedURL(t *testing.T) {
-	// A URL with an invalid control character causes url.Parse to fail.
+
 	_, err := NewS3("s3://bucket/\x7f")
 	if err == nil {
 		t.Fatal("expected parse error for malformed URL, got nil")
@@ -76,12 +54,8 @@ func TestS3Loader_NewS3_RejectsMalformedURL(t *testing.T) {
 	}
 }
 
-// TestS3Loader_WithS3Credentials_PopulatesFields verifies that the
-// option pipeline records explicit credentials so they would be passed
-// to the AWS config loader at Load() time.
 func TestS3Loader_WithS3Credentials_PopulatesFields(t *testing.T) {
-	l, err := NewS3(
-		"s3://b/k.json",
+	l, err := NewS3("s3://b/k.json",
 		WithS3Region("eu-west-1"),
 		WithS3Credentials("AKIA-test", "secret-test"),
 	)
@@ -108,8 +82,7 @@ func TestS3Loader_Load_CustomEndpointPathStyle(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	loader, err := NewS3(
-		"s3://fixture-bucket/config.json",
+	loader, err := NewS3("s3://fixture-bucket/config.json",
 		WithS3Region("us-east-1"),
 		WithS3Credentials("test", "test"),
 		WithS3Endpoint(server.URL),
@@ -128,18 +101,12 @@ func TestS3Loader_Load_CustomEndpointPathStyle(t *testing.T) {
 	}
 }
 
-// TestS3Loader_Load_FailsWithoutResolvableEndpoint exercises the error
-// path for Load(): with a bogus region and bogus bucket the SDK should
-// fail to issue a request and the loader should wrap the error in a
-// ConfigError. This is a smoke test of the error-wrapping contract.
 func TestS3Loader_Load_FailsWithoutResolvableEndpoint(t *testing.T) {
-	// Use an obviously-unreachable endpoint via env so the SDK does not
-	// reach out to real AWS during this hermetic test.
-	t.Setenv("AWS_EC2_METADATA_DISABLED", "true")
-	t.Setenv("AWS_ENDPOINT_URL_S3", "http://127.0.0.1:1") // closed port
 
-	l, err := NewS3(
-		"s3://bucket-does-not-exist-confii-test/k.json",
+	t.Setenv("AWS_EC2_METADATA_DISABLED", "true")
+	t.Setenv("AWS_ENDPOINT_URL_S3", "http://127.0.0.1:1")
+
+	l, err := NewS3("s3://bucket-does-not-exist-confii-test/k.json",
 		WithS3Region("us-east-1"),
 		WithS3Credentials("AKIA-test", "secret-test"),
 	)
@@ -148,13 +115,13 @@ func TestS3Loader_Load_FailsWithoutResolvableEndpoint(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // pre-cancel to force a fast failure regardless of SDK timeouts.
+	cancel()
 
 	_, loadErr := l.Load(ctx)
 	if loadErr == nil {
 		t.Fatal("expected error from Load against unreachable endpoint, got nil")
 	}
-	// The wrapper must produce a ConfigError tagged with ErrConfigLoad.
+
 	var ce *confii.ConfigError
 	if !errors.As(loadErr, &ce) {
 		t.Fatalf("Load error not a *confii.ConfigError: %T (%v)", loadErr, loadErr)

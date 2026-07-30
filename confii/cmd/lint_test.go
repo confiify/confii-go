@@ -24,13 +24,10 @@ func TestLintCommand_NoIssues(t *testing.T) {
 
 func TestLintCommand_ReturnsErrorInsteadOfExit(t *testing.T) {
 	dir := t.TempDir()
-	// Empty YAML maps to an empty config, which the linter flags.
+
 	yamlPath := writeTestFile(t, dir, "empty.yaml", "")
 
 	cmd := NewLintCmd()
-	// In the pre-fix version, --strict with issues called os.Exit(1)
-	// and would terminate this test process. Reaching the assertion
-	// at all is part of the test.
 	_, err := execCobra(cmd, []string{"-l", "yaml:" + yamlPath, "--strict"})
 	if err == nil {
 		t.Fatalf("expected --strict to return an error when issues are found, got nil")

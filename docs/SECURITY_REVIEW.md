@@ -2,7 +2,7 @@
 
 **Review date:** 2026-07-25
 
-**Scope:** `github.com/confiify/confii-go`, its CLI, separately versioned cloud
+**Scope:** `github.com/confiify/confii-go/v2`, its CLI, separately versioned cloud
 loader and secret modules, build/release workflows, and public documentation
 
 **Acceptance:** maintainer review and merge of the pull request that introduced

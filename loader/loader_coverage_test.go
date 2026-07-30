@@ -12,15 +12,10 @@ import (
 	"testing"
 	"time"
 
-	confii "github.com/confiify/confii-go"
-	"github.com/confiify/confii-go/internal/formatparse"
+	confii "github.com/confiify/confii-go/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-// ---------------------------------------------------------------------------
-// EnvFileLoader edge cases
-// ---------------------------------------------------------------------------
 
 func TestEnvFileLoader_CommentsAndEmptyLines(t *testing.T) {
 	dir := t.TempDir()
@@ -117,15 +112,12 @@ ALSO_VALID=true
 `
 	require.NoError(t, os.WriteFile(envFile, []byte(content), 0644))
 
-	// After G31, the default policy (Raise) surfaces malformed lines as
-	// typed errors. Callers that want the legacy silent-skip behavior must
-	// opt in with WithEnvFileErrorPolicy(ErrorPolicyIgnore).
 	l := NewEnvFile(envFile, WithEnvFileErrorPolicy(confii.ErrorPolicyIgnore))
 	result, err := l.Load(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, "yes", result["VALID"])
 	assert.Equal(t, true, result["ALSO_VALID"])
-	// INVALID_LINE_NO_EQUALS should be skipped.
+
 	_, hasInvalid := result["INVALID_LINE_NO_EQUALS"]
 	assert.False(t, hasInvalid)
 }
@@ -156,10 +148,6 @@ func TestEnvFileLoader_OnlyComments(t *testing.T) {
 	assert.Nil(t, result)
 }
 
-// ---------------------------------------------------------------------------
-// EnvironmentLoader edge cases
-// ---------------------------------------------------------------------------
-
 func TestEnvironmentLoader_CustomSeparator_TripleDots(t *testing.T) {
 	t.Setenv("XAPP_DB___HOST", "triplehost")
 
@@ -181,20 +169,10 @@ func TestEnvironmentLoader_LowercaseConversion(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
-	// "MY" and "KEY" should be lowercased.
 	my, ok := result["my"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "lowered", my["key"])
 }
-
-// ---------------------------------------------------------------------------
-// HTTPLoader edge cases
-//
-// G35: HTTP tests use newHTTPTestServer (defined in http_test.go) for
-// hermetic-environment safety. It wraps httptest.NewServer and converts a
-// loopback-bind panic into t.Skip rather than failing the whole suite when
-// the runtime sandbox refuses 127.0.0.1 binds.
-// ---------------------------------------------------------------------------
 
 func TestHTTPLoader_WithBasicAuth(t *testing.T) {
 	srv := newHTTPTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -259,8 +237,7 @@ func TestHTTPLoader_ContentTypeDetection_YAML(t *testing.T) {
 
 func TestHTTPLoader_ContentTypeDetection_FallbackToExtension(t *testing.T) {
 	srv := newHTTPTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// No Content-Type header, but URL ends in .yaml -- however httptest
-		// doesn't include path in URL matching, so it defaults to JSON.
+
 		w.Header().Set("Content-Type", "application/octet-stream")
 		_, _ = w.Write([]byte(`{"key": "json-fallback"}`))
 	}))
@@ -308,17 +285,12 @@ func TestHTTPLoader_Source(t *testing.T) {
 	assert.Equal(t, "http://example.com/config.json", l.Source())
 }
 
-// ---------------------------------------------------------------------------
-// INI loader edge cases
-// ---------------------------------------------------------------------------
-
 func TestINILoader_MultipleSections(t *testing.T) {
 	l := NewINI("testdata/simple.ini")
 	result, err := l.Load(context.Background())
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
-	// Check both sections exist.
 	db, ok := result["database"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "localhost", db["host"])
@@ -338,18 +310,13 @@ func TestINILoader_Source(t *testing.T) {
 func TestINILoader_InvalidContent(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "bad.ini")
-	// Write something that's not valid INI (binary-like content).
+
 	require.NoError(t, os.WriteFile(path, []byte("\x00\x01\x02"), 0644))
 
 	l := NewINI(path)
-	// gopkg.in/ini.v1 is quite tolerant, so this may or may not error.
-	// The important thing is it doesn't panic.
+
 	_, _ = l.Load(context.Background())
 }
-
-// ---------------------------------------------------------------------------
-// TOML loader edge cases
-// ---------------------------------------------------------------------------
 
 func TestTOMLLoader_InvalidContent(t *testing.T) {
 	dir := t.TempDir()
@@ -367,68 +334,52 @@ func TestTOMLLoader_Source(t *testing.T) {
 	assert.Equal(t, "some/path.toml", l.Source())
 }
 
-// ---------------------------------------------------------------------------
-// YAML loader edge cases
-// ---------------------------------------------------------------------------
-
 func TestYAMLLoader_Source(t *testing.T) {
 	l := NewYAML("some/path.yaml")
 	assert.Equal(t, "some/path.yaml", l.Source())
 }
-
-// ---------------------------------------------------------------------------
-// JSON loader edge cases
-// ---------------------------------------------------------------------------
 
 func TestJSONLoader_Source(t *testing.T) {
 	l := NewJSON("some/path.json")
 	assert.Equal(t, "some/path.json", l.Source())
 }
 
-// ---------------------------------------------------------------------------
-// ParseContent (used by HTTP and cloud loaders)
-// ---------------------------------------------------------------------------
-
 func TestParseContent_JSON(t *testing.T) {
 	data := []byte(`{"key": "value"}`)
-	result, err := ParseContent(data, formatparse.FormatJSON, "test.json")
+	result, err := ParseContent(data, FormatJSON, "test.json")
 	require.NoError(t, err)
 	assert.Equal(t, "value", result["key"])
 }
 
 func TestParseContent_YAML(t *testing.T) {
 	data := []byte("key: value\n")
-	result, err := ParseContent(data, formatparse.FormatYAML, "test.yaml")
+	result, err := ParseContent(data, FormatYAML, "test.yaml")
 	require.NoError(t, err)
 	assert.Equal(t, "value", result["key"])
 }
 
 func TestParseContent_UnknownFormat_FallsBackToJSON(t *testing.T) {
 	data := []byte(`{"key": "value"}`)
-	result, err := ParseContent(data, formatparse.FormatUnknown, "test.unknown")
+	result, err := ParseContent(data, FormatUnknown, "test.unknown")
 	require.NoError(t, err)
 	assert.Equal(t, "value", result["key"])
 }
 
 func TestParseContent_InvalidJSON(t *testing.T) {
 	data := []byte(`{invalid`)
-	_, err := ParseContent(data, formatparse.FormatJSON, "test.json")
+	_, err := ParseContent(data, FormatJSON, "test.json")
 	assert.Error(t, err)
 	assert.True(t, errors.Is(err, confii.ErrConfigFormat))
 }
 
 func TestParseContent_InvalidYAML(t *testing.T) {
 	data := []byte(":\n  :\n    - ][")
-	_, err := ParseContent(data, formatparse.FormatYAML, "test.yaml")
+	_, err := ParseContent(data, FormatYAML, "test.yaml")
 	assert.Error(t, err)
 }
 
-// ===========================================================================
-// HTTPLoader with malformed URL to trigger NewRequestWithContext error
-// ===========================================================================
-
 func TestHTTPLoader_MalformedURL(t *testing.T) {
-	// A URL with control characters should trigger NewRequestWithContext error.
+
 	l := NewHTTP("http://example.com/\x00config.json")
 	_, err := l.Load(context.Background())
 	assert.Error(t, err)

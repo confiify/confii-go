@@ -13,7 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/confiify/confii-go/selfconfig"
+	"github.com/confiify/confii-go/v2/selfconfig"
 	"github.com/spf13/cobra"
 )
 
@@ -21,6 +21,7 @@ const selfConfigFilename = ".confii.yaml"
 
 type initOptions struct {
 	strategy           string
+	format             string
 	environments       []string
 	defaultEnvironment string
 	envSwitcher        string
@@ -40,7 +41,7 @@ func NewInitCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "init [directory]",
 		Short: "Safely initialize Confii in a project",
-		Long: "Initialize a project with a complete .confii.yaml and an optional starter " +
+		Long: "Initialize a project with a complete .confii.<format> file and an optional starter " +
 			"configuration layout. By default, Confii asks whether environments should use " +
 			"separate files or sections in one file. Existing projects and files are detected " +
 			"before anything is written.",
@@ -64,13 +65,21 @@ func NewInitCmd() *cobra.Command {
 				_, err = fmt.Fprintf(c.OutOrStdout(), "Already initialized: %s\nNo files changed.\n", initialized[0])
 				return err
 			}
-			if len(initialized) == 1 && filepath.Base(initialized[0]) != selfConfigFilename {
-				return fmt.Errorf("project is initialized with %s; --force cannot create a competing %s file", initialized[0], selfConfigFilename)
-			}
-
+			// Reuse one buffered reader across both interactive questions so the
+			// first prompt cannot consume bytes intended for the second.
+			c.SetIn(bufio.NewReader(c.InOrStdin()))
 			layout, err := resolveInitLayout(c, &opts)
 			if err != nil {
 				return err
+			}
+			format, err := resolveInitFormat(c, &opts)
+			if err != nil {
+				return err
+			}
+			opts.format = string(format)
+			selectedSelfConfig := selfConfigFilenameFor(format)
+			if len(initialized) == 1 && filepath.Base(initialized[0]) != selectedSelfConfig {
+				return fmt.Errorf("project is initialized with %s; --force cannot create a competing %s file", initialized[0], selectedSelfConfig)
 			}
 			plan, err := buildInitPlan(dir, layout, opts)
 			if err != nil {
@@ -89,20 +98,79 @@ func NewInitCmd() *cobra.Command {
 			if err := printInitPlan(c.OutOrStdout(), "Created", layout, plan); err != nil {
 				return err
 			}
-			return printInitNextSteps(c.OutOrStdout(), layout, dir, opts.defaultEnvironment, opts.envSwitcher, opts.force)
+			return printInitNextSteps(c.OutOrStdout(), layout, dir, selectedSelfConfig, opts.defaultEnvironment, opts.envSwitcher, opts.force)
 		},
 	}
 
 	cmd.Flags().StringVar(&opts.strategy, "strategy", "", "environment layout: named-files or sectioned")
+	cmd.Flags().StringVar(&opts.format, "format", "", "self-config format: yaml, json, or toml")
 	cmd.Flags().StringSliceVar(&opts.environments, "environments", []string{"development", "production"}, "environments to scaffold")
 	cmd.Flags().StringVar(&opts.defaultEnvironment, "default-environment", "development", "environment used when no explicit selection is provided")
 	cmd.Flags().StringVar(&opts.envSwitcher, "env-switcher", "APP_ENV", "OS variable used to select the active environment")
 	cmd.Flags().StringVar(&opts.configDir, "config-dir", "config", "project-relative directory for starter configuration")
-	cmd.Flags().BoolVar(&opts.minimal, "minimal", false, "create only the complete .confii.yaml")
+	cmd.Flags().BoolVar(&opts.minimal, "minimal", false, "create only the complete .confii.<format> file")
 	cmd.Flags().BoolVar(&opts.nonInteractive, "non-interactive", false, "do not prompt; use named-files unless --strategy is set")
 	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "show the initialization plan without writing files")
 	cmd.Flags().BoolVarP(&opts.force, "force", "f", false, "replace files in the selected initialization plan")
 	return cmd
+}
+
+type initFormat string
+
+const (
+	initFormatYAML initFormat = "yaml"
+	initFormatJSON initFormat = "json"
+	initFormatTOML initFormat = "toml"
+)
+
+func selfConfigFilenameFor(format initFormat) string { return ".confii." + string(format) }
+
+func resolveInitFormat(c *cobra.Command, opts *initOptions) (initFormat, error) {
+	if value := strings.TrimSpace(opts.format); value != "" {
+		return parseInitFormat(value)
+	}
+	if opts.nonInteractive {
+		return initFormatYAML, nil
+	}
+	return promptInitFormat(c.InOrStdin(), c.OutOrStdout())
+}
+
+func parseInitFormat(value string) (initFormat, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "yaml":
+		return initFormatYAML, nil
+	case "json":
+		return initFormatJSON, nil
+	case "toml":
+		return initFormatTOML, nil
+	default:
+		return "", fmt.Errorf("invalid --format %q (valid values: yaml, json, toml)", value)
+	}
+}
+
+func promptInitFormat(input io.Reader, output io.Writer) (initFormat, error) {
+	const message = "Choose the Confii self-configuration format:\n" +
+		"  1) YAML (recommended)\n" +
+		"  2) JSON\n" +
+		"  3) TOML\n" +
+		"Selection [1]: "
+	if _, err := fmt.Fprint(output, message); err != nil {
+		return "", err
+	}
+	line, err := bufio.NewReader(input).ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		return "", fmt.Errorf("read self-config format choice: %w", err)
+	}
+	switch strings.TrimSpace(line) {
+	case "", "1":
+		return initFormatYAML, nil
+	case "2":
+		return initFormatJSON, nil
+	case "3":
+		return initFormatTOML, nil
+	default:
+		return "", fmt.Errorf("invalid format selection %q (choose 1, 2, or 3)", strings.TrimSpace(line))
+	}
 }
 
 func inspectInitialization(dir string) ([]string, error) {
@@ -148,7 +216,7 @@ func promptInitLayout(input io.Reader, output io.Writer) (initLayout, error) {
 	const message = "Choose how environments are organized:\n" +
 		"  1) Separate files (recommended): config/default.yaml + config/{environment}.yaml\n" +
 		"  2) One sectioned file: config/application.yaml\n" +
-		"  3) Self-configuration only: .confii.yaml\n" +
+		"  3) Self-configuration only: .confii.<format>\n" +
 		"Selection [1]: "
 	if _, err := fmt.Fprint(output, message); err != nil {
 		return "", err

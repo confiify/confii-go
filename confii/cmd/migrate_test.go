@@ -22,10 +22,7 @@ func TestMigrateCommand_DispatchesOnSourceType(t *testing.T) {
 		errSubstr  string
 	}{
 		{name: "yaml dispatches to YAML loader", sourceType: "yaml", configFile: yamlPath},
-		{name: "yml dispatches to YAML loader", sourceType: "yml", configFile: yamlPath},
 		{name: "dotenv dispatches to env-file loader", sourceType: "dotenv", configFile: envPath},
-		{name: "auto preserves legacy YAML-then-env-file detection", sourceType: "auto", configFile: yamlPath},
-		{name: "empty source type also auto-detects", sourceType: "", configFile: yamlPath},
 		{name: "dynaconf imports YAML settings", sourceType: "dynaconf", configFile: yamlPath},
 		{name: "dynaconf imports TOML settings", sourceType: "dynaconf", configFile: tomlPath},
 		{name: "hydra imports materialized YAML", sourceType: "hydra", configFile: yamlPath},
@@ -60,27 +57,17 @@ func TestMigrateCommand_DispatchesOnSourceType(t *testing.T) {
 	}
 }
 
-func TestMigrateCommand_NoSourceType_AutoDetects(t *testing.T) {
+func TestMigrateCommand_RequiresExplicitSourceType(t *testing.T) {
 	dir := t.TempDir()
-	yamlPath := writeTestFile(t, dir, "config.yaml", "host: localhost\nport: 5432\n")
+	yamlPath := writeTestFile(t, dir, "config.yaml", "host:localhost\nport:5432\n")
 
-	// Empty source type must preserve legacy auto-detect (YAML works).
-	cfg, err := loadMigrateSource("", yamlPath)
-	if err != nil {
-		t.Fatalf("auto-detect should succeed for YAML, got %v", err)
-	}
-	if cfg == nil {
-		t.Fatalf("expected non-nil config")
-	}
-
-	// And auto-detect should also fall back to .env.
-	envPath := writeTestFile(t, dir, "config.env", "HOST=localhost\n")
-	cfg, err = loadMigrateSource("", envPath)
-	if err != nil {
-		t.Fatalf("auto-detect should fall back to env-file, got %v", err)
-	}
-	if cfg == nil {
-		t.Fatalf("expected non-nil config from env-file fallback")
+	for _, sourceType := range []string{"", "auto", "env", "yml"} {
+		t.Run(sourceType, func(t *testing.T) {
+			cfg, err := loadMigrateSource(sourceType, yamlPath)
+			if err == nil || cfg != nil {
+				t.Fatalf("source type %q must fail explicitly:cfg=%v err=%v", sourceType, cfg, err)
+			}
+		})
 	}
 }
 
@@ -88,7 +75,6 @@ func TestMigrateCommand_PositionalArgsExecute(t *testing.T) {
 	dir := t.TempDir()
 	yamlPath := writeTestFile(t, dir, "config.yaml", "host: localhost\nport: 5432\n")
 
-	// Two-arg form: <source-type> <config-file>.
 	cmd := NewMigrateCmd()
 	out, err := execCobra(cmd, []string{
 		"yaml", yamlPath,
@@ -116,9 +102,9 @@ func TestMigrateCommand_HydraViaCobra(t *testing.T) {
 	}
 }
 
-func TestMigrateCommand_FlagAndPositional_Conflict(t *testing.T) {
+func TestMigrateCommand_RejectsRemovedSourceTypeFlag(t *testing.T) {
 	dir := t.TempDir()
-	yamlPath := writeTestFile(t, dir, "config.yaml", "host: localhost\n")
+	yamlPath := writeTestFile(t, dir, "config.yaml", "host:localhost\n")
 
 	cmd := NewMigrateCmd()
 	_, err := execCobra(cmd, []string{
@@ -128,7 +114,7 @@ func TestMigrateCommand_FlagAndPositional_Conflict(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected conflict error, got nil")
 	}
-	if !strings.Contains(err.Error(), "conflicts") {
-		t.Errorf("expected conflict error, got: %v", err)
+	if !strings.Contains(err.Error(), "unknown flag") {
+		t.Errorf("expected unknown flag error, got:%v", err)
 	}
 }

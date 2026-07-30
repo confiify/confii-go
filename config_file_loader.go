@@ -5,45 +5,43 @@ package confii
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/BurntSushi/toml"
-	"github.com/confiify/confii-go/internal/dictutil"
-	"github.com/confiify/confii-go/internal/formatparse"
-	"github.com/confiify/confii-go/internal/typecoerce"
-	"gopkg.in/ini.v1"
-	"gopkg.in/yaml.v3"
 	"log/slog"
 	"os"
 	"strings"
+
+	"github.com/BurntSushi/toml"
+	"github.com/confiify/confii-go/v2/internal/dictutil"
+	"github.com/confiify/confii-go/v2/internal/formatparse"
+	"github.com/confiify/confii-go/v2/internal/typecoerce"
+	"gopkg.in/ini.v1"
+	"gopkg.in/yaml.v3"
 )
 
-// fileAutoLoader is the loader used by the self-config `default_files`
-// auto-discovery path. It auto-detects the file format from the file
+// fileAutoLoader is used by declarative local-file sources. It auto-detects the file format from the file
 // extension and dispatches to the same parsing logic as the user-facing
 // loaders in the loader subpackage.
 //
-// Supported file extensions (D07 / G19-residual):
+// Supported file extensions:
 //
 //   - .yaml, .yml: YAML — keys are recursively normalized via
 //     [dictutil.NormalizeKeys] so non-string-keyed YAML (e.g. integer or
 //     boolean keys) never leaks map[interface{}]interface{} into caller-
-//     visible state. This is the Wave 9 D01 contract; before D07 closure
-//     this code path bypassed the normalization, allowing the leak.
+//     visible state.
 //   - .json: JSON via [encoding/json].
 //   - .toml: TOML via [github.com/BurntSushi/toml].
 //   - .ini, .cfg: INI via [gopkg.in/ini.v1]; defaults-only sections (the
 //     synthetic DEFAULT section preceding the first explicit [section]
-//     header) are promoted to root keys to match [loader.INILoader]'s
-//     G19 contract.
+//     header) are promoted to root keys to match [loader.INILoader].
 //   - .env: KEY=VALUE pairs with comment + quote support, mirroring the
 //     [loader.EnvFileLoader] format.
 //
 // Any other extension produces a typed *ConfigError wrapping
-// [ErrConfigFormat] — silently falling back to YAML (the pre-D07
-// behavior for unknown extensions) is no longer permitted, since it
+// [ErrConfigFormat]. Falling back to YAML is not permitted because it
 // masked operator typos like `config.xml` or `config.cong`.
 //
 // Missing files are dispatched through the loader's [ErrorPolicy]:
@@ -53,9 +51,10 @@ import (
 // under [ErrorPolicyIgnore] the file is silently skipped. The policy
 // is inherited from the Config-level [WithOnError] when applySelfConfig
 // constructs the loader, providing parity with the explicit-loader
-// per-loader errorPolicy contract (G07).
+// per-loader errorPolicy contract.
 type fileAutoLoader struct {
 	path        string
+	format      formatparse.Format
 	errorPolicy ErrorPolicy
 	logger      *slog.Logger
 }
@@ -64,8 +63,7 @@ type fileAutoLoader struct {
 func (l *fileAutoLoader) Source() string { return l.path }
 
 // Load reads, parses, and normalizes the configured file. See
-// [fileAutoLoader] for the supported-extension list, the D01
-// normalization contract for YAML, and the missing-file policy
+// [fileAutoLoader] for the supported-extension list, YAML normalization, and missing-file policy
 // dispatch.
 func (l *fileAutoLoader) Load(_ context.Context) (map[string]any, error) {
 	logger := l.logger
@@ -80,7 +78,10 @@ func (l *fileAutoLoader) Load(_ context.Context) (map[string]any, error) {
 		return nil, NewLoadError(l.path, err)
 	}
 
-	format := formatparse.FromExtension(l.path)
+	format := l.format
+	if format == formatparse.FormatUnknown {
+		format = formatparse.FromExtension(l.path)
+	}
 	switch format {
 	case formatparse.FormatYAML:
 		return l.loadYAML()
@@ -93,12 +94,12 @@ func (l *fileAutoLoader) Load(_ context.Context) (map[string]any, error) {
 	case formatparse.FormatEnvFile:
 		return l.loadEnvFile()
 	default:
-		// D07: unknown extension is now a typed format error, not a
+		// Unknown extensions are typed format errors, not a
 		// silent YAML fallback. Operator typos (config.xml, config.cong)
 		// surface visibly instead of producing a misleading YAML parse
 		// error or — worse — silently parsing arbitrary content as YAML.
 		return nil, NewFormatError(l.path, string(format),
-			fmt.Errorf("unsupported file format for self-config default_files entry %q (supported: .yaml, .yml, .json, .toml, .ini, .cfg, .env)", l.path))
+			fmt.Errorf("unsupported declarative file source %q (supported:.yaml,.yml,.json,.toml,.ini,.cfg,.env)", l.path))
 	}
 }
 
@@ -107,10 +108,12 @@ func (l *fileAutoLoader) loadYAML() (map[string]any, error) {
 	if err != nil {
 		return nil, NewLoadError(l.path, err)
 	}
-	// D01: decode into an untyped value so we can normalize maps with
+	if err := formatparse.ValidateDeclaredContent(formatparse.FormatYAML, data); err != nil {
+		return nil, NewFormatError(l.path, "yaml", err)
+	}
+	// Decode into an untyped value so we can normalize maps with
 	// non-string keys via dictutil.NormalizeKeys (the same helper that
-	// loader.YAMLLoader.Load uses). Pre-D07 this path decoded directly
-	// into map[string]any, which gopkg.in/yaml.v3 emits as
+	// loader.YAMLLoader.Load uses). gopkg.in/yaml.v3 can emit
 	// map[interface{}]interface{} for any map containing a non-string
 	// key — leaking that incompatible shape into the rest of the
 	// library.
@@ -155,6 +158,9 @@ func (l *fileAutoLoader) loadTOML() (map[string]any, error) {
 	if err != nil {
 		return nil, NewLoadError(l.path, err)
 	}
+	if err := formatparse.ValidateDeclaredContent(formatparse.FormatTOML, data); err != nil {
+		return nil, NewFormatError(l.path, "toml", err)
+	}
 	var result map[string]any
 	if err := toml.Unmarshal(data, &result); err != nil {
 		return nil, NewFormatError(l.path, "toml", err)
@@ -163,14 +169,21 @@ func (l *fileAutoLoader) loadTOML() (map[string]any, error) {
 }
 
 func (l *fileAutoLoader) loadINI() (map[string]any, error) {
-	cfg, err := ini.Load(l.path)
+	data, err := os.ReadFile(l.path)
+	if err != nil {
+		return nil, NewLoadError(l.path, err)
+	}
+	if err := formatparse.ValidateDeclaredContent(formatparse.FormatINI, data); err != nil {
+		return nil, NewFormatError(l.path, "ini", err)
+	}
+	cfg, err := ini.Load(data)
 	if err != nil {
 		return nil, NewFormatError(l.path, "ini", err)
 	}
 	result := make(map[string]any)
 	for _, section := range cfg.Sections() {
 		name := section.Name()
-		// Mirror loader.INILoader's G19 contract: the synthetic
+		// Mirror loader.INILoader: the synthetic
 		// DEFAULT section holds key/value pairs preceding the first
 		// explicit [section] header. Surface those as root-level keys
 		// so defaults-only INI files round-trip into the configuration
@@ -194,14 +207,16 @@ func (l *fileAutoLoader) loadINI() (map[string]any, error) {
 }
 
 func (l *fileAutoLoader) loadEnvFile() (map[string]any, error) {
-	f, err := os.Open(l.path)
+	data, err := os.ReadFile(l.path)
 	if err != nil {
 		return nil, NewLoadError(l.path, err)
 	}
-	defer func() { _ = f.Close() }()
+	if err := formatparse.ValidateDeclaredContent(formatparse.FormatEnvFile, data); err != nil {
+		return nil, NewFormatError(l.path, "dotenv", err)
+	}
 
 	result := make(map[string]any)
-	scanner := bufio.NewScanner(f)
+	scanner := bufio.NewScanner(bytes.NewReader(data))
 	lineNum := 0
 	for scanner.Scan() {
 		lineNum++
@@ -280,7 +295,7 @@ func unquoteEnvFileValue(value string) string {
 // handleMissing dispatches an os.ErrNotExist condition through the
 // loader's configured ErrorPolicy. Mirrors loader.YAMLLoader.handleMissing
 // so the explicit and self-config-discovered paths share an identical
-// missing-file contract (G19-residual / D07).
+// missing-file contract.
 func (l *fileAutoLoader) handleMissing(err error, logger *slog.Logger) (map[string]any, error) {
 	switch l.errorPolicy {
 	case ErrorPolicyIgnore:

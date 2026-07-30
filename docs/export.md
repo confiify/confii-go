@@ -212,7 +212,7 @@ Convert between config formats:
 
 ```go
 // Load YAML, export as TOML
-cfg, _ := confii.New[any](ctx,
+cfg, _ := confii.NewWithContext[any](ctx,
     confii.WithLoaders(loader.NewYAML("config.yaml")),
     confii.WithEnv("production"),
 )
@@ -250,14 +250,14 @@ import (
     "fmt"
     "log"
 
-    confii "github.com/confiify/confii-go"
-    "github.com/confiify/confii-go/loader"
+    confii "github.com/confiify/confii-go/v2"
+    "github.com/confiify/confii-go/v2/loader"
 )
 
 func main() {
     ctx := context.Background()
 
-    cfg, err := confii.New[any](ctx,
+    cfg, err := confii.NewWithContext[any](ctx,
         confii.WithLoaders(
             loader.NewYAML("base.yaml"),
             loader.NewYAML("prod.yaml"),

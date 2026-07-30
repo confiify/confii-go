@@ -61,7 +61,7 @@ func TestJSONSchemaValidator_InvalidSchema(t *testing.T) {
 	_, err := NewJSONSchemaValidator(map[string]any{
 		"type": "invalid_type",
 	})
-	// May or may not error during compile depending on the library; test graceful handling.
+
 	if err != nil {
 		assert.Contains(t, err.Error(), "schema")
 	}

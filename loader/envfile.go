@@ -5,6 +5,7 @@ package loader
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -12,9 +13,10 @@ import (
 	"os"
 	"strings"
 
-	confii "github.com/confiify/confii-go"
-	"github.com/confiify/confii-go/internal/dictutil"
-	"github.com/confiify/confii-go/internal/typecoerce"
+	confii "github.com/confiify/confii-go/v2"
+	"github.com/confiify/confii-go/v2/internal/dictutil"
+	"github.com/confiify/confii-go/v2/internal/formatparse"
+	"github.com/confiify/confii-go/v2/internal/typecoerce"
 )
 
 // EnvFileLoader loads configuration from a .env file.
@@ -27,7 +29,7 @@ import (
 //   - ErrorPolicyRaise:  Load returns a [*confii.ConfigError] identifying the
 //     file path and 1-based line number of the first malformed line.
 //   - ErrorPolicyWarn:   the malformed line is logged as a warning and skipped.
-//   - ErrorPolicyIgnore: the malformed line is silently skipped (legacy behavior).
+//   - ErrorPolicyIgnore: the malformed line is silently skipped.
 type EnvFileLoader struct {
 	source      string
 	errorPolicy confii.ErrorPolicy
@@ -45,7 +47,7 @@ func WithEnvFileErrorPolicy(p confii.ErrorPolicy) EnvFileOption {
 }
 
 // WithEnvFileLogger sets the logger used when the error policy is
-// [confii.ErrorPolicyWarn]. Defaults to [slog.Default].
+// [confii.ErrorPolicyWarn]. Defaults to [slog.Default()].
 func WithEnvFileLogger(logger *slog.Logger) EnvFileOption {
 	return func(l *EnvFileLoader) {
 		if logger != nil {
@@ -54,9 +56,10 @@ func WithEnvFileLogger(logger *slog.Logger) EnvFileOption {
 	}
 }
 
-// NewEnvFile creates a new .env file loader. Defaults to ".env" if path is empty.
-// The loader's error policy defaults to [confii.ErrorPolicyRaise]; use
-// [WithEnvFileErrorPolicy] to change it.
+// NewEnvFile creates a dotenv loader. An empty path selects ".env". A missing
+// file is treated as an optional source and returns nil, nil; other I/O and
+// format failures return an error. The malformed-line policy defaults to
+// [confii.ErrorPolicyRaise].
 func NewEnvFile(path string, opts ...EnvFileOption) *EnvFileLoader {
 	if path == "" {
 		path = ".env"
@@ -75,23 +78,30 @@ func NewEnvFile(path string, opts ...EnvFileOption) *EnvFileLoader {
 // Source returns the identifier for this loader's configuration source.
 func (l *EnvFileLoader) Source() string { return l.source }
 
-// Load reads and parses the .env file at the configured path, returning key-value pairs as a configuration map.
+// Load parses KEY=VALUE records from the configured file. Single and double
+// quotes are removed, supported escape sequences in double-quoted values are
+// decoded, dot-separated keys form nested maps, and scalar values are
+// converted to bool, int, or float when unambiguous. Missing files and empty
+// files return nil, nil. The context is accepted for Loader compatibility;
+// local reads are synchronous and do not observe cancellation.
 //
 // Malformed lines (non-blank, non-comment lines that do not contain `=`) are
 // surfaced according to the loader's configured error policy. See
 // [EnvFileLoader] for details.
 func (l *EnvFileLoader) Load(_ context.Context) (map[string]any, error) {
-	f, err := os.Open(l.source)
+	data, err := os.ReadFile(l.source)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, nil
 		}
 		return nil, confii.NewLoadError(l.source, err)
 	}
-	defer func() { _ = f.Close() }()
+	if err := formatparse.ValidateDeclaredContent(formatparse.FormatEnvFile, data); err != nil {
+		return nil, confii.NewFormatError(l.source, "dotenv", err)
+	}
 
 	result := make(map[string]any)
-	scanner := bufio.NewScanner(f)
+	scanner := bufio.NewScanner(bytes.NewReader(data))
 	lineNum := 0
 	for scanner.Scan() {
 		lineNum++
@@ -107,7 +117,6 @@ func (l *EnvFileLoader) Load(_ context.Context) (map[string]any, error) {
 		if !ok {
 			switch l.errorPolicy {
 			case confii.ErrorPolicyIgnore:
-				// Legacy behavior: silently skip.
 				continue
 			case confii.ErrorPolicyWarn:
 				l.logger.Warn(

@@ -14,7 +14,7 @@ import (
 // map[string]any. gopkg.in/yaml.v3 emits map[interface{}]interface{}
 // for any map containing a non-string key, which is incompatible with
 // the rest of the library's data model (dot-path access, JSON export,
-// mapstructure decoding all assume map[string]any).
+// typed configuration decoding all assume map[string]any).
 //
 // Keys are coerced via [coerceMapKey] using canonical per-type
 // encodings: string passthrough, bool → "true" / "false", integer

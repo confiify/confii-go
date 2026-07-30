@@ -44,13 +44,13 @@ verify_nested() {
 	case "$name" in
 	loader|secret)
 		go mod edit -modfile="$fixture_dir/$name.mod" \
-			-dropreplace=github.com/confiify/confii-go
+			-dropreplace=github.com/confiify/confii-go/v2
 		;;
 	example)
 		go mod edit -modfile="$fixture_dir/$name.mod" \
-			-dropreplace=github.com/confiify/confii-go \
-			-dropreplace=github.com/confiify/confii-go/loader/cloud \
-			-dropreplace=github.com/confiify/confii-go/secret/cloud
+			-dropreplace=github.com/confiify/confii-go/v2 \
+			-dropreplace=github.com/confiify/confii-go/loader/cloud/v2 \
+			-dropreplace=github.com/confiify/confii-go/secret/cloud/v2
 		;;
 	esac
 
@@ -87,13 +87,13 @@ verify_nested() {
 
 verify_root
 verify_nested loader "$repo_root/loader/cloud" \
-	"github.com/confiify/confii-go=$repo_root"
+	"github.com/confiify/confii-go/v2=$repo_root"
 verify_nested secret "$repo_root/secret/cloud" \
-	"github.com/confiify/confii-go=$repo_root"
+	"github.com/confiify/confii-go/v2=$repo_root"
 verify_nested example "$repo_root/examples/cloud" \
-	"github.com/confiify/confii-go=$repo_root" \
-	"github.com/confiify/confii-go/loader/cloud=$repo_root/loader/cloud" \
-	"github.com/confiify/confii-go/secret/cloud=$repo_root/secret/cloud"
+	"github.com/confiify/confii-go/v2=$repo_root" \
+	"github.com/confiify/confii-go/loader/cloud/v2=$repo_root/loader/cloud" \
+	"github.com/confiify/confii-go/secret/cloud/v2=$repo_root/secret/cloud"
 verify_nested security_insights "$repo_root/tools/security-insights-check"
 
 echo "All module manifests are tidy and verified."

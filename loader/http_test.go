@@ -11,19 +11,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	confii "github.com/confiify/confii-go"
-	"github.com/confiify/confii-go/internal/formatparse"
+	confii "github.com/confiify/confii-go/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-// G35: HTTP tests use httptest.NewServer for hermetic-environment safety.
-// httptest.NewServer binds to 127.0.0.1:0 and reports the actual URL via
-// srv.URL, so the OS picks a free ephemeral port and the test never
-// hard-codes a port. The newHTTPTestServer helper wraps httptest.NewServer
-// to convert a loopback-bind panic (sandboxed/hermetic CI runners that
-// reject any 127.0.0.1 bind) into a t.Skip with a clear reason rather
-// than failing the suite.
 
 func newHTTPTestServer(t *testing.T, handler http.Handler) *httptest.Server {
 	t.Helper()
@@ -82,23 +73,31 @@ func TestHTTPLoader_Load_Error(t *testing.T) {
 }
 
 func TestParseContent_UnknownFallsBackFromJSONToYAML(t *testing.T) {
-	result, err := ParseContent([]byte("database:\n  host: yaml-without-metadata\n"), formatparse.FormatUnknown, "https://example.test/config")
+	result, err := ParseContent([]byte("database:\n  host: yaml-without-metadata\n"), FormatUnknown, "https://example.test/config")
 	require.NoError(t, err)
 	database, ok := result["database"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "yaml-without-metadata", database["host"])
 }
 
+func TestParseContent_SelectedYAMLRejectsJSON(t *testing.T) {
+	_, err := ParseContent([]byte(`{"server":{"port":8080}}`), FormatYAML, "https://example.test/config.yaml")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, confii.ErrConfigFormat)
+	assert.Contains(t, err.Error(), "JSON document")
+
+	result, err := ParseContent([]byte(`{"server":{"port":8080}}`), FormatUnknown, "https://example.test/config")
+	require.NoError(t, err, "unknown format retains explicit auto-detection")
+	assert.NotNil(t, result["server"])
+}
+
 func TestParseContent_UnknownReportsBothParserFailures(t *testing.T) {
-	_, err := ParseContent([]byte("[unterminated"), formatparse.FormatUnknown, "https://example.test/config")
+	_, err := ParseContent([]byte("[unterminated"), FormatUnknown, "https://example.test/config")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "JSON parse")
 	assert.Contains(t, err.Error(), "YAML parse")
 }
 
-// TestHTTPLoader_ParseTOMLContent covers G19: the HTTP loader detects
-// `application/toml` Content-Type and parses the body via the shared
-// TOML parser used by the file-based [TOMLLoader].
 func TestHTTPLoader_ParseTOMLContent(t *testing.T) {
 	srv := newHTTPTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/toml")
@@ -114,25 +113,20 @@ func TestHTTPLoader_ParseTOMLContent(t *testing.T) {
 	db, ok := result["database"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "toml-host", db["host"])
-	// BurntSushi/toml decodes integers as int64.
+
 	assert.EqualValues(t, 5432, db["port"])
 }
 
-// TestHTTPLoader_ParseTOMLByExtension covers G19: when the server omits
-// or sets an unhelpful Content-Type, the loader falls back to the URL
-// extension, and a `.toml` URL must still route to the TOML parser.
 func TestHTTPLoader_ParseTOMLByExtension(t *testing.T) {
 	srv := newHTTPTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Deliberately unhelpful Content-Type to force extension-based
-		// detection in (*HTTPLoader).Load.
+
 		w.Header().Set("Content-Type", "application/octet-stream")
 		_, _ = w.Write([]byte("name = \"ext-host\"\nport = 42\n"))
 	}))
 	defer srv.Close()
 
 	l := NewHTTP(srv.URL + "/config.toml")
-	// httptest.NewServer routes any path to the same handler, so the
-	// trailing `.toml` only influences format detection here.
+
 	result, err := l.Load(context.Background())
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -164,8 +158,7 @@ func TestHTTPLoader_BasicAuthSourceAndBodyReadError(t *testing.T) {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		// Deliberately advertise more bytes than are written. The Go client
-		// reports io.ErrUnexpectedEOF while reading the response body.
+
 		w.Header().Set("Content-Length", "100")
 		_, _ = w.Write([]byte(`{"short":true}`))
 	}))
@@ -192,12 +185,12 @@ func TestHTTPLoader_RequestAndTransportErrors(t *testing.T) {
 
 func TestParseContent_ExplicitFormatsAndUnsupported(t *testing.T) {
 	tests := []struct {
-		format formatparse.Format
+		format Format
 		data   string
 	}{
-		{formatparse.FormatJSON, `{"ok":true}`},
-		{formatparse.FormatYAML, "ok: true\n"},
-		{formatparse.FormatTOML, "ok = true\n"},
+		{FormatJSON, `{"ok":true}`},
+		{FormatYAML, "ok: true\n"},
+		{FormatTOML, "ok = true\n"},
 	}
 	for _, tc := range tests {
 		t.Run(string(tc.format), func(t *testing.T) {
@@ -207,7 +200,7 @@ func TestParseContent_ExplicitFormatsAndUnsupported(t *testing.T) {
 		})
 	}
 
-	_, err := ParseContent([]byte("irrelevant"), formatparse.Format("xml"), "source")
+	_, err := ParseContent([]byte("irrelevant"), Format("xml"), "source")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), fmt.Sprintf("unsupported format %q", "xml"))
 }

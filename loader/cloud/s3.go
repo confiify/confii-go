@@ -18,9 +18,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	confii "github.com/confiify/confii-go"
-	"github.com/confiify/confii-go/internal/formatparse"
-	"github.com/confiify/confii-go/loader"
+	confii "github.com/confiify/confii-go/v2"
+	"github.com/confiify/confii-go/v2/loader"
 )
 
 // S3Loader loads configuration from an AWS S3 object.
@@ -38,12 +37,14 @@ type S3Loader struct {
 // S3Option configures an S3Loader.
 type S3Option func(*S3Loader)
 
-// WithS3Region sets the AWS region.
+// WithS3Region sets the AWS region. NewS3 otherwise uses AWS_DEFAULT_REGION or
+// us-east-1.
 func WithS3Region(region string) S3Option {
 	return func(l *S3Loader) { l.region = region }
 }
 
-// WithS3Credentials sets explicit AWS credentials.
+// WithS3Credentials sets static AWS credentials. When omitted, the standard
+// AWS SDK credential chain is used. Do not embed credentials in source code.
 func WithS3Credentials(accessKey, secretKey string) S3Option {
 	return func(l *S3Loader) {
 		l.accessKey = accessKey
@@ -63,7 +64,9 @@ func WithS3PathStyle(enabled bool) S3Option {
 	return func(l *S3Loader) { l.pathStyle = enabled }
 }
 
-// NewS3 creates a new S3 loader from an s3:// URL.
+// NewS3 creates a loader from s3://bucket/object-key. It validates the scheme
+// but performs no network request; missing buckets, keys, and credentials are
+// reported by Load. Options are applied in order.
 func NewS3(s3URL string, opts ...S3Option) (*S3Loader, error) {
 	parsed, err := url.Parse(s3URL)
 	if err != nil {
@@ -88,7 +91,10 @@ func NewS3(s3URL string, opts ...S3Option) (*S3Loader, error) {
 // Source returns the identifier for this loader's configuration source.
 func (l *S3Loader) Source() string { return l.s3URL }
 
-// Load fetches configuration from the AWS S3 object at the configured URL and parses its contents.
+// Load fetches and parses the configured object. Format is selected from the
+// object-key extension; an unknown extension is treated as JSON. AWS and body
+// read failures wrap [confii.ErrConfigLoad], while parsing failures wrap
+// [confii.ErrConfigFormat]. The request honors ctx.
 func (l *S3Loader) Load(ctx context.Context) (map[string]any, error) {
 	cfg, err := l.awsConfig(ctx)
 	if err != nil {
@@ -115,9 +121,9 @@ func (l *S3Loader) Load(ctx context.Context) (map[string]any, error) {
 		return nil, confii.NewLoadError(l.s3URL, err)
 	}
 
-	format := formatparse.FromExtension(l.key)
-	if format == formatparse.FormatUnknown {
-		format = formatparse.FormatJSON
+	format := loader.FormatFromExtension(l.key)
+	if format == loader.FormatUnknown {
+		format = loader.FormatJSON
 	}
 
 	return loader.ParseContent(data, format, l.s3URL)

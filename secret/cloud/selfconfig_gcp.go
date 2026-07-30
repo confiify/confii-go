@@ -9,11 +9,11 @@ import (
 	"context"
 	"fmt"
 
-	confii "github.com/confiify/confii-go"
+	confii "github.com/confiify/confii-go/v2"
 )
 
 func init() {
-	confii.RegisterSelfConfigSecretProvider("gcp", func(cfg map[string]any) (confii.SelfConfigSecretStore, error) {
+	confii.RegisterSelfConfigSecretProvider("gcp", func(ctx context.Context, cfg map[string]any) (confii.SecretReader, error) {
 		projectID := selfString(cfg, "project_id", "project")
 		if projectID == "" {
 			return nil, fmt.Errorf("gcp provider requires project_id")
@@ -22,7 +22,7 @@ func init() {
 		if path := selfString(cfg, "credentials_file", "credentials_path"); path != "" {
 			opts = append(opts, WithGCPCredentialsFile(path))
 		}
-		store, err := NewGCPSecretManager(context.Background(), projectID, opts...)
+		store, err := NewGCPSecretManager(ctx, projectID, opts...)
 		if err != nil {
 			return nil, err
 		}

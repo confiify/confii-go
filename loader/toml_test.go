@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	confii "github.com/confiify/confii-go"
+	confii "github.com/confiify/confii-go/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -29,9 +29,14 @@ func TestTOMLLoader_Load(t *testing.T) {
 	assert.Equal(t, int64(5432), db["port"])
 }
 
-// TestTOMLLoader_MissingFile asserts the post-G07 default-Raise contract:
-// a missing file must surface a typed *confii.ConfigError. The legacy
-// (nil, nil) behavior is now opt-in via WithTOMLErrorPolicy(Ignore).
+func TestTOMLLoaderRejectsJSONDocument(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	require.NoError(t, os.WriteFile(path, []byte(`{"server":{"port":8080}}`), 0o600))
+	_, err := NewTOML(path).Load(context.Background())
+	require.Error(t, err)
+	assert.ErrorIs(t, err, confii.ErrConfigFormat)
+}
+
 func TestTOMLLoader_MissingFile(t *testing.T) {
 	l := NewTOML("testdata/nonexistent.toml")
 	result, err := l.Load(context.Background())
@@ -39,7 +44,6 @@ func TestTOMLLoader_MissingFile(t *testing.T) {
 	assert.Nil(t, result)
 	assert.True(t, errors.Is(err, confii.ErrConfigLoad))
 
-	// Opt back into the legacy graceful-absence behavior.
 	l = NewTOML("testdata/nonexistent.toml",
 		WithTOMLErrorPolicy(confii.ErrorPolicyIgnore),
 	)
@@ -48,7 +52,6 @@ func TestTOMLLoader_MissingFile(t *testing.T) {
 	assert.Nil(t, result)
 }
 
-// TestTOMLLoader_MissingFile_Policies covers G07.
 func TestTOMLLoader_MissingFile_Policies(t *testing.T) {
 	missing := "testdata/nonexistent.toml"
 
@@ -99,7 +102,6 @@ func TestTOMLLoader_MissingFile_Policies(t *testing.T) {
 	})
 }
 
-// TestTOMLLoader_DefaultPolicyIsRaise verifies the default-Raise contract.
 func TestTOMLLoader_DefaultPolicyIsRaise(t *testing.T) {
 	l := NewTOML("testdata/nonexistent.toml")
 	_, err := l.Load(context.Background())
@@ -107,7 +109,6 @@ func TestTOMLLoader_DefaultPolicyIsRaise(t *testing.T) {
 	assert.True(t, errors.Is(err, confii.ErrConfigLoad))
 }
 
-// TestTOMLLoader_NilLoggerIgnored ensures WithTOMLLogger(nil) is a no-op.
 func TestTOMLLoader_NilLoggerIgnored(t *testing.T) {
 	l := NewTOML("testdata/nonexistent.toml",
 		WithTOMLErrorPolicy(confii.ErrorPolicyWarn),
@@ -117,8 +118,6 @@ func TestTOMLLoader_NilLoggerIgnored(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestTOMLLoader_PresentFileUnaffectedByPolicy confirms the policy only
-// affects error paths.
 func TestTOMLLoader_PresentFileUnaffectedByPolicy(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "ok.toml")

@@ -8,37 +8,20 @@ import (
 	"log/slog"
 	"reflect"
 
-	"github.com/confiify/confii-go/validate"
+	"github.com/confiify/confii-go/v2/validate"
 )
 
-// resolveSchemaValidator compiles a JSON Schema validator from the option
-// state, if one is configured. It is the single source of truth for how
-// [WithSchema] and [WithSchemaPath] are interpreted by the validate-on-load
-// pipeline (G01). The resolution order is:
-//
-//  1. opts.Schema, when its concrete type is map[string]any: compile via
-//     [validate.NewJSONSchemaValidator].
-//  2. opts.SchemaPath, when non-empty AND opts.Schema is not already a
-//     map[string]any: read the file and compile via
-//     [validate.NewJSONSchemaValidatorFromFile]. SchemaPath is honored
-//     only when no inline JSON Schema is provided so that the typical
-//     "either-or" caller intent is preserved without ambiguity.
-//  3. Anything else (struct value, nil, primitive sentinel): return
-//     (nil, nil). Struct-shaped schemas drive [Config.Typed]'s
-//     mapstructure decode + validator.v10 path; the absence of a JSON
-//     Schema validator is the documented signal that struct validation
-//     applies instead.
-//
-// Compile failures (malformed schema map, missing/invalid file) are
-// surfaced as a typed [*ConfigError] wrapping [ErrConfigValidation] so
-// callers can detect them with [errors.Is] / [errors.As].
+// resolveSchemaValidator compiles an inline JSON Schema or a schema file.
+// Inline schemas take precedence over schema paths. Struct schemas are
+// validated through the typed configuration path and return no JSON Schema
+// validator here.
 func resolveSchemaValidator(opts *options) (*validate.JSONSchemaValidator, error) {
 	if m, ok := opts.Schema.(map[string]any); ok {
 		v, err := validate.NewJSONSchemaValidator(m)
 		if err != nil {
 			return nil, &ConfigError{
 				Op:  "New",
-				Err: fmt.Errorf("%w: compile inline JSON schema: %v", ErrConfigValidation, err),
+				Err: fmt.Errorf("%w: compile inline JSON schema: %w", ErrConfigValidation, err),
 			}
 		}
 		return v, nil
@@ -49,7 +32,7 @@ func resolveSchemaValidator(opts *options) (*validate.JSONSchemaValidator, error
 			return nil, &ConfigError{
 				Op:     "New",
 				Source: opts.SchemaPath,
-				Err:    fmt.Errorf("%w: load JSON schema from path: %v", ErrConfigValidation, err),
+				Err:    fmt.Errorf("%w: load JSON schema from path: %w", ErrConfigValidation, err),
 			}
 		}
 		return v, nil
@@ -57,44 +40,16 @@ func resolveSchemaValidator(opts *options) (*validate.JSONSchemaValidator, error
 	return nil, nil
 }
 
-// runValidateOnLoad executes the validate-on-load pipeline for a freshly
-// loaded envConfig. It is called from both [New] (via the Step 6 hook
-// site) and from the [Config.Reload] / [Config.Extend] validate phases so
-// that the three lifecycles agree on which validator runs and how its
-// errors are surfaced (G01).
-//
-// Two validators may run, in this order:
-//
-//  1. JSON Schema validator (when c.jsonSchema is non-nil): the resolved
-//     envConfig is validated against the compiled schema. Failures
-//     return a typed [*ConfigError] wrapping [ErrConfigValidation] with
-//     a sanitized public message ("schema validation failed for N
-//     constraint(s)") and the full structured violation list on
-//     Context["schema_errors"]. The raw values of violating keys are
-//     never embedded in the public error message — programmatic callers
-//     read Context.
-//  2. Struct validator (when opts.Schema is a non-nil non-map value):
-//     [validate.DecodeAndValidate] runs the existing struct-tag
-//     validation. Failures are wrapped via [NewValidationError] so the
-//     ErrConfigValidation sentinel chain is preserved.
-//
-// When both validators are configured (a JSON Schema map + a struct
-// type, an unusual combination), JSON Schema runs first because it
-// gates structural correctness before mapstructure decode, which can
-// otherwise mask schema-level violations behind type-cast errors.
-//
-// Honors [WithStrictValidation]: when strict is false, the legacy
-// behavior (warn-and-continue on Typed-style validation) is preserved
-// for the struct path. JSON Schema violations always return an error
-// when validate-on-load is true regardless of strict mode, because the
-// schema is a hard contract — a non-strict downgrade would be the same
-// silent-stub behavior G01 was filed to remove.
+// runValidateOnLoad validates the materialized snapshot with JSON Schema and
+// typed struct rules. JSON Schema errors are always fatal and expose
+// structured violations without configuration values. Non-strict struct
+// validation logs violations and allows publication.
 func (c *Config[T]) runValidateOnLoad() error {
 	if !c.opts.ValidateOnLoad {
 		return nil
 	}
 
-	// JSON Schema path (G01): hard fail on violation.
+	// JSON Schema is a hard contract when validation-on-load is enabled.
 	if c.jsonSchema != nil {
 		msgs, err := c.jsonSchema.ValidateDetailed(c.envConfig)
 		if err != nil {

@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	confii "github.com/confiify/confii-go"
+	confii "github.com/confiify/confii-go/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -29,7 +29,14 @@ func TestINILoader_Load(t *testing.T) {
 	assert.Equal(t, 5432, db["port"])
 }
 
-// TestINILoader_MissingFile asserts the post-G07 default-Raise contract.
+func TestINILoaderRejectsJSONDocument(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.ini")
+	require.NoError(t, os.WriteFile(path, []byte(`{"server":{"port":8080}}`), 0o600))
+	_, err := NewINI(path).Load(context.Background())
+	require.Error(t, err)
+	assert.ErrorIs(t, err, confii.ErrConfigFormat)
+}
+
 func TestINILoader_MissingFile(t *testing.T) {
 	l := NewINI("testdata/nonexistent.ini")
 	result, err := l.Load(context.Background())
@@ -37,7 +44,6 @@ func TestINILoader_MissingFile(t *testing.T) {
 	assert.Nil(t, result)
 	assert.True(t, errors.Is(err, confii.ErrConfigLoad))
 
-	// Opt back into the legacy graceful-absence behavior.
 	l = NewINI("testdata/nonexistent.ini",
 		WithINIErrorPolicy(confii.ErrorPolicyIgnore),
 	)
@@ -46,7 +52,6 @@ func TestINILoader_MissingFile(t *testing.T) {
 	assert.Nil(t, result)
 }
 
-// TestINILoader_MissingFile_Policies covers G07.
 func TestINILoader_MissingFile_Policies(t *testing.T) {
 	missing := "testdata/nonexistent.ini"
 
@@ -97,7 +102,6 @@ func TestINILoader_MissingFile_Policies(t *testing.T) {
 	})
 }
 
-// TestINILoader_DefaultPolicyIsRaise verifies the default-Raise contract.
 func TestINILoader_DefaultPolicyIsRaise(t *testing.T) {
 	l := NewINI("testdata/nonexistent.ini")
 	_, err := l.Load(context.Background())
@@ -105,7 +109,6 @@ func TestINILoader_DefaultPolicyIsRaise(t *testing.T) {
 	assert.True(t, errors.Is(err, confii.ErrConfigLoad))
 }
 
-// TestINILoader_NilLoggerIgnored ensures WithINILogger(nil) is a no-op.
 func TestINILoader_NilLoggerIgnored(t *testing.T) {
 	l := NewINI("testdata/nonexistent.ini",
 		WithINIErrorPolicy(confii.ErrorPolicyWarn),
@@ -123,15 +126,10 @@ func TestINILoader_EmptyFile(t *testing.T) {
 	l := NewINI(emptyFile)
 	result, err := l.Load(context.Background())
 	require.NoError(t, err)
-	// An empty INI file has no sections, so result should be nil.
+
 	assert.Nil(t, result)
 }
 
-// TestINILoader_DefaultsOnlyFile_PopulatesRoot covers G19: an INI file
-// with no `[section]` headers — only top-level `key = value` pairs —
-// must surface those keys at the root of the returned configuration
-// map. Previously such files were dropped entirely because the loader
-// skipped the synthetic DEFAULT section produced by gopkg.in/ini.v1.
 func TestINILoader_DefaultsOnlyFile_PopulatesRoot(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "defaults_only.ini")
@@ -148,9 +146,6 @@ func TestINILoader_DefaultsOnlyFile_PopulatesRoot(t *testing.T) {
 	assert.Equal(t, true, result["debug"])
 }
 
-// TestINILoader_MixedDefaultsAndSections covers G19: when an INI file
-// mixes top-level keys with explicit `[section]` blocks, both root
-// keys and sectioned keys must be present in the returned map.
 func TestINILoader_MixedDefaultsAndSections(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "mixed.ini")
@@ -168,11 +163,9 @@ func TestINILoader_MixedDefaultsAndSections(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
-	// Root-level (defaults) keys.
 	assert.Equal(t, "confii", result["app_name"])
 	assert.Equal(t, 2, result["version"])
 
-	// Sectioned keys.
 	db, ok := result["database"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "db.example.com", db["host"])

@@ -9,7 +9,7 @@ import (
 	"context"
 	"fmt"
 
-	confii "github.com/confiify/confii-go"
+	confii "github.com/confiify/confii-go/v2"
 )
 
 func init() {

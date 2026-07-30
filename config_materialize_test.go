@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	confii "github.com/confiify/confii-go"
-	"github.com/confiify/confii-go/hook"
-	"github.com/confiify/confii-go/secret"
+	confii "github.com/confiify/confii-go/v2"
+	"github.com/confiify/confii-go/v2/hook"
+	"github.com/confiify/confii-go/v2/secret"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -67,7 +67,7 @@ func TestNewEagerlyMaterializesSecretsAndReadsStayInMemory(t *testing.T) {
 		return "startup-secret", nil
 	}
 
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader),
 		confii.WithSecretHook(h),
 	)
@@ -81,7 +81,7 @@ func TestNewEagerlyMaterializesSecretsAndReadsStayInMemory(t *testing.T) {
 		require.NoError(t, getErr)
 		assert.Equal(t, "startup-secret", value)
 	}
-	_, err = cfg.ToDictCtx(context.Background())
+	_, err = cfg.ToDictWithContext(context.Background())
 	require.NoError(t, err)
 	mu.Lock()
 	assert.Equal(t, 1, resolveCalls, "ordinary reads must not fetch providers again")
@@ -92,7 +92,7 @@ func TestNewEagerlyMaterializesSecretsAndReadsStayInMemory(t *testing.T) {
 func TestNewFailsWhenEffectiveSecretCannotBeResolved(t *testing.T) {
 	t.Parallel()
 	loader := &eagerMaterializeLoader{data: map[string]any{"token": "${secret:missing}"}}
-	_, err := confii.New[any](context.Background(),
+	_, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader),
 		confii.WithSecretHook(func(context.Context, string, any) (any, error) {
 			return nil, errors.New("provider unavailable")
@@ -122,7 +122,7 @@ func TestOnlySelectedEnvironmentIsEagerlyResolved(t *testing.T) {
 		}
 		return "development-value", nil
 	}
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithEnv("development"),
 		confii.WithLoaders(loader),
 		confii.WithSecretHook(h),
@@ -137,7 +137,7 @@ func TestRefreshSecretsAtomicallyPublishesNewValues(t *testing.T) {
 	loader := &eagerMaterializeLoader{data: map[string]any{"token": "${secret:rotating}"}}
 	var mu sync.RWMutex
 	current := "first"
-	h := hook.FuncCtx(func(_ context.Context, _ string, value any) (any, error) {
+	h := hook.Func(func(_ context.Context, _ string, value any) (any, error) {
 		text, ok := value.(string)
 		if !ok || !strings.Contains(text, "${secret:") {
 			return value, nil
@@ -146,14 +146,14 @@ func TestRefreshSecretsAtomicallyPublishesNewValues(t *testing.T) {
 		defer mu.RUnlock()
 		return current, nil
 	})
-	cfg, err := confii.New[any](context.Background(), confii.WithLoaders(loader), confii.WithSecretHook(h))
+	cfg, err := confii.NewWithContext[any](context.Background(), confii.WithLoaders(loader), confii.WithSecretHook(h))
 	require.NoError(t, err)
 	assert.Equal(t, "first", cfg.GetStringOr("token", ""))
 
 	mu.Lock()
 	current = "second"
 	mu.Unlock()
-	require.NoError(t, cfg.RefreshSecrets(context.Background()))
+	require.NoError(t, cfg.RefreshSecretsWithContext(context.Background()))
 	assert.Equal(t, "second", cfg.GetStringOr("token", ""))
 }
 
@@ -164,7 +164,7 @@ func TestEagerMaterializationTraversesNestedSlices(t *testing.T) {
 			map[string]any{"credentials": []any{"${secret:first}", []any{"${secret:second}"}}},
 		},
 	}}
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader),
 		confii.WithSecretHook(func(_ context.Context, _ string, value any) (any, error) {
 			text, ok := value.(string)
@@ -188,7 +188,7 @@ func TestRefreshSecretsFailurePreservesReadySnapshot(t *testing.T) {
 	t.Parallel()
 	loader := &eagerMaterializeLoader{data: map[string]any{"token": "${secret:rotating}"}}
 	var fail atomic.Bool
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader),
 		confii.WithSecretHook(func(_ context.Context, _ string, value any) (any, error) {
 			text, isSecret := value.(string)
@@ -203,7 +203,7 @@ func TestRefreshSecretsFailurePreservesReadySnapshot(t *testing.T) {
 	)
 	require.NoError(t, err)
 	fail.Store(true)
-	err = cfg.RefreshSecrets(context.Background())
+	err = cfg.RefreshSecretsWithContext(context.Background())
 	require.Error(t, err)
 	assert.ErrorIs(t, err, confii.ErrConfigLoad)
 	assert.Equal(t, "known-good", cfg.GetStringOr("token", ""))
@@ -215,7 +215,7 @@ func TestRefreshSecretsRejectsConcurrentRawMutation(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
 	var refresh atomic.Bool
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader),
 		confii.WithSecretHook(func(_ context.Context, _ string, value any) (any, error) {
 			text, isSecret := value.(string)
@@ -233,7 +233,7 @@ func TestRefreshSecretsRejectsConcurrentRawMutation(t *testing.T) {
 
 	refresh.Store(true)
 	done := make(chan error, 1)
-	go func() { done <- cfg.RefreshSecrets(context.Background()) }()
+	go func() { done <- cfg.RefreshSecretsWithContext(context.Background()) }()
 	select {
 	case <-started:
 	case <-time.After(5 * time.Second):
@@ -252,7 +252,7 @@ func TestRefreshSecretsEmitsChangesAndMetrics(t *testing.T) {
 	loader := &eagerMaterializeLoader{data: map[string]any{"token": "${secret:rotating}"}}
 	var current atomic.Value
 	current.Store("first")
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader),
 		confii.WithSecretHook(func(_ context.Context, _ string, _ any) (any, error) {
 			return current.Load().(string), nil
@@ -270,7 +270,7 @@ func TestRefreshSecretsEmitsChangesAndMetrics(t *testing.T) {
 	cfg.EnableObservability()
 	cfg.EnableEvents().On("secrets_refreshed", func(...any) { refreshed <- struct{}{} })
 	current.Store("second")
-	require.NoError(t, cfg.RefreshSecrets(context.Background()))
+	require.NoError(t, cfg.RefreshSecretsWithContext(context.Background()))
 	select {
 	case <-changed:
 	default:
@@ -290,7 +290,7 @@ func TestRefreshSecretsValidationFailurePreservesReadySnapshot(t *testing.T) {
 	loader := &eagerMaterializeLoader{data: map[string]any{"port": "${secret:port}"}}
 	var current atomic.Int64
 	current.Store(8080)
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader),
 		confii.WithSecretHook(func(_ context.Context, _ string, value any) (any, error) {
 			text, isSecret := value.(string)
@@ -310,7 +310,7 @@ func TestRefreshSecretsValidationFailurePreservesReadySnapshot(t *testing.T) {
 	)
 	require.NoError(t, err)
 	current.Store(0)
-	err = cfg.RefreshSecrets(context.Background())
+	err = cfg.RefreshSecretsWithContext(context.Background())
 	require.Error(t, err)
 	assert.ErrorIs(t, err, confii.ErrConfigValidation)
 	assert.Equal(t, 8080, cfg.GetIntOr("port", 0))
@@ -319,7 +319,7 @@ func TestRefreshSecretsValidationFailurePreservesReadySnapshot(t *testing.T) {
 func TestRefreshSecretsOnZeroConfigIsNoOp(t *testing.T) {
 	t.Parallel()
 	cfg := new(confii.Config[any])
-	require.NoError(t, cfg.RefreshSecrets(context.Background()))
+	require.NoError(t, cfg.RefreshSecretsWithContext(context.Background()))
 }
 
 func TestManagedResolverRefreshBypassesItsCache(t *testing.T) {
@@ -328,7 +328,7 @@ func TestManagedResolverRefreshBypassesItsCache(t *testing.T) {
 	store := secret.NewDictStore(map[string]any{"rotating": "first"})
 	resolver := secret.NewResolver(store, secret.WithCache(true))
 	loader := &eagerMaterializeLoader{data: map[string]any{"token": "${secret:rotating}"}}
-	cfg, err := confii.New[any](ctx,
+	cfg, err := confii.NewWithContext[any](ctx,
 		confii.WithLoaders(loader),
 		confii.WithSecretResolver(resolver),
 	)
@@ -337,7 +337,7 @@ func TestManagedResolverRefreshBypassesItsCache(t *testing.T) {
 
 	require.NoError(t, store.SetSecret(ctx, "rotating", "second"))
 	assert.Equal(t, "first", cfg.GetStringOr("token", ""), "ordinary reads retain the ready snapshot")
-	require.NoError(t, cfg.RefreshSecrets(ctx))
+	require.NoError(t, cfg.RefreshSecretsWithContext(ctx))
 	assert.Equal(t, "second", cfg.GetStringOr("token", ""), "refresh must invalidate the managed resolver cache")
 }
 
@@ -354,11 +354,11 @@ func TestReloadRollsBackWhenEagerResolutionFails(t *testing.T) {
 		}
 		return "known-good", nil
 	}
-	cfg, err := confii.New[any](context.Background(), confii.WithLoaders(loader), confii.WithSecretHook(h))
+	cfg, err := confii.NewWithContext[any](context.Background(), confii.WithLoaders(loader), confii.WithSecretHook(h))
 	require.NoError(t, err)
 	loader.replace(map[string]any{"token": "${secret:bad}"})
 
-	err = cfg.Reload(context.Background(), confii.WithIncremental(false))
+	err = cfg.ReloadWithContext(context.Background(), confii.WithIncremental(false))
 	require.Error(t, err)
 	assert.Equal(t, "known-good", cfg.GetStringOr("token", ""))
 	assert.Equal(t, []string{"token"}, cfg.SecretReferenceKeys())

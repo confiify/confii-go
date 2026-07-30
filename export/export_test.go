@@ -48,7 +48,6 @@ func TestTOMLExporter(t *testing.T) {
 func TestTOMLExporter_UnencodableValue(t *testing.T) {
 	e := &TOMLExporter{}
 
-	// A channel cannot be encoded by TOML.
 	ch := make(chan int)
 	badData := map[string]any{
 		"channel": ch,

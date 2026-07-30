@@ -12,12 +12,9 @@ import (
 	"slices"
 	"testing"
 
-	confii "github.com/confiify/confii-go"
+	confii "github.com/confiify/confii-go/v2"
 )
 
-// TestOpenBaoInterop exercises Confii against a real OpenBao process. The
-// ordinary cloud test suite skips this test; CI supplies the ephemeral dev
-// server and both token and AppRole credentials.
 func TestOpenBaoInterop(t *testing.T) {
 	address := os.Getenv("CONFII_OPENBAO_ADDR")
 	token := os.Getenv("CONFII_OPENBAO_TOKEN")
@@ -30,8 +27,7 @@ func TestOpenBaoInterop(t *testing.T) {
 	ctx := context.Background()
 	const key = "confii-ci/runtime"
 
-	store, err := NewOpenBao(
-		WithVaultURL(address),
+	store, err := NewOpenBao(WithVaultURL(address),
 		WithVaultToken(token),
 		WithVaultMountPoint("secret"),
 		WithVaultKVVersion(2),
@@ -62,8 +58,7 @@ func TestOpenBaoInterop(t *testing.T) {
 		t.Fatalf("ListSecrets = %#v, want runtime", keys)
 	}
 
-	appRoleStore, err := NewOpenBao(
-		WithVaultURL(address),
+	appRoleStore, err := NewOpenBao(WithVaultURL(address),
 		WithVaultAuth(&AppRoleAuth{RoleID: roleID, SecretID: secretID}),
 	)
 	if err != nil {

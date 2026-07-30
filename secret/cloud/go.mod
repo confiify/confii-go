@@ -1,4 +1,4 @@
-module github.com/confiify/confii-go/secret/cloud
+module github.com/confiify/confii-go/secret/cloud/v2
 
 go 1.25.0
 
@@ -13,7 +13,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.32.31
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.30
 	github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.44.0
-	github.com/confiify/confii-go v1.4.1
+	github.com/confiify/confii-go/v2 v2.0.0
 	github.com/hashicorp/vault/api v1.23.0
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
 	google.golang.org/api v0.290.0

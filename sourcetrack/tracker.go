@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/confiify/confii-go/internal/dictutil"
+	"github.com/confiify/confii-go/v2/internal/dictutil"
 )
 
 // SourceInfo records the origin and override history of a configuration key.
@@ -48,7 +48,7 @@ type OverrideEntry struct {
 // retroactively corrupted by a concurrent [Tracker.TrackValue],
 // [Tracker.Restore], or other tracker mutation. Callers may freely
 // mutate, retain, or share returned values without aliasing hazards
-// (D06/D08 / F-Tracker-GetConflicts-Aliasing contract).
+// so callers cannot mutate tracker-owned conflict state through aliases.
 type Tracker struct {
 	mu sync.RWMutex
 	// exportMu serializes replacement of a debug report file. Snapshotting is
@@ -72,7 +72,7 @@ func NewTracker(debugMode bool) *Tracker {
 // through [dictutil.DeepCopyValue] so a caller mutating a returned
 // map or slice payload cannot alias live tracker state through the
 // shared reference. Used by every read path on [Tracker] that escapes
-// a *SourceInfo to a caller, and by [Tracker.Snapshot] /
+// a *SourceInfo to a caller, and by [Tracker.Snapshot()] /
 // [Tracker.ExportDebugReport] to take a private snapshot before
 // releasing the lock.
 func cloneSourceInfo(info *SourceInfo) *SourceInfo {
@@ -97,7 +97,7 @@ func cloneSourceInfo(info *SourceInfo) *SourceInfo {
 
 // Snapshot captures an opaque copy of the tracker's current state suitable
 // for later [Tracker.Restore]. It is used by callers that need to roll
-// back tracker mutations performed during a failed reload (G14 / D05).
+// back tracker mutations performed during a failed reload.
 //
 // The returned value is a deep copy of every recorded [SourceInfo],
 // including the per-key override history slice, so subsequent mutations
@@ -118,7 +118,7 @@ func (t *Tracker) Snapshot() Snapshot {
 
 // Restore replaces the tracker's state with the contents of s. After this
 // call, the tracker reports exactly the keys captured at the point
-// [Tracker.Snapshot] was taken. Restore is safe to call concurrently with
+// [Tracker.Snapshot()] was taken. Restore is safe to call concurrently with
 // other tracker methods; callers in [confii.Config.Reload] use it under
 // the Config's write lock.
 func (t *Tracker) Restore(s Snapshot) {
@@ -135,7 +135,7 @@ func (t *Tracker) Restore(s Snapshot) {
 }
 
 // Snapshot is an opaque, immutable capture of a [Tracker]'s state. It is
-// produced by [Tracker.Snapshot] and consumed by [Tracker.Restore]. The
+// produced by [Tracker.Snapshot()] and consumed by [Tracker.Restore]. The
 // zero value is a valid empty snapshot — restoring it clears the tracker.
 type Snapshot struct {
 	sources map[string]*SourceInfo
@@ -196,7 +196,7 @@ func (t *Tracker) TrackConfig(config map[string]any, sourceFile, loaderType, env
 // Mutations on the returned value do not affect tracker state, and
 // concurrent tracker mutations (e.g. a [Tracker.TrackValue] override or a
 // [Tracker.Restore] rollback during a failed reload) cannot retroactively
-// corrupt a *SourceInfo that a caller is still holding (D06).
+// corrupt a *SourceInfo that a caller is still holding.
 func (t *Tracker) GetSourceInfo(key string) *SourceInfo {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
@@ -231,16 +231,9 @@ func (t *Tracker) GetOverrideHistory(key string) []OverrideEntry {
 	return out
 }
 
-// GetConflicts returns all keys that have been overridden at least once.
-//
-// Each *SourceInfo value in the returned map is a defensive deep copy
-// of the tracker's internal record (including a fresh copy of its
-// History slice) — mirroring the D06 contract for
-// [Tracker.GetSourceInfo]. Mutating the returned map, its *SourceInfo
-// values, or their History slices does not affect tracker state, and a
-// concurrent [Tracker.TrackValue] / [Tracker.Restore] cannot
-// retroactively corrupt values already returned to a caller
-// (F-Tracker-GetConflicts-Aliasing).
+// GetConflicts returns independently copied records for keys overridden at
+// least once. Mutating the map, SourceInfo values, histories, or nested values
+// does not affect the Tracker.
 func (t *Tracker) GetConflicts() map[string]*SourceInfo {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
@@ -256,7 +249,8 @@ func (t *Tracker) GetConflicts() map[string]*SourceInfo {
 	return conflicts
 }
 
-// FindKeysFromSource returns keys that originated from sources matching the pattern.
+// FindKeysFromSource returns keys whose source identifier contains pattern.
+// Matching is case-sensitive.
 func (t *Tracker) FindKeysFromSource(pattern string) []string {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
@@ -269,7 +263,8 @@ func (t *Tracker) FindKeysFromSource(pattern string) []string {
 	return keys
 }
 
-// GetSourceStatistics returns aggregated statistics about sources.
+// GetSourceStatistics returns total_keys, total_overrides, and counts grouped
+// by source identifier and loader type.
 func (t *Tracker) GetSourceStatistics() map[string]any {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
@@ -289,13 +284,11 @@ func (t *Tracker) GetSourceStatistics() map[string]any {
 	}
 }
 
-// ExportDebugReport writes a full debug report as JSON to outputPath.
-//
-// The routine takes a deep-copied snapshot under RLock and releases
-// the lock before marshaling. Marshaling under the lock would block
-// every writer for the duration of the encode; marshaling against
-// live pointers would race a concurrent [Tracker.TrackValue] mutating
-// SourceInfo fields in place.
+// ExportDebugReport writes an independent snapshot of all tracked records as
+// indented JSON; newly created files use mode 0600. SourceInfo values are
+// written verbatim and may contain sensitive configuration data; callers are
+// responsible for secure retention. Encoding and filesystem failures are
+// returned.
 func (t *Tracker) ExportDebugReport(outputPath string) error {
 	t.mu.RLock()
 	snapshot := make(map[string]*SourceInfo, len(t.sources))
@@ -316,7 +309,9 @@ func (t *Tracker) ExportDebugReport(outputPath string) error {
 	return os.WriteFile(outputPath, data, 0600)
 }
 
-// PrintDebugInfo prints debug info for a key (or all keys if key is empty) to stdout.
+// PrintDebugInfo returns a human-readable report for key. An empty key includes
+// all records; an unknown key returns a not-found line. The method does not
+// write to stdout. Values are rendered verbatim and may be sensitive.
 func (t *Tracker) PrintDebugInfo(key string) string {
 	t.mu.RLock()
 	defer t.mu.RUnlock()

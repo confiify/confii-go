@@ -54,7 +54,7 @@ func TestLifecycleEventsMayReadConfigWithoutDeadlock(t *testing.T) {
 			{data: map[string]any{"key": "before"}},
 			{data: map[string]any{"key": "after"}},
 		}}
-		cfg, err := New[any](context.Background(), WithLoaders(l))
+		cfg, err := NewWithContext[any](context.Background(), WithLoaders(l))
 		require.NoError(t, err)
 		cfg.EnableEvents().On("reload", func(_ ...any) {
 			value, getErr := cfg.Get("key")
@@ -63,7 +63,7 @@ func TestLifecycleEventsMayReadConfigWithoutDeadlock(t *testing.T) {
 		})
 
 		err = requireCompletes(t, func() error {
-			return cfg.Reload(context.Background(), WithIncremental(false))
+			return cfg.ReloadWithContext(context.Background(), WithIncremental(false))
 		})
 		require.NoError(t, err)
 	})
@@ -73,7 +73,7 @@ func TestLifecycleEventsMayReadConfigWithoutDeadlock(t *testing.T) {
 			{data: map[string]any{"key": "before"}},
 			{err: errors.New("reload failed")},
 		}}
-		cfg, err := New[any](context.Background(), WithLoaders(l))
+		cfg, err := NewWithContext[any](context.Background(), WithLoaders(l))
 		require.NoError(t, err)
 		cfg.EnableEvents().On("reload_failed", func(_ ...any) {
 			value, getErr := cfg.Get("key")
@@ -82,15 +82,13 @@ func TestLifecycleEventsMayReadConfigWithoutDeadlock(t *testing.T) {
 		})
 
 		err = requireCompletes(t, func() error {
-			return cfg.Reload(context.Background(), WithIncremental(false))
+			return cfg.ReloadWithContext(context.Background(), WithIncremental(false))
 		})
 		require.Error(t, err)
 	})
 
 	t.Run("extend_success", func(t *testing.T) {
-		cfg, err := New[any](context.Background(), WithLoaders(
-			&stubLoader{source: "base", data: map[string]any{"key": "before"}},
-		))
+		cfg, err := NewWithContext[any](context.Background(), WithLoaders(&stubLoader{source: "base", data: map[string]any{"key": "before"}}))
 		require.NoError(t, err)
 		cfg.EnableEvents().On("extend", func(_ ...any) {
 			value, getErr := cfg.Get("key")
@@ -99,7 +97,7 @@ func TestLifecycleEventsMayReadConfigWithoutDeadlock(t *testing.T) {
 		})
 
 		err = requireCompletes(t, func() error {
-			return cfg.Extend(context.Background(), &stubLoader{
+			return cfg.ExtendWithContext(context.Background(), &stubLoader{
 				source: "extension", data: map[string]any{"key": "after"},
 			})
 		})
@@ -107,9 +105,7 @@ func TestLifecycleEventsMayReadConfigWithoutDeadlock(t *testing.T) {
 	})
 
 	t.Run("extend_failure", func(t *testing.T) {
-		cfg, err := New[any](context.Background(), WithLoaders(
-			&stubLoader{source: "base", data: map[string]any{"key": "before"}},
-		))
+		cfg, err := NewWithContext[any](context.Background(), WithLoaders(&stubLoader{source: "base", data: map[string]any{"key": "before"}}))
 		require.NoError(t, err)
 		cfg.EnableEvents().On("extend_failed", func(_ ...any) {
 			value, getErr := cfg.Get("key")
@@ -118,7 +114,7 @@ func TestLifecycleEventsMayReadConfigWithoutDeadlock(t *testing.T) {
 		})
 
 		err = requireCompletes(t, func() error {
-			return cfg.Extend(context.Background(), &stubLoader{
+			return cfg.ExtendWithContext(context.Background(), &stubLoader{
 				source: "broken", err: errors.New("extend failed"),
 			})
 		})
@@ -127,9 +123,7 @@ func TestLifecycleEventsMayReadConfigWithoutDeadlock(t *testing.T) {
 }
 
 func TestGetAutomaticallyRecordsSuccessfulAccesses(t *testing.T) {
-	cfg, err := New[any](context.Background(), WithLoaders(
-		&stubLoader{source: "base", data: map[string]any{"database": map[string]any{"host": "localhost"}}},
-	))
+	cfg, err := NewWithContext[any](context.Background(), WithLoaders(&stubLoader{source: "base", data: map[string]any{"database": map[string]any{"host": "localhost"}}}))
 	require.NoError(t, err)
 	metrics := cfg.EnableObservability()
 
@@ -155,13 +149,11 @@ func TestIncrementalReloadLoadsOnlyChangedFilesAndReusesOtherLayers(t *testing.T
 	require.NoError(t, os.WriteFile(overridePath, []byte(`{"override":"stable","shared":"override"}`), 0o600))
 	base := &countingJSONFileLoader{path: basePath}
 	override := &countingJSONFileLoader{path: overridePath}
-	cfg, err := New[any](context.Background(), WithLoaders(base, override))
+	cfg, err := NewWithContext[any](context.Background(), WithLoaders(base, override))
 	require.NoError(t, err)
 
-	// Use different content (not just mtime) so the SHA-256 detector is
-	// guaranteed to select the base layer even on coarse filesystems.
 	require.NoError(t, os.WriteFile(basePath, []byte(`{"base":"v2","shared":"new-base"}`), 0o600))
-	err = cfg.Reload(context.Background(), WithIncremental(true))
+	err = cfg.ReloadWithContext(context.Background(), WithIncremental(true))
 	require.NoError(t, err)
 
 	assert.Equal(t, 2, base.calls)
@@ -176,9 +168,9 @@ func TestIncrementalReloadRefreshesUntrackableRemoteSources(t *testing.T) {
 		{data: map[string]any{"version": "v1"}},
 		{data: map[string]any{"version": "v2"}},
 	}}
-	cfg, err := New[any](context.Background(), WithLoaders(remote))
+	cfg, err := NewWithContext[any](context.Background(), WithLoaders(remote))
 	require.NoError(t, err)
-	require.NoError(t, cfg.Reload(context.Background(), WithIncremental(true)))
+	require.NoError(t, cfg.ReloadWithContext(context.Background(), WithIncremental(true)))
 	assert.Equal(t, "v2", cfg.MustGet("version"))
 }
 
@@ -189,12 +181,12 @@ func TestIncrementalReloadDetectsTransitiveCompositionDependency(t *testing.T) {
 	require.NoError(t, os.WriteFile(topPath, []byte(`{"_include":"included.json","top":true}`), 0o600))
 	require.NoError(t, os.WriteFile(includedPath, []byte(`{"included":"v1"}`), 0o600))
 	l := &countingJSONFileLoader{path: topPath}
-	cfg, err := New[any](context.Background(), WithLoaders(l))
+	cfg, err := NewWithContext[any](context.Background(), WithLoaders(l))
 	require.NoError(t, err)
 	assert.Equal(t, "v1", cfg.MustGet("included"))
 
 	require.NoError(t, os.WriteFile(includedPath, []byte(`{"included":"v2"}`), 0o600))
-	require.NoError(t, cfg.Reload(context.Background(), WithIncremental(true)))
+	require.NoError(t, cfg.ReloadWithContext(context.Background(), WithIncremental(true)))
 	assert.Equal(t, 2, l.calls, "changing an _include dependency must reload its owning layer")
 	assert.Equal(t, "v2", cfg.MustGet("included"))
 }

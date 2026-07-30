@@ -13,9 +13,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
-	confii "github.com/confiify/confii-go"
-	"github.com/confiify/confii-go/internal/dictutil"
-	"github.com/confiify/confii-go/internal/typecoerce"
+	"github.com/confiify/confii-go/loader/cloud/v2/internal/cloudutil"
+	confii "github.com/confiify/confii-go/v2"
 )
 
 // SSMLoader loads configuration from AWS Systems Manager Parameter Store.
@@ -54,7 +53,10 @@ func WithSSMEndpoint(endpoint string) SSMOption {
 	return func(l *SSMLoader) { l.endpoint = strings.TrimSpace(endpoint) }
 }
 
-// NewSSM creates a new SSM Parameter Store loader.
+// NewSSM creates an SSM Parameter Store loader rooted at pathPrefix. A trailing
+// slash is added when absent. The default region is AWS_DEFAULT_REGION or
+// us-east-1, and secure-string decryption is enabled. Construction performs no
+// network request.
 func NewSSM(pathPrefix string, opts ...SSMOption) *SSMLoader {
 	if !strings.HasSuffix(pathPrefix, "/") {
 		pathPrefix += "/"
@@ -73,7 +75,11 @@ func NewSSM(pathPrefix string, opts ...SSMOption) *SSMLoader {
 // Source returns the identifier for this loader's configuration source.
 func (l *SSMLoader) Source() string { return "ssm:" + l.pathPrefix }
 
-// Load fetches configuration parameters from AWS Systems Manager Parameter Store under the configured path prefix.
+// Load recursively fetches parameters beneath the prefix, removes that prefix,
+// converts remaining slash-separated names to dot-separated configuration
+// paths, and conservatively parses scalar values. It follows pagination and
+// returns nil, nil when no parameters exist. Invalid overlapping paths and AWS
+// failures wrap [confii.ErrConfigLoad]. The request honors ctx.
 func (l *SSMLoader) Load(ctx context.Context) (map[string]any, error) {
 	cfg, err := l.awsConfig(ctx)
 	if err != nil {
@@ -105,8 +111,10 @@ func (l *SSMLoader) Load(ctx context.Context) (map[string]any, error) {
 			// Split on / to create nested keys.
 			parts := strings.Split(name, "/")
 			keyPath := strings.Join(parts, ".")
-			value := typecoerce.ParseScalar(aws.ToString(param.Value), false)
-			_ = dictutil.SetNested(result, keyPath, value)
+			value := cloudutil.ParseScalar(aws.ToString(param.Value))
+			if err := cloudutil.SetNested(result, keyPath, value); err != nil {
+				return nil, confii.NewLoadError(l.Source(), err)
+			}
 		}
 
 		nextToken = output.NextToken

@@ -10,14 +10,14 @@ import (
 	"fmt"
 	"log"
 
-	confii "github.com/confiify/confii-go"
-	"github.com/confiify/confii-go/loader"
+	confii "github.com/confiify/confii-go/v2"
+	"github.com/confiify/confii-go/v2/loader"
 )
 
 func main() {
 	ctx := context.Background()
 
-	cfg, err := confii.New[any](ctx,
+	cfg, err := confii.NewWithContext[any](ctx,
 		confii.WithLoaders(loader.NewYAML("config.yaml")),
 	)
 	if err != nil {
@@ -45,15 +45,15 @@ func main() {
 	fmt.Println("Restored host:", host) // localhost
 
 	// --- Reload ---
-	err = cfg.Reload(ctx)
+	err = cfg.ReloadWithContext(ctx)
 	fmt.Println("Reload error:", err)
 
 	// Incremental reload (only changed files)
-	err = cfg.Reload(ctx, confii.WithIncremental(true))
+	err = cfg.ReloadWithContext(ctx, confii.WithIncremental(true))
 	fmt.Println("Incremental reload error:", err)
 
 	// Dry run (validates without applying)
-	err = cfg.Reload(ctx, confii.WithDryRun(true))
+	err = cfg.ReloadWithContext(ctx, confii.WithDryRun(true))
 	fmt.Println("Dry run error:", err)
 
 	// --- Freeze ---

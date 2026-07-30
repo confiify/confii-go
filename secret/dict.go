@@ -10,17 +10,21 @@ import (
 	"strings"
 	"sync"
 
-	confii "github.com/confiify/confii-go"
+	confii "github.com/confiify/confii-go/v2"
 )
 
-// DictStore is an in-memory secret store for testing and development.
+// DictStore is a concurrency-safe in-memory store intended for tests and local
+// development. It provides no encryption, persistence, access control, or
+// defensive copying of stored composite values and is unsuitable for
+// production secrets.
 type DictStore struct {
 	mu       sync.RWMutex
 	secrets  map[string]any
 	versions map[string][]any
 }
 
-// NewDictStore creates a new in-memory secret store.
+// NewDictStore creates a store containing initial. The outer map is copied, but
+// nested maps and slices remain shared with the caller.
 func NewDictStore(initial map[string]any) *DictStore {
 	secrets := make(map[string]any)
 	for k, v := range initial {
@@ -68,7 +72,9 @@ func (s *DictStore) GetSecret(_ context.Context, key string, opts ...confii.Secr
 	return val, nil
 }
 
-// SetSecret stores a secret value in the in-memory store and records it as a new version.
+// SetSecret stores value as the current value and appends it to zero-based
+// version history. Secret options are ignored. Composite values are retained
+// by reference.
 func (s *DictStore) SetSecret(_ context.Context, key string, value any, _ ...confii.SecretOption) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -86,7 +92,8 @@ func (s *DictStore) DeleteSecret(_ context.Context, key string, _ ...confii.Secr
 	return nil
 }
 
-// ListSecrets returns all secret keys in the in-memory store, optionally filtered by prefix.
+// ListSecrets returns keys whose names begin with prefix, or all keys for an
+// empty prefix. Ordering is unspecified.
 func (s *DictStore) ListSecrets(_ context.Context, prefix string) ([]string, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -106,7 +113,7 @@ func (s *DictStore) Len() int {
 	return len(s.secrets)
 }
 
-// Clear removes all secrets.
+// Clear removes all current values and version history.
 func (s *DictStore) Clear() {
 	s.mu.Lock()
 	defer s.mu.Unlock()

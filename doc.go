@@ -1,38 +1,29 @@
 // Copyright 2026 The Confii Contributors
 // SPDX-License-Identifier: MIT
 
-// Package confii is a complete configuration management library for Go.
-// It loads, merges, validates, and manages configuration from YAML, JSON,
-// TOML, INI, .env files, environment variables, HTTP endpoints, and cloud
-// stores (AWS S3, SSM, Azure Blob, GCS, IBM COS, Git repositories) — with
-// deep merging, secret resolution, source tracking, and type-safe generics.
-//
-// confii goes beyond configuration loading — it manages the full lifecycle:
-// loading, merging with 6 per-path strategies, validating with struct tags
-// and JSON Schema, resolving ${secret:key} placeholders from AWS Secrets
-// Manager / Azure Key Vault / GCP Secret Manager / HashiCorp Vault (9 auth
-// methods), tracking where every value came from, detecting config drift,
-// versioning with rollback, and emitting observability metrics — all with
-// zero global state and full thread safety via sync.RWMutex.
+// Package confii loads, composes, validates, and manages application
+// configuration. Sources include local configuration files, environment
+// variables, HTTP endpoints, and optional cloud integrations. Configuration
+// can be accessed as scalar values, dictionaries, or typed Go structs.
 //
 // Key features:
 //
-//   - Type-safe generics: Config[T] with cfg.Typed() returning *T
-//   - 6 merge strategies (replace, merge, append, prepend, intersection, union) with per-path overrides
+//   - Type-safe generics: Config[T] with cfg.Typed returning *T
+//   - Configurable merge strategies with per-path overrides
 //   - ${secret:key} placeholder resolution with caching, TTL, and multi-store fallback
-//   - Hydra-style config composition via _include and _defaults directives
+//   - Configuration composition via _include and _defaults directives
 //   - Environment resolution: automatic default + production/staging merging
-//   - 4-type hook system (key, value, condition, global) for value transformation
-//   - Full introspection: Explain(), Layers(), source tracking, override history
+//   - Key, value, condition, and global transformation hooks
+//   - Full introspection: Explain, Layers, source tracking, override history
 //   - Config diff, drift detection, versioning with rollback
 //   - File watching with incremental reload (mtime + SHA256)
 //   - Documentation generation (markdown, JSON)
-//   - 10-command CLI tool
-//   - Self-configuration via .confii.yaml auto-discovery
+//   - CLI commands for initialization, inspection, validation, and migration
+//   - Self-configuration via .confii.yaml, .confii.json, or .confii.toml
 //
 // Quick start:
 //
-//	cfg, err := confii.New[any](context.Background(),
+//	cfg, err := confii.New[any](
 //	    confii.WithLoaders(
 //	        loader.NewYAML("config.yaml"),
 //	        loader.NewEnvironment("APP"),
@@ -48,7 +39,7 @@
 //
 // Type-safe access with generics:
 //
-//	cfg, err := confii.New[AppConfig](ctx,
+//	cfg, err := confii.NewWithContext[AppConfig](ctx,
 //	    confii.WithLoaders(loader.NewYAML("config.yaml")),
 //	    confii.WithValidateOnLoad(true),
 //	)
@@ -62,36 +53,25 @@
 //	    AddLoader(loader.NewYAML("base.yaml")).
 //	    AddLoader(loader.NewYAML("prod.yaml")).
 //	    EnableFreezeOnLoad().
-//	    Build(ctx)
+//	    BuildWithContext(ctx)
 //
 // Secret resolution:
 //
 //	store := secret.NewDictStore(map[string]any{"db/password": "s3cret"})
 //	resolver := secret.NewResolver(store, secret.WithCache(true))
-//	cfg.HookProcessor().RegisterGlobalHook(resolver.Hook())
+//	cfg, err := confii.New[AppConfig](confii.WithSecretResolver(resolver))
 //	// ${secret:db/password} in config values resolves automatically
 //
 // Cloud providers are opt-in via build tags: aws, azure, gcp, vault, ibm.
 //
-// # Hook pipeline contract (G11)
+// # Hook pipeline contract
 //
-// All access modes apply hooks at read time. Whether the caller invokes
-// scalar [Config.Get], whole-sub-tree [Config.Get] (with a key that
-// resolves to a map), [Config.Typed], [Config.ToDict], or [Config.Export]
-// — every leaf value flows through the same hook pipeline (env
-// expansion, secret resolution, type casting, and any user-registered
-// hooks) before it is returned, decoded, or serialized. Context-aware
-// hooks registered via [hook.Processor.RegisterGlobalHookCtx] honor
-// per-request context when the caller uses the *Ctx siblings
-// ([Config.GetCtx], [Config.TypedCtx], [Config.ToDictCtx],
-// [Config.ExportCtx]); the legacy non-Ctx methods invoke the pipeline
-// under [context.Background].
-//
-// Pre-G11, only scalar Get applied hooks; all other access modes
-// returned raw, un-resolved values. That meant a service calling
-// cfg.Get("db.password") saw the resolved secret while
-// cfg.Typed[*Config]() saw a literal "${secret:db/password}" string.
-// This is fixed in Wave 8.
+// Hooks run while a candidate snapshot is materialized: environment expansion,
+// type casting, secret resolution, and custom hooks complete before validation
+// and publication. [Config.Get], [Config.Typed], [Config.ToDict], and
+// [Config.Export] then read the same immutable effective values without rerunning
+// transformations. Register hooks at construction with [WithGlobalHook],
+// [WithKeyHook], [WithValueHook], or [WithConditionHook].
 //
 // For full documentation, examples, and the CLI tool, see
 // https://github.com/confiify/confii-go

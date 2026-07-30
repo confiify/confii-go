@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	confii "github.com/confiify/confii-go"
+	confii "github.com/confiify/confii-go/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -31,9 +31,6 @@ func TestYAMLLoader_Load(t *testing.T) {
 			path: "testdata/simple.yaml",
 		},
 		{
-			// G07: post-fix, the default policy is Raise, so a missing
-			// file is a typed ConfigError — not (nil, nil). Callers who
-			// want the old graceful-absence behavior must opt in.
 			name:    "missing file under default policy raises",
 			path:    "testdata/nonexistent.yaml",
 			wantErr: true,
@@ -72,7 +69,6 @@ func TestYAMLLoader_Load(t *testing.T) {
 				return
 			}
 
-			// Verify content.
 			db, ok := result["database"].(map[string]any)
 			require.True(t, ok)
 			assert.Equal(t, "localhost", db["host"])
@@ -81,9 +77,16 @@ func TestYAMLLoader_Load(t *testing.T) {
 	}
 }
 
-// TestYAMLLoader_MissingFile_Policies covers G07: a missing source file
-// must be surfaced according to the configured ErrorPolicy rather than
-// silently returning (nil, nil) regardless of policy.
+func TestYAMLLoaderRejectsJSONDocument(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(`{"server":{"port":8080}}`), 0o600))
+
+	_, err := NewYAML(path).Load(context.Background())
+	require.Error(t, err)
+	assert.ErrorIs(t, err, confii.ErrConfigFormat)
+	assert.Contains(t, err.Error(), "JSON document")
+}
+
 func TestYAMLLoader_MissingFile_Policies(t *testing.T) {
 	missing := "testdata/nonexistent.yaml"
 
@@ -101,7 +104,7 @@ func TestYAMLLoader_MissingFile_Policies(t *testing.T) {
 		require.True(t, errors.As(err, &ce), "expected *confii.ConfigError, got %T", err)
 		assert.Equal(t, missing, ce.Source)
 		assert.True(t, errors.Is(err, confii.ErrConfigLoad))
-		// Raise must not also produce a warn log record.
+
 		assert.Empty(t, logBuf.String())
 	})
 
@@ -131,14 +134,10 @@ func TestYAMLLoader_MissingFile_Policies(t *testing.T) {
 		result, err := l.Load(context.Background())
 		require.NoError(t, err)
 		assert.Nil(t, result)
-		// Ignore must be silent (distinct from Warn, G07).
 		assert.Empty(t, logBuf.String())
 	})
 }
 
-// TestYAMLLoader_DefaultPolicyIsRaise verifies that, with no options,
-// the loader defaults to ErrorPolicyRaise and surfaces a missing file
-// as a typed error rather than (nil, nil).
 func TestYAMLLoader_DefaultPolicyIsRaise(t *testing.T) {
 	l := NewYAML("testdata/nonexistent.yaml")
 	_, err := l.Load(context.Background())
@@ -146,8 +145,6 @@ func TestYAMLLoader_DefaultPolicyIsRaise(t *testing.T) {
 	assert.True(t, errors.Is(err, confii.ErrConfigLoad))
 }
 
-// TestYAMLLoader_NilLoggerIgnored ensures WithYAMLLogger(nil) is a no-op
-// rather than panicking when a Warn policy fires.
 func TestYAMLLoader_NilLoggerIgnored(t *testing.T) {
 	l := NewYAML("testdata/nonexistent.yaml",
 		WithYAMLErrorPolicy(confii.ErrorPolicyWarn),
@@ -157,11 +154,6 @@ func TestYAMLLoader_NilLoggerIgnored(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestYAMLLoader_NormalizesNonStringKeys covers D01: a YAML mapping
-// whose nested map uses non-string keys (integers, in this case) must
-// be normalized to map[string]any with stringified keys, not left as
-// the gopkg.in/yaml.v3-native map[interface{}]interface{} (which
-// breaks dot-path access, JSON export, and mapstructure decoding).
 func TestYAMLLoader_NormalizesNonStringKeys(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "ports.yaml")
@@ -180,10 +172,6 @@ func TestYAMLLoader_NormalizesNonStringKeys(t *testing.T) {
 	assert.Equal(t, "https", ports["443"])
 }
 
-// TestYAMLLoader_NormalizesNestedNonStringKeys verifies the
-// normalization recurses through multiple levels of nesting so that
-// no map[interface{}]interface{} sub-tree leaks out of the loader
-// even when only a deeply-nested map contains non-string keys.
 func TestYAMLLoader_NormalizesNestedNonStringKeys(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "nested.yaml")
@@ -215,10 +203,6 @@ func TestYAMLLoader_NormalizesNestedNonStringKeys(t *testing.T) {
 	assert.Equal(t, "disabled", flags["false"])
 }
 
-// TestYAMLLoader_StringKeysUnchanged is the regression baseline for
-// D01: ordinary string-keyed YAML must continue to decode with values
-// of their natural Go types. The normalization pass must not rewrap
-// scalars or change their types.
 func TestYAMLLoader_StringKeysUnchanged(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "plain.yaml")
@@ -246,10 +230,6 @@ func TestYAMLLoader_StringKeysUnchanged(t *testing.T) {
 	assert.Equal(t, []any{"alpha", "beta"}, tags)
 }
 
-// TestYAMLLoader_SliceWithMapElements covers the normalization
-// recursion through slices: a sequence whose elements are mappings
-// with non-string keys must yield []any of map[string]any after
-// normalization.
 func TestYAMLLoader_SliceWithMapElements(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "list.yaml")
@@ -279,9 +259,6 @@ func TestYAMLLoader_SliceWithMapElements(t *testing.T) {
 	assert.Equal(t, "four", second["4"])
 }
 
-// TestYAMLLoader_PresentFileUnaffectedByPolicy confirms the policy only
-// affects error paths; a present, valid file loads identically under
-// every policy.
 func TestYAMLLoader_PresentFileUnaffectedByPolicy(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "ok.yaml")

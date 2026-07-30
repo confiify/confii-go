@@ -1,7 +1,9 @@
 default_environment: development
 env_switcher: APP_ENV
 env_prefix: APP
-deep_merge: true
+merge:
+  default: deep_merge
+  paths: {}
 use_env_expander: true
 validate_on_load: false
 environment_strategy: named_files

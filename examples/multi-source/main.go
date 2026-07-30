@@ -6,22 +6,20 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
 
-	confii "github.com/confiify/confii-go"
-	"github.com/confiify/confii-go/loader"
+	confii "github.com/confiify/confii-go/v2"
+	"github.com/confiify/confii-go/v2/loader"
 )
 
 func main() {
-	cfg, err := confii.New[any](context.Background(),
-		confii.WithLoaders(
-			loader.NewYAML("defaults.yaml"),  // base config
-			loader.NewYAML("overrides.yaml"), // overrides base values
-			loader.NewEnvironment("APP"),     // APP_DATABASE__HOST overrides further
-		),
-		confii.WithDeepMerge(true),
+	cfg, err := confii.New[any](confii.WithLoaders(
+		loader.NewYAML("defaults.yaml"),  // base config
+		loader.NewYAML("overrides.yaml"), // overrides base values
+		loader.NewEnvironment("APP"),     // APP_DATABASE__HOST overrides further
+	),
+		confii.WithMergeStrategy(confii.StrategyMerge),
 	)
 	if err != nil {
 		log.Fatal(err)

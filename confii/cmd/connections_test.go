@@ -13,8 +13,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	confii "github.com/confiify/confii-go"
-	"github.com/confiify/confii-go/selfconfig"
+	confii "github.com/confiify/confii-go/v2"
+	"github.com/confiify/confii-go/v2/selfconfig"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -27,9 +27,12 @@ sources:
   - type: yaml
     path: app.yaml
 secrets:
-  provider: dict
-  entries:
-    service-token: highly-sensitive-value
+  default_provider: local
+  providers:
+    local:
+      type: dict
+      entries:
+        service-token: highly-sensitive-value
 `)
 	writeConnectionFixture(t, dir, `app.yaml`, `
 default:
@@ -51,7 +54,7 @@ production:
 
 	text := output.String()
 	assert.Contains(t, text, "Connection test: OK")
-	assert.Contains(t, text, "Secret provider: dict (1 references resolved)")
+	assert.Contains(t, text, "Secret provider: local (1 references resolved)")
 	assert.Contains(t, text, "Values checked: 3 (contents withheld)")
 	assert.NotContains(t, text, "highly-sensitive-value")
 	assert.NotContains(t, text, "service-token")
@@ -59,7 +62,7 @@ production:
 
 func TestConnectionsTestJSONAndSelectedKey(t *testing.T) {
 	dir := t.TempDir()
-	writeConnectionFixture(t, dir, `.confii.yaml`, "default_files: [app.yaml]\n")
+	writeConnectionFixture(t, dir, `.confii.yaml`, "sources:\n  - type: yaml\n    path: app.yaml\n")
 	writeConnectionFixture(t, dir, `app.yaml`, "alpha: one\nbeta: two\n")
 	withWorkingDirectory(t, dir)
 	selfconfig.ClearCache()
@@ -83,11 +86,16 @@ func TestConnectionsTestJSONAndSelectedKey(t *testing.T) {
 func TestConnectionsTestRejectsUnverifiedSecretProvider(t *testing.T) {
 	dir := t.TempDir()
 	writeConnectionFixture(t, dir, `.confii.yaml`, `
-default_files: [app.yaml]
+sources:
+  - type: yaml
+    path: app.yaml
 secrets:
-  provider: dict
-  entries:
-    unused: sensitive
+  default_provider: local
+  providers:
+    local:
+      type: dict
+      entries:
+        unused: sensitive
 `)
 	writeConnectionFixture(t, dir, `app.yaml`, "plain: value\n")
 	withWorkingDirectory(t, dir)
@@ -107,7 +115,9 @@ secrets:
 func TestConnectionsTestNamedProvidersReportsAliasesWithoutValues(t *testing.T) {
 	dir := t.TempDir()
 	writeConnectionFixture(t, dir, `.confii.yaml`, `
-default_files: [app.yaml]
+sources:
+  - type: yaml
+    path: app.yaml
 secrets:
   default_provider: production
   providers:
@@ -154,11 +164,16 @@ signing_key: ${secret@shared:signing-key}
 func TestConnectionsTestSelectedParentVerifiesNestedSecret(t *testing.T) {
 	dir := t.TempDir()
 	writeConnectionFixture(t, dir, `.confii.yaml`, `
-default_files: [app.yaml]
+sources:
+  - type: yaml
+    path: app.yaml
 secrets:
-  provider: dict
-  entries:
-    password: hidden
+  default_provider: local
+  providers:
+    local:
+      type: dict
+      entries:
+        password: hidden
 `)
 	writeConnectionFixture(t, dir, `app.yaml`, "database:\n  password: ${secret:password}\n  host: localhost\n")
 	withWorkingDirectory(t, dir)
@@ -209,7 +224,7 @@ func (slowConnectionLoader) Load(ctx context.Context) (map[string]any, error) {
 
 func TestConnectionCommandErrorBranches(t *testing.T) {
 	dir := t.TempDir()
-	writeConnectionFixture(t, dir, `.confii.yaml`, "default_files: [app.yaml]\n")
+	writeConnectionFixture(t, dir, `.confii.yaml`, "sources:\n  - type: yaml\n    path: app.yaml\n")
 	writeConnectionFixture(t, dir, `app.yaml`, "present: value\n")
 	withWorkingDirectory(t, dir)
 	selfconfig.ClearCache()

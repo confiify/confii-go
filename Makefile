@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: MIT
 # ==================
 
-MODULE   := github.com/confiify/confii-go
+MODULE   := github.com/confiify/confii-go/v2
 CLI_PKG  := ./confii
 CLI_BIN  := confii
 BUILD_DIR := bin

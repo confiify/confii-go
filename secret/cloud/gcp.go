@@ -12,7 +12,7 @@ import (
 
 	secretmanager "cloud.google.com/go/secretmanager/apiv1"
 	"cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
-	confii "github.com/confiify/confii-go"
+	confii "github.com/confiify/confii-go/v2"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 )
@@ -23,6 +23,14 @@ type GCPSecretManager struct {
 	projectID string
 }
 
+// Close releases the underlying Secret Manager client connections.
+func (s *GCPSecretManager) Close() error {
+	if s == nil || s.client == nil {
+		return nil
+	}
+	return s.client.Close()
+}
+
 // GCPSecretManagerOption configures GCPSecretManager.
 type GCPSecretManagerOption func(*gcpSMConfig)
 
@@ -30,12 +38,14 @@ type gcpSMConfig struct {
 	CredentialsFile string
 }
 
-// WithGCPCredentialsFile sets the path to a service account key file.
+// WithGCPCredentialsFile sets a service-account JSON file. When omitted, the
+// Google Application Default Credentials chain is used.
 func WithGCPCredentialsFile(path string) GCPSecretManagerOption {
 	return func(c *gcpSMConfig) { c.CredentialsFile = path }
 }
 
-// NewGCPSecretManager creates a new GCP Secret Manager store.
+// NewGCPSecretManager creates a client scoped to projectID. ctx controls client
+// initialization. Call Close when the store is no longer needed.
 func NewGCPSecretManager(ctx context.Context, projectID string, opts ...GCPSecretManagerOption) (*GCPSecretManager, error) {
 	cfg := &gcpSMConfig{}
 	for _, opt := range opts {
@@ -55,7 +65,9 @@ func NewGCPSecretManager(ctx context.Context, projectID string, opts ...GCPSecre
 	return &GCPSecretManager{client: client, projectID: projectID}, nil
 }
 
-// GetSecret retrieves a secret version from GCP Secret Manager, defaulting to the latest version.
+// GetSecret returns a UTF-8 string for the requested version, defaulting to
+// "latest". Field selection is not supported. Provider failures wrap
+// [confii.ErrSecretAccess].
 func (s *GCPSecretManager) GetSecret(ctx context.Context, key string, opts ...confii.SecretOption) (any, error) {
 	o := confii.ResolveSecretOptions(opts...)
 	version := o.Version
@@ -68,13 +80,14 @@ func (s *GCPSecretManager) GetSecret(ctx context.Context, key string, opts ...co
 		Name: name,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", confii.ErrSecretAccess, err)
+		return nil, fmt.Errorf("%w: %w", confii.ErrSecretAccess, err)
 	}
 
 	return string(resp.Payload.Data), nil
 }
 
-// SetSecret creates a secret in GCP Secret Manager if it does not exist and adds a new version with the given value.
+// SetSecret creates key with automatic replication when absent, then appends a
+// version containing fmt.Sprint(value). Secret options are ignored.
 func (s *GCPSecretManager) SetSecret(ctx context.Context, key string, value any, _ ...confii.SecretOption) error {
 	parent := fmt.Sprintf("projects/%s", s.projectID)
 	secretName := fmt.Sprintf("projects/%s/secrets/%s", s.projectID, key)
@@ -105,7 +118,7 @@ func (s *GCPSecretManager) SetSecret(ctx context.Context, key string, value any,
 	return err
 }
 
-// DeleteSecret deletes a secret and all its versions from GCP Secret Manager.
+// DeleteSecret permanently deletes key and all versions. Secret options are ignored.
 func (s *GCPSecretManager) DeleteSecret(ctx context.Context, key string, _ ...confii.SecretOption) error {
 	name := fmt.Sprintf("projects/%s/secrets/%s", s.projectID, key)
 	return s.client.DeleteSecret(ctx, &secretmanagerpb.DeleteSecretRequest{
@@ -113,7 +126,8 @@ func (s *GCPSecretManager) DeleteSecret(ctx context.Context, key string, _ ...co
 	})
 }
 
-// ListSecrets returns all secret names from GCP Secret Manager for the configured project, optionally filtered by prefix.
+// ListSecrets returns project secret names beginning with prefix, following all
+// pages. Ordering is provider-defined.
 func (s *GCPSecretManager) ListSecrets(ctx context.Context, prefix string) ([]string, error) {
 	parent := fmt.Sprintf("projects/%s", s.projectID)
 	it := s.client.ListSecrets(ctx, &secretmanagerpb.ListSecretsRequest{

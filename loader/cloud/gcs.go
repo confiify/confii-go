@@ -12,9 +12,8 @@ import (
 	"os"
 
 	"cloud.google.com/go/storage"
-	confii "github.com/confiify/confii-go"
-	"github.com/confiify/confii-go/internal/formatparse"
-	"github.com/confiify/confii-go/loader"
+	confii "github.com/confiify/confii-go/v2"
+	"github.com/confiify/confii-go/v2/loader"
 	"google.golang.org/api/option"
 )
 
@@ -36,12 +35,15 @@ func WithGCSProject(id string) GCSOption {
 	return func(l *GCSLoader) { l.projectID = id }
 }
 
-// WithGCSCredentials sets the path to a service account key file.
+// WithGCSCredentials sets a service-account JSON file. When omitted, the
+// Google Application Default Credentials chain is used.
 func WithGCSCredentials(path string) GCSOption {
 	return func(l *GCSLoader) { l.credentialsPath = path }
 }
 
-// NewGCS creates a new Google Cloud Storage loader.
+// NewGCS creates a loader for gs://bucket/blob. Defaults are read from
+// GCP_PROJECT_ID and GOOGLE_APPLICATION_CREDENTIALS. Construction performs no
+// network request; options are applied in order.
 func NewGCS(bucket, blob string, opts ...GCSOption) *GCSLoader {
 	l := &GCSLoader{
 		bucketName:      bucket,
@@ -60,7 +62,11 @@ func (l *GCSLoader) Source() string {
 	return fmt.Sprintf("gs://%s/%s", l.bucketName, l.blobName)
 }
 
-// Load fetches configuration from the Google Cloud Storage object at the configured bucket and blob path.
+// Load fetches and parses the object while honoring ctx. Format is selected
+// from the blob extension and defaults to JSON when unknown. Client, read, and
+// transport failures wrap [confii.ErrConfigLoad]; format failures wrap
+// [confii.ErrConfigFormat]. The temporary storage client is closed before
+// Load returns.
 func (l *GCSLoader) Load(ctx context.Context) (map[string]any, error) {
 	var clientOpts []option.ClientOption
 	if l.credentialsPath != "" {
@@ -90,9 +96,9 @@ func (l *GCSLoader) Load(ctx context.Context) (map[string]any, error) {
 		return nil, confii.NewLoadError(l.Source(), err)
 	}
 
-	format := formatparse.FromExtension(l.blobName)
-	if format == formatparse.FormatUnknown {
-		format = formatparse.FormatJSON
+	format := loader.FormatFromExtension(l.blobName)
+	if format == loader.FormatUnknown {
+		format = loader.FormatJSON
 	}
 
 	return loader.ParseContent(data, format, l.Source())

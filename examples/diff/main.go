@@ -10,22 +10,22 @@ import (
 	"fmt"
 	"log"
 
-	confii "github.com/confiify/confii-go"
-	"github.com/confiify/confii-go/diff"
-	"github.com/confiify/confii-go/loader"
+	confii "github.com/confiify/confii-go/v2"
+	"github.com/confiify/confii-go/v2/diff"
+	"github.com/confiify/confii-go/v2/loader"
 )
 
 func main() {
 	ctx := context.Background()
 
-	cfg1, err := confii.New[any](ctx,
+	cfg1, err := confii.NewWithContext[any](ctx,
 		confii.WithLoaders(loader.NewYAML("../introspection/base.yaml")),
 	)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	cfg2, err := confii.New[any](ctx,
+	cfg2, err := confii.NewWithContext[any](ctx,
 		confii.WithLoaders(loader.NewYAML("../introspection/overrides.yaml")),
 	)
 	if err != nil {
@@ -33,7 +33,10 @@ func main() {
 	}
 
 	// --- Diff two configs ---
-	diffs := cfg1.Diff(cfg2)
+	diffs, err := cfg1.Diff(cfg2)
+	if err != nil {
+		log.Fatal(err)
+	}
 	fmt.Println("=== Config Diff ===")
 	for _, d := range diffs {
 		fmt.Printf("  [%s] %s: %v -> %v\n", d.Type, d.Key, d.OldValue, d.NewValue)
@@ -50,7 +53,10 @@ func main() {
 		"app.debug":     false,
 	}
 
-	drifts := cfg1.DetectDrift(intended)
+	drifts, err := cfg1.DetectDrift(intended)
+	if err != nil {
+		log.Fatal(err)
+	}
 	fmt.Println("\n=== Drift Detection ===")
 	for _, d := range drifts {
 		fmt.Printf("  [%s] %s: expected %v, got %v\n",

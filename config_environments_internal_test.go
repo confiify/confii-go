@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/confiify/confii-go/envhandler"
+	"github.com/confiify/confii-go/v2/envhandler"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
