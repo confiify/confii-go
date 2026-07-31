@@ -42,7 +42,7 @@ func TestResolveEnvironmentStrategyValidation(t *testing.T) {
 		wantStrategy     EnvironmentStrategy
 		wantError        string
 	}{
-		{name: "auto preserves legacy", strategy: EnvironmentStrategyAuto, policy: EnvironmentConflictLastWins, wantStrategy: EnvironmentStrategyAuto},
+		{name: "auto remains selected", strategy: EnvironmentStrategyAuto, policy: EnvironmentConflictLastWins, wantStrategy: EnvironmentStrategyAuto},
 		{name: "auto infers named files", strategy: EnvironmentStrategyAuto, policy: EnvironmentConflictLastWins, sources: environmentFiles, wantStrategy: EnvironmentStrategyNamedFiles},
 		{name: "sectioned rejects named files", strategy: EnvironmentStrategySectioned, policy: EnvironmentConflictLastWins, sources: environmentFiles, wantError: "cannot be combined"},
 		{name: "named files requires source", strategy: EnvironmentStrategyNamedFiles, policy: EnvironmentConflictLastWins, wantError: "requires an environment_files source"},

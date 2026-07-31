@@ -254,7 +254,7 @@ func firstString(cfg map[string]any, keys ...string) string {
 }
 
 func selfConfigSecretConfigError(message string) error {
-	return &ConfigError{Op: "ApplySelfConfig", Err: fmt.Errorf("%w: self-config secrets: %s", ErrConfigLoad, message)}
+	return &ConfigError{Op: "ApplySelfConfig", Code: ConfigErrorCodeLoad, Err: fmt.Errorf("self-config secrets: %s", message)}
 }
 
 func (r *selfConfigSecretRouter) get(ctx context.Context, provider, key, field, version string) (any, error) {

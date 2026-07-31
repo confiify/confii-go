@@ -60,10 +60,11 @@ func applySelfConfig(opts *options) error {
 			strategy, err := parseSelfConfigMergeStrategy(value)
 			if err != nil {
 				return &ConfigError{
-					Op: "ApplySelfConfig",
+					Op:   "ApplySelfConfig",
+					Code: ConfigErrorCodeLoad,
 					Err: fmt.Errorf(
-						"%w: invalid merge.paths value for path %q: %w",
-						ErrConfigLoad, path, err,
+						"invalid merge.paths value for path %q: %w",
+						path, err,
 					),
 				}
 			}
@@ -114,10 +115,11 @@ func applySelfConfig(opts *options) error {
 		timeout, err := time.ParseDuration(strings.TrimSpace(settings.Startup.Timeout))
 		if err != nil {
 			return &ConfigError{
-				Op: "ApplySelfConfig",
+				Op:   "ApplySelfConfig",
+				Code: ConfigErrorCodeLoad,
 				Err: fmt.Errorf(
-					"%w: invalid startup.timeout %q: %w",
-					ErrConfigLoad, settings.Startup.Timeout, err,
+					"invalid startup.timeout %q: %w",
+					settings.Startup.Timeout, err,
 				),
 			}
 		}
@@ -129,7 +131,7 @@ func applySelfConfig(opts *options) error {
 	if !opts.isSet("operation_timeout") && settings.Runtime.Timeout != "" {
 		timeout, err := time.ParseDuration(strings.TrimSpace(settings.Runtime.Timeout))
 		if err != nil {
-			return &ConfigError{Op: "ApplySelfConfig", Err: fmt.Errorf("%w: invalid runtime.timeout %q: %w", ErrConfigLoad, settings.Runtime.Timeout, err)}
+			return &ConfigError{Op: "ApplySelfConfig", Code: ConfigErrorCodeLoad, Err: fmt.Errorf("invalid runtime.timeout %q: %w", settings.Runtime.Timeout, err)}
 		}
 		opts.OperationTimeout = timeout
 	}
@@ -188,10 +190,11 @@ func parseSelfConfigLogLevel(s string) (slog.Level, error) {
 		return slog.LevelError, nil
 	default:
 		return 0, &ConfigError{
-			Op: "ApplySelfConfig",
+			Op:   "ApplySelfConfig",
+			Code: ConfigErrorCodeLoad,
 			Err: fmt.Errorf(
-				"%w: invalid log_level %q (valid values: %q, %q, %q, %q)",
-				ErrConfigLoad, s, "debug", "info", "warn", "error",
+				"invalid log_level %q (valid values: %q, %q, %q, %q)",
+				s, "debug", "info", "warn", "error",
 			),
 		}
 	}
@@ -216,8 +219,9 @@ func parseSelfConfigMergeStrategy(s string) (MergeStrategy, error) {
 		return StrategyUnion, nil
 	default:
 		return 0, &ConfigError{
-			Op:  "ApplySelfConfig",
-			Err: fmt.Errorf("%w: invalid merge strategy %q (valid values: replace, shallow_merge, deep_merge, append, prepend, intersection, union)", ErrConfigLoad, s),
+			Op:   "ApplySelfConfig",
+			Code: ConfigErrorCodeLoad,
+			Err:  fmt.Errorf("invalid merge strategy %q (valid values: replace, shallow_merge, deep_merge, append, prepend, intersection, union)", s),
 		}
 	}
 }
@@ -245,8 +249,9 @@ func appendSelfConfigSource(ctx context.Context, opts *options, src map[string]a
 		path, _ := src["path"].(string)
 		if path == "" {
 			return &ConfigError{
-				Op:  "ApplySelfConfig",
-				Err: fmt.Errorf("%w: self-config source of type %q is missing a `path` field", ErrConfigLoad, t),
+				Op:   "ApplySelfConfig",
+				Code: ConfigErrorCodeLoad,
+				Err:  fmt.Errorf("self-config source of type %q is missing a `path` field", t),
 			}
 		}
 		format, err := declarativeSourceFormat(t, path)
@@ -264,8 +269,9 @@ func appendSelfConfigSource(ctx context.Context, opts *options, src map[string]a
 		prefix, _ := src["prefix"].(string)
 		if prefix == "" {
 			return &ConfigError{
-				Op:  "ApplySelfConfig",
-				Err: fmt.Errorf("%w: self-config source of type %q requires a `prefix` field", ErrConfigLoad, t),
+				Op:   "ApplySelfConfig",
+				Code: ConfigErrorCodeLoad,
+				Err:  fmt.Errorf("self-config source of type %q requires a `prefix` field", t),
 			}
 		}
 		upper := strings.ToUpper(prefix)
@@ -315,10 +321,11 @@ func declarativeSourceFormat(sourceType, path string) (formatparse.Format, error
 		return format, nil
 	}
 	return formatparse.FormatUnknown, &ConfigError{
-		Op: "ApplySelfConfig",
+		Op:   "ApplySelfConfig",
+		Code: ConfigErrorCodeFormat,
 		Err: fmt.Errorf(
-			"%w: self-config source type %q is incompatible with path %q",
-			ErrConfigFormat, sourceType, path,
+			"self-config source type %q is incompatible with path %q",
+			sourceType, path,
 		),
 	}
 }

@@ -60,10 +60,11 @@ func ParseErrorPolicy(s string) (ErrorPolicy, error) {
 		return ErrorPolicyIgnore, nil
 	default:
 		return "", &ConfigError{
-			Op: "ParseErrorPolicy",
+			Op:   "ParseErrorPolicy",
+			Code: ConfigErrorCodeLoad,
 			Err: fmt.Errorf(
-				"%w: invalid on_error policy %q (valid values: %q, %q, %q)",
-				ErrConfigLoad, s,
+				"invalid on_error policy %q (valid values: %q, %q, %q)",
+				s,
 				string(ErrorPolicyRaise),
 				string(ErrorPolicyWarn),
 				string(ErrorPolicyIgnore),

@@ -206,8 +206,9 @@ func TestRuntimeMutationConflictHonorsContext(t *testing.T) {
 func TestRuntimeMutationsRecheckLifecycleAfterMaterialization(t *testing.T) {
 	t.Run("nil contexts", func(t *testing.T) {
 		cfg := newTestConfig(t, map[string]any{"stable": true})
-		require.ErrorIs(t, cfg.SetWithContext(nil, "requested", true), ErrConfigInvalid)
-		_, err := cfg.OverrideWithContext(nil, map[string]any{"requested": true})
+		var nilContext context.Context
+		require.ErrorIs(t, cfg.SetWithContext(nilContext, "requested", true), ErrConfigInvalid)
+		_, err := cfg.OverrideWithContext(nilContext, map[string]any{"requested": true})
 		require.ErrorIs(t, err, ErrConfigInvalid)
 	})
 

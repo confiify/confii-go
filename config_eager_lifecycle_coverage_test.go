@@ -35,7 +35,7 @@ func TestEagerSetAndOverrideRejectResolutionFailure(t *testing.T) {
 	assert.Equal(t, "ready", cfg.GetStringOr("stable", ""))
 }
 
-func TestEagerMutationsSupportLegacyMissingRawSnapshot(t *testing.T) {
+func TestEagerMutationsRecoverMissingRawSnapshot(t *testing.T) {
 	cfg := newTestConfig(t, map[string]any{"stable": "ready"})
 	cfg.mu.Lock()
 	cfg.unresolvedEnvConfig = nil
@@ -141,15 +141,15 @@ func TestSecretBackedExplainRedactsHistory(t *testing.T) {
 	assert.Equal(t, redactedSecretValue, explanation["current_value"])
 }
 
-func TestOverrideReplayLegacyFrameUsesRawPayload(t *testing.T) {
+func TestOverrideReplayFrameWithoutMaterializedPayloadUsesRawValue(t *testing.T) {
 	cfg := newTestConfig(t, map[string]any{"key": "base"})
 	restoreFirst, err := cfg.Override(map[string]any{"first": true})
 	require.NoError(t, err)
-	legacy := &overrideFrame{id: 999, payload: map[string]any{"key": "legacy"}, applied: true}
+	frame := &overrideFrame{id: 999, payload: map[string]any{"key": "fallback"}, applied: true}
 	cfg.mu.Lock()
-	cfg.overrideStack = append(cfg.overrideStack, legacy)
+	cfg.overrideStack = append(cfg.overrideStack, frame)
 	cfg.mu.Unlock()
 	restoreFirst()
-	assert.Equal(t, "legacy", cfg.GetStringOr("key", ""))
-	assert.Equal(t, "legacy", dictutil.DeepCopy(cfg.unresolvedEnvConfig)["key"])
+	assert.Equal(t, "fallback", cfg.GetStringOr("key", ""))
+	assert.Equal(t, "fallback", dictutil.DeepCopy(cfg.unresolvedEnvConfig)["key"])
 }

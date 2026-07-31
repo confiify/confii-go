@@ -215,8 +215,9 @@ func environmentConflictSummary(conflicts []EnvironmentSourceConflict) string {
 
 func environmentStrategyError(message string) error {
 	return &ConfigError{
-		Op:  "ApplySelfConfig",
-		Err: fmt.Errorf("%w: environment strategy: %s", ErrConfigLoad, message),
+		Op:   "ApplySelfConfig",
+		Code: ConfigErrorCodeLoad,
+		Err:  fmt.Errorf("environment strategy: %s", message),
 	}
 }
 

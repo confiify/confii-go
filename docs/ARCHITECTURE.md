@@ -515,10 +515,12 @@ of regression.
 
 ### Atomic state consistency
 
-`Reload` and `Extend` mutate private candidates and publish them only after all
-loading, materialization, and validation succeeds. `Override` mutates live
-state under the write lock and therefore retains an explicit rollback path.
-Transactional state currently includes:
+`Reload`, `Extend`, `Set`, `Override`, `RefreshSecrets`, and version rollback
+prepare and validate private candidates before publishing. Long-running work
+runs without the live configuration lock. Publication rechecks cancellation
+and closed or frozen state. Operations whose candidate depends on current state
+also recheck the captured revision and rebuild a superseded candidate instead
+of overwriting a newer commit. Transactional state currently includes:
 
 - `unresolvedEnvConfig` / `envConfig` / `mergedConfig`
 - ordered `loaders`, composed `loaderLayers`, and `loaderDependencies`
@@ -529,8 +531,13 @@ Transactional state currently includes:
 
 If you add a new component to `Config[T]`, audit every phased operation. State
 derived from source loading must be copied by `snapshotSourceCandidate` and
-published by `publishSourceCandidate`. Live mutation paths must either operate
-on a private candidate or restore the component explicitly on failure.
+published by `publishSourceCandidate`. Live mutation paths must operate on a
+private candidate and publish only after lifecycle and revision checks.
+
+After publication, `captureCommittedChange` and `deliverCommittedChange`
+provide one delivery path for per-key callbacks, operation metrics/events, the
+generic change metric, and the `change` event. Delivery always occurs without
+holding the Config lock so listeners may safely call read or mutation APIs.
 
 ### Lock-then-snapshot for observability
 

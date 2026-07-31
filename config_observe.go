@@ -10,6 +10,7 @@ import (
 	"github.com/confiify/confii-go/v2/diff"
 	"github.com/confiify/confii-go/v2/internal/dictutil"
 	"github.com/confiify/confii-go/v2/observe"
+	"github.com/confiify/confii-go/v2/sourcetrack"
 )
 
 // Diff compares this Config's materialized snapshot with other. Results use
@@ -152,9 +153,10 @@ func (c *Config[T]) SaveVersionWithContext(ctx context.Context, metadata map[str
 	return version, nil
 }
 
-// RollbackToVersion atomically replaces the current snapshot with versionID.
-// The restored version contains materialized values, so RefreshSecrets is a
-// no-op until a later source Reload reintroduces unresolved references.
+// RollbackToVersion validates and atomically publishes versionID as the current
+// snapshot. The restored version contains materialized values, so
+// RefreshSecrets is a no-op until a later source Reload reintroduces unresolved
+// references. Source inspection attributes restored keys to the version record.
 func (c *Config[T]) RollbackToVersion(versionID string) error {
 	ctx, cancel := c.implicitOperationContext()
 	defer cancel()
@@ -163,9 +165,11 @@ func (c *Config[T]) RollbackToVersion(versionID string) error {
 
 // RollbackToVersionWithContext is the context-aware form of
 // [Config.RollbackToVersion]. It returns an error for a nil or canceled
-// context, a frozen or closed Config, disabled versioning, or an unknown ID.
-// The operation performs no provider I/O and does not currently emit change
-// callbacks.
+// context, a frozen or closed Config, disabled versioning, an unknown ID, or a
+// snapshot that fails current validation. Version storage may perform local
+// filesystem I/O, but rollback never contacts configured source or secret
+// providers. A successful rollback invokes change callbacks and emits
+// "rollback" followed by "change" lifecycle events after publication.
 func (c *Config[T]) RollbackToVersionWithContext(ctx context.Context, versionID string) error {
 	if ctx == nil {
 		return fmt.Errorf("rollback version: nil context")
@@ -173,36 +177,63 @@ func (c *Config[T]) RollbackToVersionWithContext(ctx context.Context, versionID 
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
+	c.mu.RLock()
 	if c.frozen {
+		c.mu.RUnlock()
 		return NewFrozenError("RollbackToVersion")
 	}
 	if c.closed {
+		c.mu.RUnlock()
 		return NewClosedError("RollbackToVersion")
 	}
-	if c.versionMgr == nil {
+	mgr := c.versionMgr
+	c.mu.RUnlock()
+	if mgr == nil {
 		return fmt.Errorf("versioning not enabled")
 	}
 
-	v := c.versionMgr.GetVersion(versionID)
+	v := mgr.GetVersion(versionID)
 	if v == nil {
 		return fmt.Errorf("version %s not found", versionID)
 	}
 
-	// Deep-copy the snapshot before assigning into live state. Aliasing
-	// v.Config directly let later mutations of mergedConfig corrupt the
-	// stored snapshot, so a subsequent rollback to the same version would
-	// observe drifted (post-mutation) state instead of the captured one.
 	snapshot := dictutil.DeepCopy(v.Config)
-	c.envConfig = snapshot
-	// Version snapshots intentionally contain the ready effective values. A
-	// rollback therefore establishes a new reference-free source baseline;
-	// later RefreshSecrets is a no-op until a loader reload restores refs.
+	if err := c.validateMaterializedCandidate(snapshot); err != nil {
+		return err
+	}
+	tracker := sourcetrack.NewTracker(c.opts.DebugMode)
+	tracker.TrackConfig(snapshot, "version:"+versionID, "version", c.env, "")
+
+	c.mu.Lock()
+	if err := ctx.Err(); err != nil {
+		c.mu.Unlock()
+		return err
+	}
+	if c.frozen {
+		c.mu.Unlock()
+		return NewFrozenError("RollbackToVersion")
+	}
+	if c.closed {
+		c.mu.Unlock()
+		return NewClosedError("RollbackToVersion")
+	}
+	before := dictutil.DeepCopy(c.envConfig)
+
+	// A version stores the ready effective snapshot rather than source
+	// references. Publish independent copies so subsequent mutation cannot alias
+	// the retained version record or another live snapshot view. Because the
+	// target is independent of current state, the write-lock acquisition is the
+	// rollback's linearization point; unlike refresh, no revision retry is needed.
+	c.envConfig = dictutil.DeepCopy(snapshot)
 	c.unresolvedEnvConfig = dictutil.DeepCopy(snapshot)
 	c.mergedConfig = dictutil.DeepCopy(snapshot)
+	c.sourceTracker.Restore(tracker.Snapshot())
 	c.validatedModel = nil
 	c.revision++
+	after := dictutil.DeepCopy(c.envConfig)
+	change := c.captureCommittedChange(before, after)
+	c.mu.Unlock()
+
+	c.deliverCommittedChange(ctx, change, nil, "rollback", versionID, dictutil.DeepCopy(after))
 	return nil
 }

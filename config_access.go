@@ -40,7 +40,7 @@ func (c *Config[T]) Get(keyPath string) (any, error) {
 // config state. Scalar container values are also copied defensively.
 func (c *Config[T]) GetWithContext(ctx context.Context, keyPath string) (result any, err error) {
 	if ctx == nil {
-		return nil, &ConfigError{Op: "Get", Key: keyPath, Err: fmt.Errorf("%w: nil context", ErrConfigInvalid)}
+		return nil, &ConfigError{Op: "Get", Key: keyPath, Code: ConfigErrorCodeInvalid, Err: errors.New("nil context")}
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -129,25 +129,28 @@ func (c *Config[T]) GetInt(keyPath string) (int, error) {
 	case int64:
 		if v > int64(math.MaxInt) || v < int64(math.MinInt) {
 			return 0, &ConfigError{
-				Op:  "GetInt",
-				Key: keyPath,
-				Err: fmt.Errorf("%w: int64 value %d overflows int", ErrConfigInvalid, v),
+				Op:   "GetInt",
+				Key:  keyPath,
+				Code: ConfigErrorCodeInvalid,
+				Err:  fmt.Errorf("int64 value %d overflows int", v),
 			}
 		}
 		return int(v), nil
 	case float64:
 		if math.IsNaN(v) || math.IsInf(v, 0) {
 			return 0, &ConfigError{
-				Op:  "GetInt",
-				Key: keyPath,
-				Err: fmt.Errorf("%w: cannot convert non-finite float64 (%v) to int", ErrConfigInvalid, v),
+				Op:   "GetInt",
+				Key:  keyPath,
+				Code: ConfigErrorCodeInvalid,
+				Err:  fmt.Errorf("cannot convert non-finite float64 (%v) to int", v),
 			}
 		}
 		if math.Trunc(v) != v {
 			return 0, &ConfigError{
-				Op:  "GetInt",
-				Key: keyPath,
-				Err: fmt.Errorf("%w: float64 value %v has non-zero fractional part; refusing to truncate to int", ErrConfigInvalid, v),
+				Op:   "GetInt",
+				Key:  keyPath,
+				Code: ConfigErrorCodeInvalid,
+				Err:  fmt.Errorf("float64 value %v has non-zero fractional part; refusing to truncate to int", v),
 			}
 		}
 		// Range-check before narrowing to prevent silent wrapping on
@@ -155,14 +158,15 @@ func (c *Config[T]) GetInt(keyPath string) (int, error) {
 		// int64 range when cast.
 		if v > float64(math.MaxInt) || v < float64(math.MinInt) {
 			return 0, &ConfigError{
-				Op:  "GetInt",
-				Key: keyPath,
-				Err: fmt.Errorf("%w: float64 value %v overflows int", ErrConfigInvalid, v),
+				Op:   "GetInt",
+				Key:  keyPath,
+				Code: ConfigErrorCodeInvalid,
+				Err:  fmt.Errorf("float64 value %v overflows int", v),
 			}
 		}
 		return int(v), nil
 	default:
-		return 0, &ConfigError{Op: "GetInt", Key: keyPath, Err: fmt.Errorf("cannot convert %T to int", val)}
+		return 0, &ConfigError{Op: "GetInt", Key: keyPath, Code: ConfigErrorCodeAccess, Err: fmt.Errorf("cannot convert %T to int", val)}
 	}
 }
 
@@ -208,9 +212,10 @@ func (c *Config[T]) GetBool(keyPath string) (bool, error) {
 			return false, nil
 		}
 		return false, &ConfigError{
-			Op:  "GetBool",
-			Key: keyPath,
-			Err: fmt.Errorf("cannot convert string %q to bool (accepted: true/false, 1/0, yes/no, on/off)", v),
+			Op:   "GetBool",
+			Key:  keyPath,
+			Code: ConfigErrorCodeAccess,
+			Err:  fmt.Errorf("cannot convert string %q to bool (accepted: true/false, 1/0, yes/no, on/off)", v),
 		}
 	case int:
 		switch v {
@@ -234,7 +239,7 @@ func (c *Config[T]) GetBool(keyPath string) (bool, error) {
 			return true, nil
 		}
 	}
-	return false, &ConfigError{Op: "GetBool", Key: keyPath, Err: fmt.Errorf("cannot convert %T to bool", val)}
+	return false, &ConfigError{Op: "GetBool", Key: keyPath, Code: ConfigErrorCodeAccess, Err: fmt.Errorf("cannot convert %T to bool", val)}
 }
 
 // GetBoolOr retrieves a bool value, returning the default if the read or
@@ -264,7 +269,7 @@ func (c *Config[T]) GetFloat64(keyPath string) (float64, error) {
 	case int64:
 		return float64(v), nil
 	default:
-		return 0, &ConfigError{Op: "GetFloat64", Key: keyPath, Err: fmt.Errorf("cannot convert %T to float64", val)}
+		return 0, &ConfigError{Op: "GetFloat64", Key: keyPath, Code: ConfigErrorCodeAccess, Err: fmt.Errorf("cannot convert %T to float64", val)}
 	}
 }
 
@@ -382,7 +387,7 @@ func (c *Config[T]) ToDict() (map[string]any, error) {
 // secret resolution occur during snapshot materialization, not during reads.
 func (c *Config[T]) ToDictWithContext(ctx context.Context) (map[string]any, error) {
 	if ctx == nil {
-		return nil, &ConfigError{Op: "ToDict", Err: fmt.Errorf("%w: nil context", ErrConfigInvalid)}
+		return nil, &ConfigError{Op: "ToDict", Code: ConfigErrorCodeInvalid, Err: errors.New("nil context")}
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err

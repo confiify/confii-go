@@ -164,7 +164,7 @@ func New[T any](cfgOpts ...Option) (*Config[T], error) {
 // exclusive because a frozen Config cannot accept watcher-driven reloads.
 func NewWithContext[T any](ctx context.Context, cfgOpts ...Option) (*Config[T], error) {
 	if ctx == nil {
-		return nil, &ConfigError{Op: "New", Err: fmt.Errorf("%w: nil context", ErrConfigLoad)}
+		return nil, &ConfigError{Op: "New", Code: ConfigErrorCodeLoad, Err: errors.New("nil context")}
 	}
 	opts := defaultOptions()
 	for _, fn := range cfgOpts {
@@ -182,19 +182,20 @@ func NewWithContext[T any](ctx context.Context, cfgOpts ...Option) (*Config[T], 
 		if errors.As(err, &ce) {
 			return nil, err
 		}
-		return nil, &ConfigError{Op: "New", Err: fmt.Errorf("%w: read self-config: %w", ErrConfigLoad, err)}
+		return nil, &ConfigError{Op: "New", Code: ConfigErrorCodeLoad, Err: fmt.Errorf("read self-config: %w", err)}
 	}
 	if opts.StartupTimeout < 0 {
 		return nil, &ConfigError{
-			Op:  "New",
-			Err: fmt.Errorf("%w: startup timeout must not be negative", ErrConfigLoad),
+			Op:   "New",
+			Code: ConfigErrorCodeLoad,
+			Err:  errors.New("startup timeout must not be negative"),
 		}
 	}
 	if opts.SecretResolutionConcurrency < 1 {
-		return nil, &ConfigError{Op: "New", Err: fmt.Errorf("%w: secret resolution concurrency must be at least 1", ErrConfigLoad)}
+		return nil, &ConfigError{Op: "New", Code: ConfigErrorCodeLoad, Err: errors.New("secret resolution concurrency must be at least 1")}
 	}
 	if opts.OperationTimeout < 0 {
-		return nil, &ConfigError{Op: "New", Err: fmt.Errorf("%w: operation timeout must not be negative", ErrConfigLoad)}
+		return nil, &ConfigError{Op: "New", Code: ConfigErrorCodeLoad, Err: errors.New("operation timeout must not be negative")}
 	}
 	if _, hasDeadline := ctx.Deadline(); !hasDeadline && opts.StartupTimeout > 0 {
 		var cancel context.CancelFunc
@@ -219,12 +220,13 @@ func NewWithContext[T any](ctx context.Context, cfgOpts ...Option) (*Config[T], 
 	// the conflicting lifecycle options during construction.
 	if opts.FreezeOnLoad && opts.DynamicReloading {
 		return nil, &ConfigError{
-			Op: "New",
+			Op:   "New",
+			Code: ConfigErrorCodeLoad,
 			Err: fmt.Errorf(
-				"%w: WithFreezeOnLoad(true) and WithDynamicReloading(true) are mutually exclusive: "+
+				"WithFreezeOnLoad(true) and WithDynamicReloading(true) are mutually exclusive: "+
 					"a frozen Config refuses Reload, so the watcher would produce only "+
 					"%q errors on every file change",
-				ErrConfigLoad, "config is frozen",
+				"config is frozen",
 			),
 		}
 	}
@@ -320,8 +322,9 @@ func NewWithContext[T any](ctx context.Context, cfgOpts ...Option) (*Config[T], 
 	// introspection.
 	if err := c.materializeEffectiveConfig(ctx); err != nil {
 		return nil, &ConfigError{
-			Op:  "New",
-			Err: fmt.Errorf("%w: materialize effective configuration: %w", ErrConfigLoad, err),
+			Op:   "New",
+			Code: ConfigErrorCodeLoad,
+			Err:  fmt.Errorf("materialize effective configuration: %w", err),
 		}
 	}
 	c.managedResources = resourceCollector.snapshot()

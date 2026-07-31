@@ -6,11 +6,9 @@ package confii
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/confiify/confii-go/v2/compose"
-	"github.com/confiify/confii-go/v2/internal/dictutil"
 	"github.com/confiify/confii-go/v2/observe"
 	"github.com/confiify/confii-go/v2/sourcetrack"
 )
@@ -46,7 +44,7 @@ func (c *Config[T]) runSourceTransaction(
 	prepare sourceCandidatePreparer[T],
 ) error {
 	if ctx == nil {
-		return &ConfigError{Op: operation.name, Err: fmt.Errorf("%w: nil context", ErrConfigInvalid)}
+		return &ConfigError{Op: operation.name, Code: ConfigErrorCodeInvalid, Err: errors.New("nil context")}
 	}
 	for {
 		err := c.sourceTransactionAttempt(ctx, operation, prepare)
@@ -112,26 +110,13 @@ func (c *Config[T]) sourceTransactionAttempt(
 	}
 
 	c.publishSourceCandidate(candidate)
-	callbacks := c.snapshotChangeCallbacks()
-	contextCallbacks := c.snapshotChangeContextCallbacks()
-	observer := c.observer
-	emitter := c.eventEmitter
+	change := c.captureCommittedChange(oldEnv, newEnv)
 	c.mu.Unlock()
 
 	duration := time.Since(started)
-	recordSourceTransactionSuccess(observer, operation, duration)
-	if emitter != nil {
-		emitter.EmitWithContext(ctx, operation.event, copyMap(newEnv), duration)
-	}
-	oldFlat, newFlat := dictutil.Flatten(oldEnv), dictutil.Flatten(newEnv)
-	c.notifyChangesUnlocked(callbacks, oldFlat, newFlat)
-	c.notifyContextChangesUnlocked(ctx, contextCallbacks, oldFlat, newFlat)
-	if observer != nil {
-		observer.RecordChange()
-	}
-	if emitter != nil {
-		emitter.EmitWithContext(ctx, "change", oldEnv, copyMap(newEnv))
-	}
+	c.deliverCommittedChange(ctx, change, func(observer *observe.Metrics) {
+		recordSourceTransactionSuccess(observer, operation, duration)
+	}, operation.event, copyMap(newEnv), duration)
 	return nil
 }
 

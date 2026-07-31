@@ -12,6 +12,7 @@ import (
 	"runtime/debug"
 
 	"github.com/confiify/confii-go/v2/internal/dictutil"
+	"github.com/confiify/confii-go/v2/observe"
 )
 
 // SetOption configures one [Config.Set] or [Config.SetWithContext] operation.
@@ -79,8 +80,9 @@ func (c *Config[T]) SetWithContext(ctx context.Context, keyPath string, value an
 	effectiveStored, materializeErr := c.materializeEffectiveValue(ctx, keyPath, rawStored)
 	if materializeErr != nil {
 		return &ConfigError{
-			Op:  "Set",
-			Err: fmt.Errorf("%w: materialize %q: %w", ErrConfigLoad, keyPath, materializeErr),
+			Op:   "Set",
+			Code: ConfigErrorCodeLoad,
+			Err:  fmt.Errorf("materialize %q: %w", keyPath, materializeErr),
 		}
 	}
 	for {
@@ -139,22 +141,12 @@ func (c *Config[T]) SetWithContext(ctx context.Context, keyPath string, value an
 		}
 
 		c.publishRuntimeMutationCandidate(candidate)
-		callbacks := c.snapshotChangeCallbacks()
-		contextCallbacks := c.snapshotChangeContextCallbacks()
-		observer, emitter := c.observer, c.eventEmitter
+		change := c.captureCommittedChange(oldEnv, newEnv)
 		c.mu.Unlock()
 
-		oldFlat, newFlat := dictutil.Flatten(oldEnv), dictutil.Flatten(newEnv)
-		c.notifyChangesUnlocked(callbacks, oldFlat, newFlat)
-		c.notifyContextChangesUnlocked(ctx, contextCallbacks, oldFlat, newFlat)
-		if observer != nil {
+		c.deliverCommittedChange(ctx, change, func(observer *observe.Metrics) {
 			observer.RecordSet()
-			observer.RecordChange()
-		}
-		if emitter != nil {
-			emitter.EmitWithContext(ctx, "set", keyPath, dictutil.DeepCopyValue(effectiveStored))
-			emitter.EmitWithContext(ctx, "change", keyPath, dictutil.DeepCopyValue(effectiveStored))
-		}
+		}, "set", keyPath, dictutil.DeepCopyValue(effectiveStored))
 		return nil
 	}
 }
@@ -168,6 +160,7 @@ func (c *Config[T]) SetWithContext(ctx context.Context, keyPath string, value an
 //   - [Config.Override]
 //   - the restore closure returned by [Config.Override]
 //   - [Config.RefreshSecrets]
+//   - [Config.RollbackToVersion]
 //
 // The payload uses (oldValue, newValue): replacements provide both values,
 // additions provide nil as oldValue, and removals provide nil as newValue.

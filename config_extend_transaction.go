@@ -5,7 +5,7 @@ package confii
 
 import (
 	"context"
-	"fmt"
+	"errors"
 )
 
 // Extend adds l as the highest-precedence source, then loads, composes,
@@ -25,10 +25,10 @@ func (c *Config[T]) Extend(l Loader) error {
 // snapshot.
 func (c *Config[T]) ExtendWithContext(ctx context.Context, l Loader) error {
 	if ctx == nil {
-		return &ConfigError{Op: "Extend", Err: fmt.Errorf("%w: nil context", ErrConfigInvalid)}
+		return &ConfigError{Op: "Extend", Code: ConfigErrorCodeInvalid, Err: errors.New("nil context")}
 	}
 	if l == nil {
-		return &ConfigError{Op: "Extend", Err: fmt.Errorf("%w: nil loader", ErrConfigInvalid)}
+		return &ConfigError{Op: "Extend", Code: ConfigErrorCodeInvalid, Err: errors.New("nil loader")}
 	}
 	return c.runSourceTransaction(ctx, extendTransaction, func(ctx context.Context, candidate *Config[T]) (sourceTransactionOutcome, error) {
 		return candidate.prepareExtendCandidate(ctx, l)

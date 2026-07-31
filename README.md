@@ -858,6 +858,10 @@ versions := vm.ListVersions()   // all snapshots, newest first
 cfg.RollbackToVersion(v1.VersionID)
 ```
 
+Rollback validates before publication, restores version-based source
+attribution, and emits the same change callbacks, metrics, and lifecycle events
+as other snapshot mutations.
+
 > **Full example:** [`examples/versioning/`](examples/versioning/main.go)
 
 ---

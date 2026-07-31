@@ -20,17 +20,19 @@ func buildExporterRegistry(custom []Exporter) (map[string]Exporter, error) {
 	for index, exporter := range custom {
 		if isNilExtension(exporter) {
 			return nil, &ConfigError{
-				Op:  "New",
-				Err: fmt.Errorf("%w: exporter %d is nil", ErrConfigInvalid, index),
+				Op:   "New",
+				Code: ConfigErrorCodeInvalid,
+				Err:  fmt.Errorf("exporter %d is nil", index),
 			}
 		}
 		format := exporter.Format()
 		if format == "" || format != strings.TrimSpace(format) || format != strings.ToLower(format) {
 			return nil, &ConfigError{
-				Op: "New",
+				Op:   "New",
+				Code: ConfigErrorCodeInvalid,
 				Err: fmt.Errorf(
-					"%w: exporter %d returned non-canonical format %q; use a non-empty lowercase name without surrounding whitespace",
-					ErrConfigInvalid, index, format,
+					"exporter %d returned non-canonical format %q; use a non-empty lowercase name without surrounding whitespace",
+					index, format,
 				),
 			}
 		}
@@ -43,8 +45,9 @@ func validateCustomValidators(validators []Validator) error {
 	for index, validator := range validators {
 		if isNilExtension(validator) {
 			return &ConfigError{
-				Op:  "New",
-				Err: fmt.Errorf("%w: validator %d is nil", ErrConfigInvalid, index),
+				Op:   "New",
+				Code: ConfigErrorCodeInvalid,
+				Err:  fmt.Errorf("validator %d is nil", index),
 			}
 		}
 	}

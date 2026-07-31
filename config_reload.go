@@ -93,8 +93,9 @@ func (c *Config[T]) prepareReloadCandidate(ctx context.Context, opts ...ReloadOp
 	}
 	if err := c.materializeEffectiveConfig(ctx); err != nil {
 		materializeErr := &ConfigError{
-			Op:  "Reload",
-			Err: fmt.Errorf("%w: materialize effective configuration: %w", ErrConfigLoad, err),
+			Op:   "Reload",
+			Code: ConfigErrorCodeLoad,
+			Err:  fmt.Errorf("materialize effective configuration: %w", err),
 		}
 		return sourceTransactionOutcome{}, materializeErr
 	}

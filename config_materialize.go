@@ -5,8 +5,8 @@ package confii
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"reflect"
 	"sort"
 	"sync"
 	"time"
@@ -21,7 +21,7 @@ import (
 // candidate and restore both maps on failure.
 func (c *Config[T]) materializeEffectiveConfig(ctx context.Context) error {
 	if ctx == nil {
-		return &ConfigError{Op: "Materialize", Err: fmt.Errorf("%w: nil context", ErrConfigInvalid)}
+		return &ConfigError{Op: "Materialize", Code: ConfigErrorCodeInvalid, Err: errors.New("nil context")}
 	}
 	if err := ctx.Err(); err != nil {
 		return err
@@ -40,7 +40,7 @@ func (c *Config[T]) materializeEffectiveConfig(ctx context.Context) error {
 
 func (c *Config[T]) materializeEffectiveValue(ctx context.Context, keyPath string, value any) (any, error) {
 	if ctx == nil {
-		return nil, &ConfigError{Op: "Materialize", Key: keyPath, Err: fmt.Errorf("%w: nil context", ErrConfigInvalid)}
+		return nil, &ConfigError{Op: "Materialize", Key: keyPath, Code: ConfigErrorCodeInvalid, Err: errors.New("nil context")}
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -217,12 +217,11 @@ func (c *Config[T]) RefreshSecrets() error {
 // source change returns an error and preserves the previous snapshot.
 func (c *Config[T]) RefreshSecretsWithContext(ctx context.Context) error {
 	if ctx == nil {
-		return &ConfigError{Op: "RefreshSecrets", Err: fmt.Errorf("%w: nil context", ErrConfigInvalid)}
+		return &ConfigError{Op: "RefreshSecrets", Code: ConfigErrorCodeInvalid, Err: errors.New("nil context")}
 	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	started := time.Now()
 	c.mu.RLock()
 	if c.closed {
 		c.mu.RUnlock()
@@ -232,28 +231,57 @@ func (c *Config[T]) RefreshSecretsWithContext(ctx context.Context) error {
 		c.mu.RUnlock()
 		return NewFrozenError("RefreshSecrets")
 	}
-	raw := dictutil.DeepCopy(c.unresolvedEnvConfig)
-	before := dictutil.DeepCopy(c.envConfig)
+	hasUnresolvedSnapshot := c.unresolvedEnvConfig != nil
 	c.mu.RUnlock()
-
-	if raw == nil {
+	if !hasUnresolvedSnapshot {
 		return nil
 	}
+
+	started := time.Now()
 	if invalidator, ok := c.opts.SecretResolver.(interface{ ClearCache() }); ok {
 		invalidator.ClearCache()
 	}
 
+	for {
+		err := c.refreshSecretsAttempt(ctx, started)
+		if !errors.Is(err, errConfigRevisionConflict) {
+			return err
+		}
+	}
+}
+
+// refreshSecretsAttempt resolves one private candidate from a specific
+// published revision. A revision conflict asks the caller to rebuild the
+// candidate from the newest unresolved snapshot; superseded attempts emit no
+// callbacks, metrics, or events.
+func (c *Config[T]) refreshSecretsAttempt(ctx context.Context, started time.Time) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	c.mu.RLock()
+	if c.closed {
+		c.mu.RUnlock()
+		return NewClosedError("RefreshSecrets")
+	}
+	if c.frozen {
+		c.mu.RUnlock()
+		return NewFrozenError("RefreshSecrets")
+	}
+	baseRevision := c.revision
+	raw := dictutil.DeepCopy(c.unresolvedEnvConfig)
+	before := dictutil.DeepCopy(c.envConfig)
+	c.mu.RUnlock()
+
 	resolved, err := c.applySecretHookRecursive(withSecretResolutionSession(ctx), "", dictutil.DeepCopy(raw))
 	if err != nil {
 		return &ConfigError{
-			Op:  "RefreshSecrets",
-			Err: fmt.Errorf("%w: resolve effective configuration: %w", ErrConfigLoad, err),
+			Op:   "RefreshSecrets",
+			Code: ConfigErrorCodeLoad,
+			Err:  fmt.Errorf("resolve effective configuration: %w", err),
 		}
 	}
 	if err := c.validateMaterializedCandidate(resolved); err != nil {
-		return err
-	}
-	if err := ctx.Err(); err != nil {
 		return err
 	}
 
@@ -262,32 +290,24 @@ func (c *Config[T]) RefreshSecretsWithContext(ctx context.Context) error {
 		c.mu.Unlock()
 		return err
 	}
-	if !reflect.DeepEqual(raw, c.unresolvedEnvConfig) {
+	if c.closed {
 		c.mu.Unlock()
-		return &ConfigError{
-			Op:  "RefreshSecrets",
-			Err: fmt.Errorf("%w: configuration changed while secrets were being refreshed", ErrConfigLoad),
-		}
+		return NewClosedError("RefreshSecrets")
+	}
+	if c.frozen {
+		c.mu.Unlock()
+		return NewFrozenError("RefreshSecrets")
+	}
+	if c.revision != baseRevision {
+		c.mu.Unlock()
+		return errConfigRevisionConflict
 	}
 	c.envConfig = resolved
 	c.validatedModel = nil
 	c.revision++
-	callbacks := c.snapshotChangeCallbacks()
-	contextCallbacks := c.snapshotChangeContextCallbacks()
-	oldFlat := dictutil.Flatten(before)
-	newFlat := dictutil.Flatten(resolved)
-	observer := c.observer
-	emitter := c.eventEmitter
+	change := c.captureCommittedChange(before, resolved)
 	c.mu.Unlock()
 
-	c.notifyChangesUnlocked(callbacks, oldFlat, newFlat)
-	c.notifyContextChangesUnlocked(ctx, contextCallbacks, oldFlat, newFlat)
-	if observer != nil {
-		observer.RecordChange()
-	}
-	if emitter != nil {
-		emitter.EmitWithContext(ctx, "secrets_refreshed", nil, time.Since(started))
-		emitter.EmitWithContext(ctx, "change", before, dictutil.DeepCopy(resolved))
-	}
+	c.deliverCommittedChange(ctx, change, nil, "secrets_refreshed", nil, time.Since(started))
 	return nil
 }

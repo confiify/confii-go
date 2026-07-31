@@ -121,6 +121,28 @@ func TestOnChangeWithContextReceivesMutationContext(t *testing.T) {
 	assert.Equal(t, "trace-123", received)
 }
 
+func TestOverrideRestoreNotifiesContextCallbacks(t *testing.T) {
+	cfg, err := New[any](WithLoaders(&contextMapLoader{name: "context", data: map[string]any{"key": "base"}}))
+	require.NoError(t, err)
+	restored := make(chan context.Context, 1)
+	cfg.OnChangeWithContext(func(callbackCtx context.Context, key string, oldValue, newValue any) {
+		if key == "key" && oldValue == "temporary" && newValue == "base" {
+			restored <- callbackCtx
+		}
+	})
+	restore, err := cfg.Override(map[string]any{"key": "temporary"})
+	require.NoError(t, err)
+	restore()
+
+	select {
+	case callbackCtx := <-restored:
+		require.NotNil(t, callbackCtx)
+		assert.NoError(t, callbackCtx.Err())
+	case <-time.After(time.Second):
+		t.Fatal("override restore did not notify context-aware callbacks")
+	}
+}
+
 type closeableLoader struct {
 	closed atomic.Int32
 }

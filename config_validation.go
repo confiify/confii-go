@@ -21,8 +21,9 @@ func resolveSchemaValidator(opts *options) (*validate.JSONSchemaValidator, error
 		v, err := validate.NewJSONSchemaValidator(m)
 		if err != nil {
 			return nil, &ConfigError{
-				Op:  "New",
-				Err: fmt.Errorf("%w: compile inline JSON schema: %w", ErrConfigValidation, err),
+				Op:   "New",
+				Code: ConfigErrorCodeValidation,
+				Err:  fmt.Errorf("compile inline JSON schema: %w", err),
 			}
 		}
 		return v, nil
@@ -33,7 +34,8 @@ func resolveSchemaValidator(opts *options) (*validate.JSONSchemaValidator, error
 			return nil, &ConfigError{
 				Op:     "New",
 				Source: opts.SchemaPath,
-				Err:    fmt.Errorf("%w: load JSON schema from path: %w", ErrConfigValidation, err),
+				Code:   ConfigErrorCodeValidation,
+				Err:    fmt.Errorf("load JSON schema from path: %w", err),
 			}
 		}
 		return v, nil
@@ -73,11 +75,9 @@ func (c *Config[T]) validateCandidate(candidate map[string]any, enabled bool) er
 			// Sanitized public message: count of violations, no raw
 			// values. Full structured detail is on Context.
 			return &ConfigError{
-				Op: "Validate",
-				Err: fmt.Errorf(
-					"%w: schema validation failed for %d constraint(s)",
-					ErrConfigValidation, count,
-				),
+				Op:   "Validate",
+				Code: ConfigErrorCodeValidation,
+				Err:  fmt.Errorf("schema validation failed for %d constraint(s)", count),
 				Context: map[string]any{
 					"schema_errors": msgs,
 				},
@@ -88,11 +88,9 @@ func (c *Config[T]) validateCandidate(candidate map[string]any, enabled bool) er
 	for index, validator := range c.opts.Validators {
 		if err := validator.Validate(dictutil.DeepCopy(candidate)); err != nil {
 			return &ConfigError{
-				Op: "Validate",
-				Err: fmt.Errorf(
-					"%w: custom validator %d: %w",
-					ErrConfigValidation, index, err,
-				),
+				Op:   "Validate",
+				Code: ConfigErrorCodeValidation,
+				Err:  fmt.Errorf("custom validator %d: %w", index, err),
 			}
 		}
 	}

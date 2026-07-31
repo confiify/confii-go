@@ -60,7 +60,13 @@ if err := cfg.RefreshSecretsWithContext(ctx); err != nil {
 
 `Reload` performs the same eager materialization after rebuilding the source
 layers. A failed provider read or validation leaves the prior configuration
-active. Hooks must be supplied before construction with `confii.WithSecretHook`,
+active. If another mutation publishes while a refresh candidate is being
+resolved, Confii discards that candidate and retries from the newest unresolved
+snapshot. A concurrent `Freeze` or `Close` prevents publication even when the
+provider request had already started. Only the committed attempt invokes change
+callbacks, records metrics, or emits lifecycle events.
+
+Hooks must be supplied before construction with `confii.WithSecretHook`,
 `confii.WithSecretResolver`, or the general construction-time hook options.
 The plan is frozen after `New` succeeds and every access surface observes the
 same published values. See [Hooks](hooks.md#runtime-read-behavior).

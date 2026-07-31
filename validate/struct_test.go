@@ -146,11 +146,11 @@ func TestDecode_ConfiiTagContract(t *testing.T) {
 }
 
 func TestDecode_MapstructureTagIsNotAPublicAlias(t *testing.T) {
-	type legacyTagged struct {
-		Name string `mapstructure:"legacy_name"`
+	type mapstructureTagged struct {
+		Name string `mapstructure:"external_name"`
 	}
 
-	result, err := Decode[legacyTagged](map[string]any{"legacy_name": "legacy"})
+	result, err := Decode[mapstructureTagged](map[string]any{"external_name": "external"})
 	require.NoError(t, err)
 	assert.Empty(t, result.Name)
 }

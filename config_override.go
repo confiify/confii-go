@@ -11,6 +11,7 @@ import (
 	"sort"
 
 	"github.com/confiify/confii-go/v2/internal/dictutil"
+	"github.com/confiify/confii-go/v2/observe"
 	"github.com/confiify/confii-go/v2/sourcetrack"
 )
 
@@ -83,8 +84,9 @@ func (c *Config[T]) OverrideWithContext(ctx context.Context, overrides map[strin
 		resolved, resolveErr := c.materializeEffectiveValue(ctx, key, rawOverrides[key])
 		if resolveErr != nil {
 			return nil, &ConfigError{
-				Op:  "Override",
-				Err: fmt.Errorf("%w: materialize %q: %w", ErrConfigLoad, key, resolveErr),
+				Op:   "Override",
+				Code: ConfigErrorCodeLoad,
+				Err:  fmt.Errorf("materialize %q: %w", key, resolveErr),
 			}
 		}
 		effectiveOverrides[key] = resolved
@@ -165,24 +167,12 @@ func (c *Config[T]) OverrideWithContext(ctx context.Context, overrides map[strin
 		c.overrideStack = append(c.overrideStack, frame)
 		c.frozen = false
 		c.publishRuntimeMutationCandidate(candidate)
-
-		overrideCallbacks := c.snapshotChangeCallbacks()
-		overrideContextCallbacks := c.snapshotChangeContextCallbacks()
-		observer, emitter := c.observer, c.eventEmitter
+		change := c.captureCommittedChange(preOverrideEnv, newEnv)
 		c.mu.Unlock()
 
-		overrideOldFlat := dictutil.Flatten(preOverrideEnv)
-		overrideNewFlat := dictutil.Flatten(newEnv)
-		c.notifyChangesUnlocked(overrideCallbacks, overrideOldFlat, overrideNewFlat)
-		c.notifyContextChangesUnlocked(ctx, overrideContextCallbacks, overrideOldFlat, overrideNewFlat)
-		if observer != nil {
+		c.deliverCommittedChange(ctx, change, func(observer *observe.Metrics) {
 			observer.RecordOverride()
-			observer.RecordChange()
-		}
-		if emitter != nil {
-			emitter.EmitWithContext(ctx, "override", dictutil.DeepCopy(rawOverrides))
-			emitter.EmitWithContext(ctx, "change", preOverrideEnv, copyMap(newEnv))
-		}
+		}, "override", dictutil.DeepCopy(rawOverrides))
 		return c.makeOverrideRestore(frame), nil
 	}
 }
@@ -291,24 +281,13 @@ func (c *Config[T]) makeOverrideRestore(frame *overrideFrame) func() {
 		c.validatedModel = nil
 		c.revision++
 
-		restoreCallbacks := c.snapshotChangeCallbacks()
-		restoreOldFlat := dictutil.Flatten(preRestoreEnv)
-		restoreNewFlat := dictutil.Flatten(c.envConfig)
 		newEnv := copyMap(c.envConfig)
-		restoreObserver := c.observer
-		restoreEmitter := c.eventEmitter
+		change := c.captureCommittedChange(preRestoreEnv, newEnv)
 
 		c.mu.Unlock()
 
-		c.notifyChangesUnlocked(restoreCallbacks, restoreOldFlat, restoreNewFlat)
-
-		if restoreObserver != nil {
-			restoreObserver.RecordOverrideRestored()
-			restoreObserver.RecordChange()
-		}
-		if restoreEmitter != nil {
-			restoreEmitter.Emit("override_restored", newEnv)
-			restoreEmitter.Emit("change", preRestoreEnv, newEnv)
-		}
+		c.deliverCommittedChange(context.Background(), change, func(observer *observe.Metrics) {
+			observer.RecordOverrideRestored()
+		}, "override_restored", newEnv)
 	}
 }

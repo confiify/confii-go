@@ -10,9 +10,8 @@ import (
 	"strings"
 )
 
-// Sentinel errors classify failures for use with [errors.Is]. Public APIs may
-// wrap both a category and an operational cause; use [errors.As] to inspect a
-// [ConfigError] and its structured fields.
+// Sentinel errors classify failures for use with [errors.Is]. Use [errors.As]
+// to inspect a [ConfigError], its stable code, and its structured fields.
 var (
 	ErrConfigLoad       = errors.New("config load error")
 	ErrConfigFormat     = errors.New("config format error")
@@ -44,9 +43,70 @@ var (
 // still inspect every candidate programmatically.
 const availableKeysCap = 10
 
-// ConfigError is a structured error that captures the failing operation,
-// the source and key involved, and an underlying sentinel error. Use
-// [errors.Is] or [errors.As] to inspect the chain.
+// ConfigErrorCode is a stable, machine-readable failure category. Error text
+// remains operator-oriented and may evolve; callers that need a durable
+// classification should inspect [ConfigError.Code] or use [errors.Is] with the
+// corresponding sentinel error.
+type ConfigErrorCode string
+
+const (
+	// ConfigErrorCodeLoad identifies source loading, initialization, or
+	// materialization failures.
+	ConfigErrorCodeLoad ConfigErrorCode = "config_load"
+	// ConfigErrorCodeFormat identifies invalid source content or an incompatible
+	// declared source format.
+	ConfigErrorCodeFormat ConfigErrorCode = "config_format"
+	// ConfigErrorCodeValidation identifies schema, typed-model, or custom
+	// validator failures.
+	ConfigErrorCodeValidation ConfigErrorCode = "config_validation"
+	// ConfigErrorCodeNotFound identifies a requested configuration key that is
+	// absent from the effective snapshot.
+	ConfigErrorCodeNotFound ConfigErrorCode = "config_not_found"
+	// ConfigErrorCodeMerge identifies values that cannot be combined under the
+	// selected merge strategy.
+	ConfigErrorCodeMerge ConfigErrorCode = "config_merge"
+	// ConfigErrorCodeFrozen identifies a mutation rejected because the Config is
+	// frozen.
+	ConfigErrorCodeFrozen ConfigErrorCode = "config_frozen"
+	// ConfigErrorCodeClosed identifies an operation rejected after Config.Close.
+	ConfigErrorCodeClosed ConfigErrorCode = "config_closed"
+	// ConfigErrorCodeAccess identifies a value that cannot be represented as the
+	// requested access type.
+	ConfigErrorCodeAccess ConfigErrorCode = "config_access"
+	// ConfigErrorCodeInvalid identifies an invalid operation argument or mutation
+	// path.
+	ConfigErrorCodeInvalid ConfigErrorCode = "config_invalid"
+)
+
+func (code ConfigErrorCode) sentinel() error {
+	switch code {
+	case ConfigErrorCodeLoad:
+		return ErrConfigLoad
+	case ConfigErrorCodeFormat:
+		return ErrConfigFormat
+	case ConfigErrorCodeValidation:
+		return ErrConfigValidation
+	case ConfigErrorCodeNotFound:
+		return ErrConfigNotFound
+	case ConfigErrorCodeMerge:
+		return ErrConfigMerge
+	case ConfigErrorCodeFrozen:
+		return ErrConfigFrozen
+	case ConfigErrorCodeClosed:
+		return ErrConfigClosed
+	case ConfigErrorCodeAccess:
+		return ErrConfigAccess
+	case ConfigErrorCodeInvalid:
+		return ErrConfigInvalid
+	default:
+		return nil
+	}
+}
+
+// ConfigError captures the failing operation, stable category, source, key,
+// concrete cause, and structured diagnostic context. Use [errors.Is] for the
+// category, [errors.As] for this type or the concrete cause, and Code when a
+// serializable machine-facing identifier is required.
 //
 // The Context field carries the full structured payload (e.g. the complete
 // list of available keys for not-found errors); the Error string form is
@@ -54,15 +114,11 @@ const availableKeysCap = 10
 // alphabetically, summarizes nested collections, and caps long key lists.
 // To read the unbounded data, inspect Context directly.
 type ConfigError struct {
-	Op     string // operation that failed (e.g., "Load", "Get", "Set")
-	Source string // source identifier (e.g., file path, URL)
-	Key    string // config key involved, if applicable
-	Err    error  // underlying error (wraps a sentinel)
-	// Cause preserves the concrete operational failure separately from Err's
-	// stable Confii category. Error renders Err for operators, while
-	// errors.Is/errors.As can still discover cancellation, deadline, SDK, and
-	// filesystem causes through Unwrap.
-	Cause   error
+	Op      string          // operation that failed (e.g., "Load", "Get", "Set")
+	Source  string          // source identifier (e.g., file path, URL)
+	Key     string          // config key involved, if applicable
+	Code    ConfigErrorCode // stable failure category
+	Err     error           // concrete operational cause, if any
 	Context map[string]any
 }
 
@@ -88,7 +144,16 @@ func (e *ConfigError) Error() string {
 	if e.Key != "" {
 		fmt.Fprintf(&b, "key %q: ", e.Key)
 	}
+	category := e.Code.sentinel()
+	if category != nil {
+		b.WriteString(category.Error())
+	} else if e.Code != "" {
+		b.WriteString(string(e.Code))
+	}
 	if e.Err != nil {
+		if category != nil || e.Code != "" {
+			b.WriteString(": ")
+		}
 		b.WriteString(e.Err.Error())
 	}
 	if len(e.Context) > 0 {
@@ -98,22 +163,26 @@ func (e *ConfigError) Error() string {
 	return b.String()
 }
 
-// Unwrap returns the stable Confii category and, when distinct, the concrete
-// operational cause. This permits errors.Is/errors.As to match either one.
-func (e *ConfigError) Unwrap() []error {
+// Unwrap returns the concrete operational cause. Category matching is
+// implemented by Is so the error chain contains only one wrapped cause.
+func (e *ConfigError) Unwrap() error {
 	if e == nil {
 		return nil
 	}
-	if e.Cause == nil || e.Cause == e.Err {
-		if e.Err == nil {
-			return nil
-		}
-		return []error{e.Err}
+	return e.Err
+}
+
+// Is reports whether target matches this error's stable category or concrete
+// cause. It preserves the standard errors.Is contract without constructing a
+// synthetic multi-error chain.
+func (e *ConfigError) Is(target error) bool {
+	if e == nil {
+		return false
 	}
-	if e.Err == nil {
-		return []error{e.Cause}
+	if category := e.Code.sentinel(); category != nil && target == category {
+		return true
 	}
-	return []error{e.Err, e.Cause}
+	return errors.Is(e.Err, target)
 }
 
 // formatContext renders ctx as a deterministic, single-line, comma-separated
@@ -201,8 +270,8 @@ func NewLoadError(source string, err error) error {
 	return &ConfigError{
 		Op:     "Load",
 		Source: source,
-		Err:    fmt.Errorf("%w: %v", ErrConfigLoad, err),
-		Cause:  err,
+		Code:   ConfigErrorCodeLoad,
+		Err:    err,
 	}
 }
 
@@ -213,8 +282,8 @@ func NewFormatError(source, formatType string, err error) error {
 	return &ConfigError{
 		Op:     "Parse",
 		Source: source,
-		Err:    fmt.Errorf("%w: %v", ErrConfigFormat, err),
-		Cause:  err,
+		Code:   ConfigErrorCodeFormat,
+		Err:    err,
 		Context: map[string]any{
 			"format_type": formatType,
 		},
@@ -230,9 +299,9 @@ func NewFormatError(source, formatType string, err error) error {
 // Context field.
 func NewNotFoundError(key string, availableKeys []string) error {
 	return &ConfigError{
-		Op:  "Get",
-		Key: key,
-		Err: ErrConfigNotFound,
+		Op:   "Get",
+		Key:  key,
+		Code: ConfigErrorCodeNotFound,
 		Context: map[string]any{
 			"available_keys": availableKeys,
 		},
@@ -244,9 +313,9 @@ func NewNotFoundError(key string, availableKeys []string) error {
 // programmatic reporting, while original remains in the error chain.
 func NewValidationError(errs []string, original error) error {
 	return &ConfigError{
-		Op:    "Validate",
-		Err:   fmt.Errorf("%w: %v", ErrConfigValidation, original),
-		Cause: original,
+		Op:   "Validate",
+		Code: ConfigErrorCodeValidation,
+		Err:  original,
 		Context: map[string]any{
 			"validation_errors": errs,
 		},
@@ -257,15 +326,15 @@ func NewValidationError(errs []string, original error) error {
 // records the rejected operation name.
 func NewFrozenError(op string) error {
 	return &ConfigError{
-		Op:  op,
-		Err: ErrConfigFrozen,
+		Op:   op,
+		Code: ConfigErrorCodeFrozen,
 	}
 }
 
 // NewClosedError returns a [ConfigError] categorized as [ErrConfigClosed] for a
 // mutation attempted after [Config.Close].
 func NewClosedError(op string) error {
-	return &ConfigError{Op: op, Err: ErrConfigClosed}
+	return &ConfigError{Op: op, Code: ConfigErrorCodeClosed}
 }
 
 // NewInvalidError returns a [ConfigError] categorized as [ErrConfigInvalid].
@@ -273,9 +342,9 @@ func NewClosedError(op string) error {
 // available through the error chain.
 func NewInvalidError(op, key string, err error) error {
 	return &ConfigError{
-		Op:    op,
-		Key:   key,
-		Err:   fmt.Errorf("%w: %v", ErrConfigInvalid, err),
-		Cause: err,
+		Op:   op,
+		Key:  key,
+		Code: ConfigErrorCodeInvalid,
+		Err:  err,
 	}
 }

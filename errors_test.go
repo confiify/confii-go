@@ -22,6 +22,49 @@ func TestConfigError_Unwrap(t *testing.T) {
 	assert.True(t, errors.As(err, &ce))
 	assert.Equal(t, "Load", ce.Op)
 	assert.Equal(t, "config.yaml", ce.Source)
+	assert.Equal(t, ConfigErrorCodeLoad, ce.Code)
+	assert.Equal(t, cause, ce.Err)
+}
+
+func TestConfigErrorCode_MatchesSentinelCategories(t *testing.T) {
+	tests := []struct {
+		code     ConfigErrorCode
+		sentinel error
+	}{
+		{ConfigErrorCodeLoad, ErrConfigLoad},
+		{ConfigErrorCodeFormat, ErrConfigFormat},
+		{ConfigErrorCodeValidation, ErrConfigValidation},
+		{ConfigErrorCodeNotFound, ErrConfigNotFound},
+		{ConfigErrorCodeMerge, ErrConfigMerge},
+		{ConfigErrorCodeFrozen, ErrConfigFrozen},
+		{ConfigErrorCodeClosed, ErrConfigClosed},
+		{ConfigErrorCodeAccess, ErrConfigAccess},
+		{ConfigErrorCodeInvalid, ErrConfigInvalid},
+	}
+	for _, test := range tests {
+		t.Run(string(test.code), func(t *testing.T) {
+			err := &ConfigError{Op: "Test", Code: test.code}
+			assert.ErrorIs(t, err, test.sentinel)
+			assert.Contains(t, err.Error(), test.sentinel.Error())
+		})
+	}
+
+	unknown := &ConfigError{Op: "Test", Code: ConfigErrorCode("unknown")}
+	assert.False(t, unknown.Is(ErrConfigLoad))
+	assert.Equal(t, "Test: unknown", unknown.Error())
+}
+
+func TestConfigError_OneCauseChain(t *testing.T) {
+	cause := errors.New("provider unavailable")
+	err := &ConfigError{Op: "Load", Code: ConfigErrorCodeLoad, Err: cause}
+	assert.Equal(t, cause, err.Unwrap())
+	assert.ErrorIs(t, err, ErrConfigLoad)
+	assert.ErrorIs(t, err, cause)
+	assert.Contains(t, err.Error(), "config load error: provider unavailable")
+
+	var nilConfigError *ConfigError
+	assert.Nil(t, nilConfigError.Unwrap())
+	assert.False(t, nilConfigError.Is(ErrConfigLoad))
 }
 
 func TestConfigError_ErrorMessage(t *testing.T) {
@@ -51,7 +94,7 @@ func TestConfigError_DeterministicContextOrder(t *testing.T) {
 	ce := &ConfigError{
 		Op:      "Get",
 		Key:     "some.key",
-		Err:     ErrConfigAccess,
+		Code:    ConfigErrorCodeAccess,
 		Context: ctx,
 	}
 
@@ -71,8 +114,8 @@ func TestConfigError_LargeContextSummarized(t *testing.T) {
 		big[fmt.Sprintf("k%04d", i)] = i
 	}
 	ce := &ConfigError{
-		Op:  "Load",
-		Err: ErrConfigLoad,
+		Op:   "Load",
+		Code: ConfigErrorCodeLoad,
 		Context: map[string]any{
 			"foo": big,
 		},
@@ -121,7 +164,7 @@ func TestConfigKeyNotFound_SmallListNotTruncated(t *testing.T) {
 	assert.NotContains(t, msg, "more...")
 }
 
-func TestConfigError_PreservesPrefix(t *testing.T) {
+func TestConfigError_RendersCategory(t *testing.T) {
 	cases := []struct {
 		name   string
 		err    error
@@ -156,7 +199,7 @@ func TestConfigError_PreservesPrefix(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			assert.Contains(t, tc.err.Error(), tc.prefix,
-				"expected %q to contain legacy prefix %q", tc.err.Error(), tc.prefix)
+				"expected %q to contain category text %q", tc.err.Error(), tc.prefix)
 		})
 	}
 }

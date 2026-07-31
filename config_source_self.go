@@ -52,24 +52,27 @@ func buildRegisteredSelfConfigSource(ctx context.Context, sourceType string, cfg
 	factory, ok := LookupSelfConfigSourceProvider(sourceType)
 	if !ok {
 		return nil, &ConfigError{
-			Op: "ApplySelfConfig",
+			Op:   "ApplySelfConfig",
+			Code: ConfigErrorCodeLoad,
 			Err: fmt.Errorf(
-				"%w: unsupported self-config source type %q (built in: environment_files, yaml, json, toml, ini, dotenv, environment; registered: %s)",
-				ErrConfigLoad, sourceType, registeredSelfConfigSourceProviderNames(),
+				"unsupported self-config source type %q (built in: environment_files, yaml, json, toml, ini, dotenv, environment; registered: %s)",
+				sourceType, registeredSelfConfigSourceProviderNames(),
 			),
 		}
 	}
 	loader, err := factory(ctx, cfg)
 	if err != nil {
 		return nil, &ConfigError{
-			Op:  "ApplySelfConfig",
-			Err: fmt.Errorf("%w: self-config source provider %q failed to build: %w", ErrConfigLoad, sourceType, err),
+			Op:   "ApplySelfConfig",
+			Code: ConfigErrorCodeLoad,
+			Err:  fmt.Errorf("self-config source provider %q failed to build: %w", sourceType, err),
 		}
 	}
 	if loader == nil {
 		return nil, &ConfigError{
-			Op:  "ApplySelfConfig",
-			Err: fmt.Errorf("%w: self-config source provider %q returned a nil loader", ErrConfigLoad, sourceType),
+			Op:   "ApplySelfConfig",
+			Code: ConfigErrorCodeLoad,
+			Err:  fmt.Errorf("self-config source provider %q returned a nil loader", sourceType),
 		}
 	}
 	return loader, nil

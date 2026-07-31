@@ -144,7 +144,29 @@ fmt.Println(host) // value from v1
 ```
 
 !!! warning "Rollback replaces the entire config"
-    Rollback replaces both `envConfig` and `mergedConfig` with the snapshot data. The typed model cache is invalidated. Subsequent `Typed()` calls will re-decode.
+    Rollback validates the stored materialized snapshot against the current
+    validation plan before atomically replacing the effective, unresolved, and
+    merged views. If validation or a lifecycle check fails, the current snapshot
+    remains active. The typed model cache is invalidated, so the next `Typed()`
+    call decodes the restored values.
+
+!!! note "Sources and secret refresh after rollback"
+    Version records contain ready materialized values rather than loader input
+    or secret references. Source inspection attributes every restored leaf to
+    `version:<version-id>` with loader type `version`. `RefreshSecrets` is
+    therefore a no-op until source configuration is loaded again. Use a
+    non-incremental reload when you want to leave the rollback snapshot and
+    rebuild from all configured sources:
+
+    ```go
+    err := cfg.Reload(confii.WithIncremental(false))
+    ```
+
+!!! note "Observable rollback"
+    A successful rollback invokes `OnChange` and `OnChangeWithContext` for each
+    changed leaf, increments `change_count` when observability is enabled, and
+    emits `rollback` followed by `change`. Callbacks and event listeners run
+    after publication and may safely read the restored Config.
 
 !!! warning "Frozen configs cannot rollback"
     `RollbackToVersion` returns `ErrConfigFrozen` if the config is frozen.

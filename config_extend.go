@@ -78,8 +78,9 @@ func (c *Config[T]) prepareExtendCandidate(ctx context.Context, l Loader) (sourc
 	c.envConfig = c.merger.Merge(rawBase, resolved)
 	if err := c.materializeEffectiveConfig(ctx); err != nil {
 		materializeErr := &ConfigError{
-			Op:  "Extend",
-			Err: fmt.Errorf("%w: materialize effective configuration: %w", ErrConfigLoad, err),
+			Op:   "Extend",
+			Code: ConfigErrorCodeLoad,
+			Err:  fmt.Errorf("materialize effective configuration: %w", err),
 		}
 		return sourceTransactionOutcome{}, materializeErr
 	}

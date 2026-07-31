@@ -104,7 +104,18 @@ emitter := cfg.EnableEvents()
 | Event | When it fires | Arguments |
 |-------|---------------|-----------|
 | `reload` | After a successful reload | `config map[string]any`, `duration time.Duration` |
-| `change` | After config values change during reload | `oldConfig map[string]any`, `newConfig map[string]any` |
+| `extend` | After a source is successfully added | `config map[string]any`, `duration time.Duration` |
+| `set` | After `Set` publishes | `key string`, `value any` |
+| `override` | After an override is applied | `overrides map[string]any` |
+| `override_restored` | After an override frame is restored | `config map[string]any` |
+| `secrets_refreshed` | After refreshed secrets are published | `nil`, `duration time.Duration` |
+| `rollback` | After a version is restored | `versionID string`, `config map[string]any` |
+| `change` | After any successful snapshot mutation | `oldConfig map[string]any`, `newConfig map[string]any` |
+
+Operation-specific events are delivered before the generic `change` event.
+The maps supplied to `change` are detached snapshots and cannot mutate the live
+Config. Superseded optimistic transaction attempts emit nothing; one committed
+operation produces one operation event and one `change` event.
 
 ### On / Off / Emit Pattern
 

@@ -24,6 +24,27 @@ type eagerMaterializeLoader struct {
 	data map[string]any
 }
 
+type cacheTrackingResolver struct {
+	clears  atomic.Int32
+	onClear func()
+}
+
+func (r *cacheTrackingResolver) Hook() hook.Func {
+	return func(_ context.Context, _ string, value any) (any, error) {
+		if text, ok := value.(string); ok && strings.HasPrefix(text, "${secret:") {
+			return "resolved", nil
+		}
+		return value, nil
+	}
+}
+
+func (r *cacheTrackingResolver) ClearCache() {
+	r.clears.Add(1)
+	if r.onClear != nil {
+		r.onClear()
+	}
+}
+
 func (l *eagerMaterializeLoader) Source() string { return "eager-materialize-test" }
 func (l *eagerMaterializeLoader) Load(context.Context) (map[string]any, error) {
 	l.mu.RLock()
@@ -209,7 +230,71 @@ func TestRefreshSecretsFailurePreservesReadySnapshot(t *testing.T) {
 	assert.Equal(t, "known-good", cfg.GetStringOr("token", ""))
 }
 
-func TestRefreshSecretsRejectsConcurrentRawMutation(t *testing.T) {
+func TestRefreshSecretsDoesNotClearCacheWhenLifecycleRejectsAdmission(t *testing.T) {
+	t.Parallel()
+	newConfig := func(t *testing.T, resolver *cacheTrackingResolver) *confii.Config[any] {
+		t.Helper()
+		cfg, err := confii.New[any](
+			confii.WithLoaders(&eagerMaterializeLoader{data: map[string]any{"token": "${secret:key}"}}),
+			confii.WithSecretResolver(resolver),
+		)
+		require.NoError(t, err)
+		return cfg
+	}
+
+	t.Run("frozen", func(t *testing.T) {
+		resolver := &cacheTrackingResolver{}
+		cfg := newConfig(t, resolver)
+		cfg.Freeze()
+		require.ErrorIs(t, cfg.RefreshSecrets(), confii.ErrConfigFrozen)
+		assert.Zero(t, resolver.clears.Load())
+	})
+
+	t.Run("closed", func(t *testing.T) {
+		resolver := &cacheTrackingResolver{}
+		cfg := newConfig(t, resolver)
+		require.NoError(t, cfg.Close())
+		require.ErrorIs(t, cfg.RefreshSecrets(), confii.ErrConfigClosed)
+		assert.Zero(t, resolver.clears.Load())
+	})
+}
+
+func TestRefreshSecretsContextAdmission(t *testing.T) {
+	t.Parallel()
+	cfg, err := confii.New[any](confii.WithLoaders(&eagerMaterializeLoader{data: map[string]any{"ready": true}}))
+	require.NoError(t, err)
+	var nilContext context.Context
+	require.ErrorIs(t, cfg.RefreshSecretsWithContext(nilContext), confii.ErrConfigInvalid)
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	require.ErrorIs(t, cfg.RefreshSecretsWithContext(canceled), context.Canceled)
+}
+
+func TestRefreshSecretsRechecksLifecycleAfterCacheInvalidation(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name       string
+		transition func(*confii.Config[any])
+		want       error
+	}{
+		{name: "freeze", transition: func(cfg *confii.Config[any]) { cfg.Freeze() }, want: confii.ErrConfigFrozen},
+		{name: "close", transition: func(cfg *confii.Config[any]) { _ = cfg.Close() }, want: confii.ErrConfigClosed},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			resolver := &cacheTrackingResolver{}
+			cfg, err := confii.New[any](
+				confii.WithLoaders(&eagerMaterializeLoader{data: map[string]any{"token": "${secret:key}"}}),
+				confii.WithSecretResolver(resolver),
+			)
+			require.NoError(t, err)
+			resolver.onClear = func() { test.transition(cfg) }
+			require.ErrorIs(t, cfg.RefreshSecrets(), test.want)
+			assert.EqualValues(t, 1, resolver.clears.Load())
+		})
+	}
+}
+
+func TestRefreshSecretsRejectsConcurrentClose(t *testing.T) {
 	t.Parallel()
 	loader := &eagerMaterializeLoader{data: map[string]any{"token": "${secret:rotating}"}}
 	started := make(chan struct{})
@@ -239,12 +324,84 @@ func TestRefreshSecretsRejectsConcurrentRawMutation(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("refresh hook did not start")
 	}
+	require.NoError(t, cfg.Close())
+	close(release)
+	require.ErrorIs(t, <-done, confii.ErrConfigClosed)
+}
+
+func TestRefreshSecretsRetriesConcurrentMutation(t *testing.T) {
+	t.Parallel()
+	loader := &eagerMaterializeLoader{data: map[string]any{"token": "${secret:rotating}"}}
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var refresh atomic.Bool
+	var refreshCalls atomic.Int32
+	cfg, err := confii.NewWithContext[any](context.Background(),
+		confii.WithLoaders(loader),
+		confii.WithSecretHook(func(_ context.Context, _ string, value any) (any, error) {
+			text, isSecret := value.(string)
+			if !isSecret || !strings.HasPrefix(text, "${secret:") {
+				return value, nil
+			}
+			if refresh.Load() && refreshCalls.Add(1) == 1 {
+				close(started)
+				<-release
+			}
+			return "resolved", nil
+		}),
+	)
+	require.NoError(t, err)
+
+	refresh.Store(true)
+	done := make(chan error, 1)
+	go func() { done <- cfg.RefreshSecretsWithContext(context.Background()) }()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("refresh hook did not start")
+	}
 	require.NoError(t, cfg.Set("concurrent", true))
 	close(release)
 	err = <-done
-	require.Error(t, err)
-	assert.ErrorIs(t, err, confii.ErrConfigLoad)
+	require.NoError(t, err)
+	assert.EqualValues(t, 2, refreshCalls.Load())
 	assert.True(t, cfg.GetBoolOr("concurrent", false))
+}
+
+func TestRefreshSecretsRejectsConcurrentFreeze(t *testing.T) {
+	t.Parallel()
+	loader := &eagerMaterializeLoader{data: map[string]any{"token": "${secret:rotating}"}}
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var refresh atomic.Bool
+	cfg, err := confii.NewWithContext[any](context.Background(),
+		confii.WithLoaders(loader),
+		confii.WithSecretHook(func(_ context.Context, _ string, value any) (any, error) {
+			text, isSecret := value.(string)
+			if !isSecret || !strings.HasPrefix(text, "${secret:") {
+				return value, nil
+			}
+			if refresh.Load() {
+				close(started)
+				<-release
+			}
+			return "resolved", nil
+		}),
+	)
+	require.NoError(t, err)
+
+	refresh.Store(true)
+	done := make(chan error, 1)
+	go func() { done <- cfg.RefreshSecretsWithContext(context.Background()) }()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("refresh hook did not start")
+	}
+	cfg.Freeze()
+	close(release)
+	require.ErrorIs(t, <-done, confii.ErrConfigFrozen)
+	assert.Equal(t, "resolved", cfg.GetStringOr("token", ""))
 }
 
 func TestRefreshSecretsEmitsChangesAndMetrics(t *testing.T) {
