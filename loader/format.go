@@ -4,8 +4,7 @@
 package loader
 
 import (
-	"path/filepath"
-	"strings"
+	"github.com/confiify/confii-go/v2/internal/formatparse"
 )
 
 // Format identifies a supported serialized configuration format.
@@ -25,12 +24,12 @@ const (
 // FormatFromExtension detects a configuration format from a file or object
 // name. Unknown extensions return FormatUnknown.
 func FormatFromExtension(filename string) Format {
-	switch strings.ToLower(filepath.Ext(filename)) {
-	case ".yaml", ".yml":
+	switch formatparse.FromExtension(filename) {
+	case formatparse.FormatYAML:
 		return FormatYAML
-	case ".json":
+	case formatparse.FormatJSON:
 		return FormatJSON
-	case ".toml":
+	case formatparse.FormatTOML:
 		return FormatTOML
 	default:
 		return FormatUnknown
@@ -40,13 +39,12 @@ func FormatFromExtension(filename string) Format {
 // FormatFromContentType detects a configuration format from an HTTP
 // Content-Type value. Unrecognized values return FormatUnknown.
 func FormatFromContentType(contentType string) Format {
-	contentType = strings.ToLower(contentType)
-	switch {
-	case strings.Contains(contentType, "yaml"):
+	switch formatparse.FromContentType(contentType) {
+	case formatparse.FormatYAML:
 		return FormatYAML
-	case strings.Contains(contentType, "json"):
+	case formatparse.FormatJSON:
 		return FormatJSON
-	case strings.Contains(contentType, "toml"):
+	case formatparse.FormatTOML:
 		return FormatTOML
 	default:
 		return FormatUnknown

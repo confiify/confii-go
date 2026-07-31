@@ -1,0 +1,5 @@
+# Copyright 2026 The Confii Contributors
+# SPDX-License-Identifier: MIT
+
+# Generated graph artifacts are outputs, never extraction inputs.
+/graphify-out/

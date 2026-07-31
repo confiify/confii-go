@@ -53,6 +53,22 @@ New behavior belongs in the narrowest existing responsibility file. Do not
 create generic `util`, `misc`, or `helpers` files; a helper should live with
 the behavior that owns it unless several transaction paths genuinely share it.
 
+### Public key-path operations
+
+**Package:** `configmap`
+
+The dependency-free `configmap` package owns Confii's dot-separated map path
+contract. Its `Get`, `Set`, `Has`, and `Keys` functions are available to
+custom loaders, validators, exporters, and independently versioned Confii
+modules. `Set` is atomic on error and returns typed categories for invalid
+paths, nil maps, and scalar/map conflicts. `Keys` is deterministic and returns
+fully qualified paths that can be passed back to the other operations.
+
+Core code may retain narrow internal wrappers where that keeps unrelated
+dictionary behavior cohesive, but it must not reimplement path parsing or
+mutation. Optional cloud modules import `configmap` rather than maintaining a
+provider-local path implementation.
+
 Root tests follow the same rule. Public contract tests use `package
 confii_test` by default. Tests use `package confii` only when they must inspect
 private state or exercise an internal failure path. Test names and comments
@@ -65,7 +81,7 @@ there is no generic top-level `tests/` package.
 ## 1. The DeepCopy Engine
 
 **Package:** `internal/dictutil`
-**Public API:** [`DeepCopy`](https://github.com/confiify/confii-go/blob/main/internal/dictutil/copy.go),
+**Internal API:** [`DeepCopy`](https://github.com/confiify/confii-go/blob/main/internal/dictutil/copy.go),
 [`DeepCopyValue`](https://github.com/confiify/confii-go/blob/main/internal/dictutil/copy.go)
 
 ### Why a reflection engine

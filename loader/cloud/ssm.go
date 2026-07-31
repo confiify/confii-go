@@ -15,6 +15,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	"github.com/confiify/confii-go/loader/cloud/v2/internal/cloudutil"
 	confii "github.com/confiify/confii-go/v2"
+	"github.com/confiify/confii-go/v2/configmap"
 )
 
 // SSMLoader loads configuration from AWS Systems Manager Parameter Store.
@@ -112,7 +113,7 @@ func (l *SSMLoader) Load(ctx context.Context) (map[string]any, error) {
 			parts := strings.Split(name, "/")
 			keyPath := strings.Join(parts, ".")
 			value := cloudutil.ParseScalar(aws.ToString(param.Value))
-			if err := cloudutil.SetNested(result, keyPath, value); err != nil {
+			if err := configmap.Set(result, keyPath, value); err != nil {
 				return nil, confii.NewLoadError(l.Source(), err)
 			}
 		}

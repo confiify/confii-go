@@ -22,15 +22,19 @@ type SecretStore interface {
 	ListSecrets(ctx context.Context, prefix string) ([]string, error)
 }
 
-// SecretExistenceChecker is optionally implemented by stores that can
-// efficiently check for secret existence without retrieving the value.
+// SecretExistenceChecker is an optional consumer-facing capability for stores
+// that can check existence without retrieving secret material. Applications
+// may feature-detect it with a type assertion; Confii's resolution pipeline
+// requires only [SecretStore].
 type SecretExistenceChecker interface {
 	// SecretExists reports whether key exists without returning its value.
 	SecretExists(ctx context.Context, key string) (bool, error)
 }
 
-// SecretMetadataProvider is optionally implemented by stores that can
-// return metadata about a secret.
+// SecretMetadataProvider is an optional consumer-facing capability for stores
+// that expose value-safe secret metadata. Applications may feature-detect it
+// with a type assertion; implementations must not include secret values in the
+// returned map.
 type SecretMetadataProvider interface {
 	// GetSecretMetadata returns backend-specific metadata for key.
 	GetSecretMetadata(ctx context.Context, key string) (map[string]any, error)

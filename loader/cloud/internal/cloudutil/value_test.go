@@ -26,24 +26,3 @@ func TestParseScalar(t *testing.T) {
 		})
 	}
 }
-
-func TestSetNested(t *testing.T) {
-	data := map[string]any{}
-	if err := SetNested(data, "database.host", "localhost"); err != nil {
-		t.Fatal(err)
-	}
-	want := map[string]any{"database": map[string]any{"host": "localhost"}}
-	if !reflect.DeepEqual(data, want) {
-		t.Fatalf("SetNested result = %#v, want %#v", data, want)
-	}
-
-	if err := SetNested(data, "database.port", 5432); err != nil {
-		t.Fatal(err)
-	}
-	if err := SetNested(data, "database.host.value", "invalid"); err == nil {
-		t.Fatal("SetNested accepted a scalar intermediate")
-	}
-	if err := SetNested(data, "", "invalid"); err == nil {
-		t.Fatal("SetNested accepted an empty path")
-	}
-}

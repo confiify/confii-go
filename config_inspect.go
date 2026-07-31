@@ -11,10 +11,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/BurntSushi/toml"
 	"github.com/confiify/confii-go/v2/internal/dictutil"
 	"github.com/confiify/confii-go/v2/sourcetrack"
-	"gopkg.in/yaml.v3"
 )
 
 const redactedSecretValue = "[REDACTED: secret-backed value]"
@@ -404,10 +402,11 @@ func (c *Config[T]) GenerateDocs(format string) (string, error) {
 	}
 }
 
-// Export serializes the effective snapshot as "json", "yaml", or "toml". The
-// returned bytes always contain the serialized result. When a non-empty
-// outputPath is supplied, the first path is also written; newly created files
-// use mode 0600.
+// Export serializes the effective snapshot using the exporter registered for
+// format. JSON, YAML, and TOML are registered by default; [WithExporter] can
+// replace them or add application-defined formats. The returned bytes always
+// contain the serialized result. When a non-empty outputPath is supplied, the
+// first path is also written; newly created files use mode 0600.
 //
 // Export uses the implicit runtime context bounded by [WithOperationTimeout].
 // Export serializes resolved values, including secrets. Treat the bytes and any
@@ -430,23 +429,13 @@ func (c *Config[T]) ExportWithContext(ctx context.Context, format string, output
 		return nil, err
 	}
 
-	var result []byte
-
-	switch format {
-	case "json":
-		result, err = json.MarshalIndent(data, "", "  ")
-	case "yaml":
-		result, err = yaml.Marshal(data)
-	case "toml":
-		var buf strings.Builder
-		enc := toml.NewEncoder(&buf)
-		err = enc.Encode(data)
-		result = []byte(buf.String())
-	default:
+	exporter, ok := c.exporters[format]
+	if !ok {
 		return nil, fmt.Errorf("unsupported export format: %s", format)
 	}
+	result, err := exporter.Export(data)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("export %s: %w", format, err)
 	}
 
 	if len(outputPath) > 0 && outputPath[0] != "" {

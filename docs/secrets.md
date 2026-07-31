@@ -205,6 +205,29 @@ GetSecret("db/password"):
 !!! tip "Order matters"
     Put your most authoritative store first. Cloud stores should come before the env fallback for production, but you might reverse this order for local development.
 
+### Optional store capabilities
+
+`SecretStore` is the portable read/write contract. Applications can
+feature-detect two additional capabilities without coupling themselves to a
+specific provider:
+
+```go
+if checker, ok := store.(confii.SecretExistenceChecker); ok {
+    exists, err := checker.SecretExists(ctx, "db/password")
+    // Existence is checked without returning secret material.
+}
+
+if metadataProvider, ok := store.(confii.SecretMetadataProvider); ok {
+    metadata, err := metadataProvider.GetSecretMetadata(ctx, "db/password")
+    // Metadata must never contain the secret value.
+}
+```
+
+Providers are not required to implement these interfaces. `DictStore`
+implements both for local development and tests; cloud integrations may expose
+them when the provider offers a value-safe operation. Applications must retain
+the ordinary `GetSecret` path when the capability assertion is false.
+
 ---
 
 ## Cloud Stores

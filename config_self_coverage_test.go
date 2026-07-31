@@ -39,6 +39,8 @@ func TestSelfConfigAccountsForEveryStartupOption(t *testing.T) {
 	intentionalCodeOnly := map[string]string{
 		"WorkingDir":     "selects the directory in which self-config is discovered",
 		"SecretResolver": "legacy internal wiring; declarative secrets use Secrets",
+		"Exporters":      "holds application-defined Go serializers",
+		"Validators":     "holds application-defined Go validation rules",
 		"Schema":         "holds an in-memory Go value; declarative schemas use SchemaPath",
 		"Logger":         "holds a Go logger object; declarative logging uses LogLevel",
 		"SecretHook":     "holds a Go function; declarative secret hooks use Secrets",

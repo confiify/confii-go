@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"reflect"
 
+	"github.com/confiify/confii-go/v2/internal/dictutil"
 	"github.com/confiify/confii-go/v2/validate"
 )
 
@@ -45,13 +46,21 @@ func resolveSchemaValidator(opts *options) (*validate.JSONSchemaValidator, error
 // structured violations without configuration values. Non-strict struct
 // validation logs violations and allows publication.
 func (c *Config[T]) runValidateOnLoad() error {
+	return c.validateMaterializedCandidate(c.envConfig)
+}
+
+// validateMaterializedCandidate applies the complete validation plan to an
+// unpublished snapshot. Every lifecycle path uses this method so construction,
+// reload, mutation, extension, override, and secret refresh enforce identical
+// rules before publication.
+func (c *Config[T]) validateMaterializedCandidate(candidate map[string]any) error {
 	if !c.opts.ValidateOnLoad {
 		return nil
 	}
 
 	// JSON Schema is a hard contract when validation-on-load is enabled.
 	if c.jsonSchema != nil {
-		msgs, err := c.jsonSchema.ValidateDetailed(c.envConfig)
+		msgs, err := c.jsonSchema.ValidateDetailed(candidate)
 		if err != nil {
 			count := max(1, len(msgs))
 			// Sanitized public message: count of violations, no raw
@@ -69,14 +78,26 @@ func (c *Config[T]) runValidateOnLoad() error {
 		}
 	}
 
+	for index, validator := range c.opts.Validators {
+		if err := validator.Validate(dictutil.DeepCopy(candidate)); err != nil {
+			return &ConfigError{
+				Op: "Validate",
+				Err: fmt.Errorf(
+					"%w: custom validator %d: %w",
+					ErrConfigValidation, index, err,
+				),
+			}
+		}
+	}
+
 	// A typed Config carries its schema in T. Requiring WithSchema in
 	// addition made the README's New[AppConfig](..., WithValidateOnLoad)
 	// pattern silently skip validation. Untyped Config[any] values remain
 	// a no-op unless a JSON Schema is configured.
 	if configTypeSupportsStructValidation[T]() {
-		if _, err := c.Typed(); err != nil {
+		if _, err := validate.DecodeAndValidate[T](candidate); err != nil {
 			if c.opts.StrictValidation {
-				return err
+				return NewValidationError([]string{err.Error()}, err)
 			}
 			c.logger.Warn(
 				"validation failed on load",

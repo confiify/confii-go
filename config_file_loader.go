@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
+	"github.com/confiify/confii-go/v2/configmap"
 	"github.com/confiify/confii-go/v2/internal/dictutil"
 	"github.com/confiify/confii-go/v2/internal/formatparse"
 	"github.com/confiify/confii-go/v2/internal/typecoerce"
@@ -255,10 +256,29 @@ func (l *fileAutoLoader) loadEnvFile() (map[string]any, error) {
 		value = strings.TrimSpace(value)
 		value = unquoteEnvFileValue(value)
 		parsed := typecoerce.ParseScalar(value, false)
-		if strings.Contains(key, ".") {
-			_ = dictutil.SetNested(result, key, parsed)
-		} else {
-			result[key] = parsed
+		if err := configmap.Set(result, key, parsed); err != nil {
+			switch l.errorPolicy {
+			case ErrorPolicyIgnore:
+				continue
+			case ErrorPolicyWarn:
+				logger := l.logger
+				if logger == nil {
+					logger = slog.Default()
+				}
+				logger.Warn(
+					"envfile: invalid key skipped",
+					slog.String("source", l.path),
+					slog.Int("line", lineNum),
+					slog.String("key", key),
+					slog.Any("error", err),
+				)
+				continue
+			default:
+				return nil, NewLoadError(
+					l.path,
+					fmt.Errorf("line %d: %w", lineNum, err),
+				)
+			}
 		}
 	}
 	if err := scanner.Err(); err != nil {

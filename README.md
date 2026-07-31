@@ -409,6 +409,8 @@ cfg, err := confii.NewBuilder[AppConfig]().
 | `WithMergeStrategyMap(map)` | Per-path merge strategy overrides | none |
 | `WithValidateOnLoad(bool)` | Validate struct tags after loading | `false` |
 | `WithStrictValidation(bool)` | Treat validation failures as errors when enabled | `true` |
+| `WithValidator(validator)` | Add a transactional validation rule and enable validation | none |
+| `WithExporter(exporter)` | Add or replace an export format serializer | JSON/YAML/TOML built in |
 | `WithSchema(schema)` / `WithSchemaPath(path)` | JSON Schema for validation | none |
 | `WithEnvExpander(bool)` | Enable `${VAR}` expansion in values | `true` |
 | `WithTypeCasting(bool)` | Auto-convert strings to bool/int/float | `true` |
@@ -637,7 +639,7 @@ type Config struct {
 cfg, err := confii.NewWithContext[Config](ctx,
     confii.WithLoaders(loader.NewYAML("config.yaml")),
     confii.WithValidateOnLoad(true),
-    confii.WithStrictValidation(true),  // treat warnings as errors
+    confii.WithStrictValidation(true),  // reject typed validation failures
 )
 // Returns error at construction time if validation fails
 ```
@@ -993,6 +995,7 @@ github.com/confiify/confii-go/
   ├── config_*.go            # Access, mutation, reload, override, hooks, validation, etc.
   ├── builder.go             # Fluent builder API
   ├── errors.go              # Sentinel errors + ConfigError
+  ├── configmap/             # Public dot-path operations for custom integrations
   ├── loader/                # File & env loaders (YAML, JSON, TOML, INI, .env, HTTP)
   │   └── cloud/             # Cloud loaders (S3, SSM, Azure Blob, GCS, IBM COS, Git)
   ├── secret/                # Secret stores (env, dict, multi) + resolver

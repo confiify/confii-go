@@ -1,6 +1,9 @@
 # Validation
 
-Confii supports two complementary validation approaches: struct tag validation (for Go type safety) and JSON Schema validation (for schema-driven contracts). Both can be used independently or combined.
+Confii supports three complementary validation approaches: struct tag
+validation for Go type safety, JSON Schema validation for schema-driven
+contracts, and application-defined validators for domain rules. They can be
+used independently or combined in one transactional validation plan.
 
 ---
 
@@ -55,13 +58,16 @@ if err != nil {
 
 ### WithStrictValidation
 
-By default, validation failures on load produce a **warning** log and allow construction to proceed. With strict validation, failures become hard errors:
+Strict typed validation is enabled by default. A typed validation failure
+therefore rejects construction or a candidate runtime change. Set strict
+validation to false only when typed-tag violations should be logged while the
+snapshot is still published:
 
 ```go
 cfg, err := confii.NewWithContext[AppConfig](ctx,
     confii.WithLoaders(loader.NewYAML("config.yaml")),
     confii.WithValidateOnLoad(true),
-    confii.WithStrictValidation(true), // fail hard on validation errors
+    confii.WithStrictValidation(false), // warn for typed-tag violations
 )
 if err != nil {
     // err is guaranteed to be a validation error, not just a warning
@@ -69,19 +75,22 @@ if err != nil {
 }
 ```
 
-=== "Without Strict (default)"
+=== "Non-strict"
 
     ```text
     WARN: validation failed on load: struct validation: ...
     (config is still created and usable)
     ```
 
-=== "With Strict"
+=== "Strict (default)"
 
     ```text
     ERROR: struct validation: Key: 'AppConfig.Database.Host' ...
     (New returns error, no config created)
     ```
+
+JSON Schema and custom-validator failures are always fatal when validation is
+enabled. `WithStrictValidation(false)` affects only typed `validate` tags.
 
 ### Manual Validation via Typed()
 
@@ -165,6 +174,47 @@ err = v.Validate(snapshot)
 if err != nil {
     log.Fatal("Schema validation failed:", err)
 }
+```
+
+---
+
+## Application-defined validators
+
+Implement `confii.Validator` for invariants that cannot be expressed cleanly
+with struct tags or JSON Schema, and register it before construction:
+
+```go
+type deploymentValidator struct{}
+
+func (deploymentValidator) Validate(data map[string]any) error {
+    environment, _ := data["environment"].(string)
+    debug, _ := data["debug"].(bool)
+    if environment == "production" && debug {
+        return errors.New("debug must be disabled in production")
+    }
+    return nil
+}
+
+cfg, err := confii.New[AppConfig](
+    confii.WithLoaders(loader.NewYAML("config.yaml")),
+    confii.WithValidator(deploymentValidator{}),
+)
+```
+
+Registering a custom validator enables validation. Custom validators run after
+JSON Schema validation and before typed-struct validation, in registration
+order. Confii gives each validator an independent copy of the candidate, so
+accidental mutation cannot alter the snapshot. An error rejects initial
+construction, reload, extension, mutation, override, or secret refresh without
+publishing a partial configuration.
+
+The fluent builder provides the same extension point:
+
+```go
+cfg, err := confii.NewBuilder[AppConfig]().
+    AddLoader(loader.NewYAML("config.yaml")).
+    WithValidator(deploymentValidator{}).
+    Build()
 ```
 
 ```json title="schema.json"

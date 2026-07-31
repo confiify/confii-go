@@ -14,7 +14,7 @@ import (
 	"strings"
 
 	confii "github.com/confiify/confii-go/v2"
-	"github.com/confiify/confii-go/v2/internal/dictutil"
+	"github.com/confiify/confii-go/v2/configmap"
 	"github.com/confiify/confii-go/v2/internal/formatparse"
 	"github.com/confiify/confii-go/v2/internal/typecoerce"
 )
@@ -143,11 +143,25 @@ func (l *EnvFileLoader) Load(_ context.Context) (map[string]any, error) {
 		// Type coerce.
 		parsed := typecoerce.ParseScalar(value, false)
 
-		// Support nested keys via dot notation.
-		if strings.Contains(key, ".") {
-			_ = dictutil.SetNested(result, key, parsed)
-		} else {
-			result[key] = parsed
+		if err := configmap.Set(result, key, parsed); err != nil {
+			switch l.errorPolicy {
+			case confii.ErrorPolicyIgnore:
+				continue
+			case confii.ErrorPolicyWarn:
+				l.logger.Warn(
+					"envfile: invalid key skipped",
+					slog.String("source", l.source),
+					slog.Int("line", lineNum),
+					slog.String("key", key),
+					slog.Any("error", err),
+				)
+				continue
+			default:
+				return nil, confii.NewLoadError(
+					l.source,
+					fmt.Errorf("line %d: %w", lineNum, err),
+				)
+			}
 		}
 	}
 

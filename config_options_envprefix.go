@@ -8,7 +8,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/confiify/confii-go/v2/internal/dictutil"
+	"github.com/confiify/confii-go/v2/configmap"
 	"github.com/confiify/confii-go/v2/internal/typecoerce"
 )
 
@@ -67,7 +67,9 @@ func (l *envPrefixAutoLoader) Load(_ context.Context) (map[string]any, error) {
 		parsed := typecoerce.ParseScalar(value, false)
 
 		keyPath := strings.Join(parts, ".")
-		_ = dictutil.SetNested(result, keyPath, parsed)
+		if err := configmap.Set(result, keyPath, parsed); err != nil {
+			return nil, NewLoadError(l.Source(), err)
+		}
 	}
 
 	if len(result) == 0 {

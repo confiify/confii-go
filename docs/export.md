@@ -96,7 +96,36 @@ _, err := cfg.Export("toml", "config-snapshot.toml")
 ```
 
 !!! note "File permissions"
-    Exported files are written with `0644` permissions.
+    Newly created export files are written with `0600` permissions because the
+    materialized snapshot may contain resolved secret values.
+
+### Custom Export Formats
+
+Implement `confii.Exporter` to add an application format or replace one of the
+built-in JSON, YAML, or TOML serializers:
+
+```go
+type dotenvExporter struct{}
+
+func (dotenvExporter) Format() string { return "dotenv" }
+
+func (dotenvExporter) Export(data map[string]any) ([]byte, error) {
+    // Serialize the provided snapshot without mutating it.
+    return encodeDotenv(data)
+}
+
+cfg, err := confii.New[AppConfig](
+    confii.WithLoaders(loader.NewYAML("config.yaml")),
+    confii.WithExporter(dotenvExporter{}),
+)
+data, err := cfg.Export("dotenv")
+```
+
+`Format` must return a non-empty lowercase name without surrounding
+whitespace. Registering the same name more than once uses the last exporter;
+this intentionally allows an application to replace a built-in serializer.
+The fluent builder exposes the same capability through
+`Builder.WithExporter`.
 
 ---
 

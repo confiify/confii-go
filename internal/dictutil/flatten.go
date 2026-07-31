@@ -3,7 +3,7 @@
 
 package dictutil
 
-import "strings"
+import "github.com/confiify/confii-go/v2/configmap"
 
 // Flatten converts a nested map into a flat map with dot-separated keys.
 // Only leaf values (non-map values) are included.
@@ -31,38 +31,5 @@ func flatten(prefix string, data map[string]any, result map[string]any) {
 
 // FlatKeys returns all dot-separated leaf key paths from a nested map.
 func FlatKeys(data map[string]any) []string {
-	flat := Flatten(data)
-	keys := make([]string, 0, len(flat))
-	for k := range flat {
-		keys = append(keys, k)
-	}
-	return keys
-}
-
-// FlatKeysWithPrefix returns flat keys that start with the given prefix,
-// with the prefix stripped from each key.
-func FlatKeysWithPrefix(data map[string]any, prefix string) []string {
-	all := FlatKeys(data)
-	if prefix == "" {
-		return all
-	}
-	prefix = prefix + "."
-	var result []string
-	for _, k := range all {
-		if after, ok := strings.CutPrefix(k, prefix); ok {
-			result = append(result, after)
-		}
-	}
-	return result
-}
-
-// Unflatten converts a flat map with dot-separated keys into a nested map.
-//
-// Example: {"database.host": "localhost"} → {"database": {"host": "localhost"}}
-func Unflatten(data map[string]any) map[string]any {
-	result := make(map[string]any)
-	for k, v := range data {
-		_ = SetNested(result, k, v)
-	}
-	return result
+	return configmap.Keys(data)
 }

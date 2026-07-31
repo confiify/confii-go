@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	confii "github.com/confiify/confii-go/v2"
+	"github.com/confiify/confii-go/v2/configmap"
 	"github.com/confiify/confii-go/v2/hook"
 	"github.com/confiify/confii-go/v2/loader"
 	"github.com/stretchr/testify/assert"
@@ -1309,7 +1310,9 @@ func TestConfig_Set_EmptyKeyPath(t *testing.T) {
 	require.NoError(t, err)
 
 	err = cfg.Set("", "value")
-	assert.NoError(t, err)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, confii.ErrConfigInvalid)
+	assert.ErrorIs(t, err, configmap.ErrInvalidPath)
 }
 
 func TestConfig_Set_BadKeyPath_IntermediateNotMap(t *testing.T) {

@@ -147,6 +147,24 @@ err := cfg.ReloadWithContext(ctx, confii.WithIncremental(true))
 
 The file watcher calls `Reload(ctx)`, whose default is the incremental behavior above. Pass `WithIncremental(false)` to force every loader to run.
 
+Applications that manage an additional file set can use the same public
+tracking utility directly:
+
+```go
+tracker := sourcetrack.NewFileTracker()
+for _, path := range []string{"config.yaml", "policies.yaml"} {
+    if err := tracker.Track(path); err != nil {
+        return err
+    }
+}
+
+changed := tracker.GetChangedFiles([]string{"config.yaml", "policies.yaml"})
+```
+
+`GetChangedFiles` preserves input order and returns only local files whose
+content hash changed. Confii also uses this batch operation internally when it
+selects local sources for an incremental reload.
+
 ---
 
 ## Best Practices for Production

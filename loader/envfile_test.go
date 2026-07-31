@@ -119,13 +119,14 @@ func TestEnvFileLoader_MalformedLinePolicies(t *testing.T) {
 				assert.Contains(t, out, `level=WARN`)
 				assert.Contains(t, out, "envfile: malformed line skipped")
 				assert.Contains(t, out, "line=2")
+				assert.Contains(t, out, "line=4")
 				assert.Contains(t, out, "line=5")
 				assert.Contains(t, out, path)
 
 				assert.Equal(t, 1, result["GOOD"])
 				assert.Equal(t, "ok", result["AFTER"])
 
-				assert.Equal(t, "novalueoneitherside", result[""])
+				assert.NotContains(t, result, "")
 
 			case confii.ErrorPolicyIgnore:
 				require.NoError(t, err)

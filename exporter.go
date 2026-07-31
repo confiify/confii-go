@@ -3,10 +3,11 @@
 
 package confii
 
-// Exporter serializes a materialized configuration map. Implementations must
-// not mutate data and should return an error when a value cannot be represented
-// by the target format. Exporters do not redact secrets; callers are
-// responsible for protecting serialized output.
+// Exporter serializes a materialized configuration map for [Config.Export].
+// Register application-defined implementations with [WithExporter].
+// Implementations must not mutate data and should return an error when a value
+// cannot be represented by the target format. Exporters do not redact secrets;
+// callers are responsible for protecting serialized output.
 type Exporter interface {
 	// Export serializes data and returns a newly owned byte slice.
 	Export(data map[string]any) ([]byte, error)

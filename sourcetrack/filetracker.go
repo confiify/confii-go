@@ -151,7 +151,11 @@ func (ft *FileTracker) Update(path string) error {
 	return ft.Track(path) // same operation
 }
 
-// GetChangedFiles returns which of the given files have changed.
+// GetChangedFiles returns the input paths whose content differs from their
+// tracked state, preserving input order. Unregistered local paths are included;
+// non-file and currently unreadable sources are excluded according to
+// [FileTracker.HasChanged]. The method is safe for concurrent use and is useful
+// to applications that coordinate reloads across a batch of dependent files.
 func (ft *FileTracker) GetChangedFiles(paths []string) []string {
 	var changed []string
 	for _, p := range paths {

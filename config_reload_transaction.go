@@ -158,20 +158,18 @@ func reloadIsDryRun(opts []ReloadOption) bool {
 
 // reloadHasSelectedSources is called while c.mu is read-locked.
 func (c *Config[T]) reloadHasSelectedSources() bool {
+	localPaths := make([]string, 0, len(c.loaders))
 	for _, loader := range c.loaders {
 		source := loader.Source()
-		if !c.fileTracker.IsTrackable(source) || c.fileTracker.HasChanged(source) {
+		if !c.fileTracker.IsTrackable(source) {
 			return true
 		}
+		localPaths = append(localPaths, source)
 	}
 	for _, dependencies := range c.loaderDependencies {
-		for _, dependency := range dependencies {
-			if c.fileTracker.HasChanged(dependency) {
-				return true
-			}
-		}
+		localPaths = append(localPaths, dependencies...)
 	}
-	return false
+	return len(c.fileTracker.GetChangedFiles(localPaths)) > 0
 }
 
 // reloadSnapshotCandidate is called while c.mu is read-locked.
@@ -199,6 +197,7 @@ func (c *Config[T]) reloadSnapshotCandidate() *Config[T] {
 		sourceTracker:       tracker,
 		fileTracker:         fileTracker,
 		composer:            compose.New(base, compose.WithMerger(c.merger)),
+		exporters:           c.exporters,
 		opts:                c.opts,
 		logger:              c.logger,
 		sourcePlan:          cloneSourcePlan(c.sourcePlan),

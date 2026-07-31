@@ -68,3 +68,36 @@ func TestDictStore_Clear(t *testing.T) {
 	s.Clear()
 	assert.Equal(t, 0, s.Len())
 }
+
+func TestDictStore_OptionalCapabilities(t *testing.T) {
+	store := NewDictStore(map[string]any{"database/password": "initial"})
+	ctx := context.Background()
+
+	exists, err := store.SecretExists(ctx, "database/password")
+	require.NoError(t, err)
+	assert.True(t, exists)
+	exists, err = store.SecretExists(ctx, "missing")
+	require.NoError(t, err)
+	assert.False(t, exists)
+
+	require.NoError(t, store.SetSecret(ctx, "database/password", "rotated"))
+	metadata, err := store.GetSecretMetadata(ctx, "database/password")
+	require.NoError(t, err)
+	assert.Equal(t, "memory", metadata["backend"])
+	assert.Equal(t, 1, metadata["version_count"])
+	assert.NotContains(t, metadata, "value")
+
+	_, err = store.GetSecretMetadata(ctx, "missing")
+	assert.ErrorIs(t, err, confii.ErrSecretNotFound)
+}
+
+func TestDictStore_OptionalCapabilitiesHonorContext(t *testing.T) {
+	store := NewDictStore(map[string]any{"key": "value"})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := store.SecretExists(ctx, "key")
+	assert.ErrorIs(t, err, context.Canceled)
+	_, err = store.GetSecretMetadata(ctx, "key")
+	assert.ErrorIs(t, err, context.Canceled)
+}

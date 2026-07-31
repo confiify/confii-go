@@ -23,6 +23,12 @@ type DictStore struct {
 	versions map[string][]any
 }
 
+var (
+	_ confii.SecretStore            = (*DictStore)(nil)
+	_ confii.SecretExistenceChecker = (*DictStore)(nil)
+	_ confii.SecretMetadataProvider = (*DictStore)(nil)
+)
+
 // NewDictStore creates a store containing initial. The outer map is copied, but
 // nested maps and slices remain shared with the caller.
 func NewDictStore(initial map[string]any) *DictStore {
@@ -104,6 +110,43 @@ func (s *DictStore) ListSecrets(_ context.Context, prefix string) ([]string, err
 		}
 	}
 	return keys, nil
+}
+
+// SecretExists reports whether key currently has a value without returning
+// the secret material. The operation does not consider deleted version
+// history because DeleteSecret removes both current and historical values.
+func (s *DictStore) SecretExists(ctx context.Context, key string) (bool, error) {
+	if ctx == nil {
+		return false, fmt.Errorf("%w: nil context", confii.ErrSecretStore)
+	}
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	_, ok := s.secrets[key]
+	return ok, nil
+}
+
+// GetSecretMetadata returns value-safe metadata for key. The result identifies
+// the in-memory backend and the number of recorded versions but never contains
+// the current or historical secret values.
+func (s *DictStore) GetSecretMetadata(ctx context.Context, key string) (map[string]any, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("%w: nil context", confii.ErrSecretStore)
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if _, ok := s.secrets[key]; !ok {
+		return nil, fmt.Errorf("%w: %s", confii.ErrSecretNotFound, key)
+	}
+	return map[string]any{
+		"backend":       "memory",
+		"version_count": len(s.versions[key]),
+	}, nil
 }
 
 // Len returns the number of secrets stored.

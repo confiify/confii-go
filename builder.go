@@ -102,6 +102,20 @@ func (b *Builder[T]) WithMergeStrategy(strategy MergeStrategy) *Builder[T] {
 	return b
 }
 
+// WithExporter registers a custom serializer using the same replacement and
+// validation rules as the [WithExporter] constructor option.
+func (b *Builder[T]) WithExporter(exporter Exporter) *Builder[T] {
+	b.opts = append(b.opts, WithExporter(exporter))
+	return b
+}
+
+// WithValidator adds an application-defined snapshot validator and enables
+// validation during construction and subsequent candidate transactions.
+func (b *Builder[T]) WithValidator(validator Validator) *Builder[T] {
+	b.opts = append(b.opts, WithValidator(validator))
+	return b
+}
+
 // WithKeyHook adds a transformation for one exact dot-separated key. Hook
 // errors fail construction or mutation without publishing a partial snapshot.
 func (b *Builder[T]) WithKeyHook(key string, h hook.Func) *Builder[T] {

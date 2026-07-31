@@ -81,11 +81,19 @@ func (l *ConsulLoader) Load(ctx context.Context) (map[string]any, error) {
     result := make(map[string]any)
     for _, pair := range pairs {
         key := strings.TrimPrefix(pair.Key, l.prefix+"/")
-        result[key] = string(pair.Value)
+        key = strings.ReplaceAll(key, "/", ".")
+        if err := configmap.Set(result, key, string(pair.Value)); err != nil {
+            return nil, fmt.Errorf("map Consul key %q: %w", key, err)
+        }
     }
     return result, nil
 }
 ```
+
+`configmap.Set` creates nested maps from Confii's dot-separated key paths and
+returns typed errors for empty paths, nil maps, and scalar/map conflicts. The
+same package provides `Get`, `Has`, and deterministic, fully qualified `Keys`
+for custom loaders, validators, and exporters.
 
 Then use it like any other loader:
 

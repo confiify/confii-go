@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	confii "github.com/confiify/confii-go/v2"
-	"github.com/confiify/confii-go/v2/internal/dictutil"
+	"github.com/confiify/confii-go/v2/configmap"
 	"github.com/confiify/confii-go/v2/internal/typecoerce"
 )
 
@@ -85,7 +85,7 @@ func (l *EnvironmentLoader) Load(_ context.Context) (map[string]any, error) {
 
 		// Build nested path using dot notation.
 		keyPath := strings.Join(parts, ".")
-		if err := dictutil.SetNested(result, keyPath, parsed); err != nil {
+		if err := configmap.Set(result, keyPath, parsed); err != nil {
 			return nil, confii.NewLoadError(l.Source(), err)
 		}
 	}

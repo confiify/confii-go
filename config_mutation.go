@@ -185,6 +185,19 @@ func (c *Config[T]) SetWithContext(ctx context.Context, keyPath string, value an
 		}
 		return NewInvalidError("Set", keyPath, err)
 	}
+	if err := c.validateMaterializedCandidate(c.envConfig); err != nil {
+		c.envConfig = envSnap
+		c.unresolvedEnvConfig = unresolvedEnvSnap
+		c.mergedConfig = mergedSnap
+		c.sourceTracker.Restore(trackerSnap)
+		if c.observer != nil {
+			c.observer.RecordSetFailed()
+		}
+		if c.eventEmitter != nil {
+			c.eventEmitter.Emit("set_failed", keyPath, err)
+		}
+		return err
+	}
 
 	// Source-tracking parity: a successful Set claims "runtime" as the
 	// source so Explain/GetSourceInfo report the runtime origin until a

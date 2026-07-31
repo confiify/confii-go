@@ -91,6 +91,8 @@ type options struct {
 	EnvPrefix                           string
 	SysenvFallback                      bool
 	SecretResolver                      ManagedSecretResolver
+	Exporters                           []Exporter
+	Validators                          []Validator
 	Schema                              any
 	SchemaPath                          string
 	ValidateOnLoad                      bool
@@ -396,6 +398,40 @@ func ensureEnvPrefixLoader(o *options) {
 // the value to the published snapshot.
 func WithSysenvFallback(v bool) Option {
 	return func(o *options) { o.SysenvFallback = v; o.explicitlySet["sysenv_fallback"] = true }
+}
+
+// WithExporter registers an application-defined serializer by the stable
+// lowercase name returned from [Exporter.Format]. A custom exporter replaces
+// a built-in exporter with the same name, allowing applications to customize
+// JSON, YAML, or TOML output, and may also introduce a new format.
+//
+// Registration is validated by [NewWithContext]. Nil exporters, typed-nil
+// exporters, and empty or non-canonical format names are rejected before any
+// source is loaded. Repeating the option for the same format uses the last
+// registered exporter.
+func WithExporter(exporter Exporter) Option {
+	return func(o *options) {
+		o.Exporters = append(o.Exporters, exporter)
+		o.explicitlySet["exporters"] = true
+	}
+}
+
+// WithValidator adds an application-defined validation rule to the snapshot
+// lifecycle. Registering a validator enables validation. Custom validators run
+// in registration order after JSON Schema validation and before typed-struct
+// validation. A failure rejects construction or the candidate mutation
+// transaction without publishing partial configuration.
+//
+// Confii passes each validator an independent copy of the candidate map, so a
+// validator cannot mutate the snapshot that will be published. Nil and
+// typed-nil validators are rejected by [NewWithContext].
+func WithValidator(validator Validator) Option {
+	return func(o *options) {
+		o.Validators = append(o.Validators, validator)
+		o.ValidateOnLoad = true
+		o.explicitlySet["validators"] = true
+		o.explicitlySet["validate_on_load"] = true
+	}
 }
 
 // WithSchema sets an inline JSON Schema represented as map[string]any. Typed

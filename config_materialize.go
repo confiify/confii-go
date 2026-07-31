@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/confiify/confii-go/v2/internal/dictutil"
-	"github.com/confiify/confii-go/v2/validate"
 )
 
 // materializeEffectiveConfig snapshots the selected unresolved environment,
@@ -289,30 +288,6 @@ func (c *Config[T]) RefreshSecretsWithContext(ctx context.Context) error {
 	if emitter != nil {
 		emitter.EmitWithContext(ctx, "secrets_refreshed", nil, time.Since(started))
 		emitter.EmitWithContext(ctx, "change", before, dictutil.DeepCopy(resolved))
-	}
-	return nil
-}
-
-func (c *Config[T]) validateMaterializedCandidate(candidate map[string]any) error {
-	if !c.opts.ValidateOnLoad {
-		return nil
-	}
-	if c.jsonSchema != nil {
-		messages, err := c.jsonSchema.ValidateDetailed(candidate)
-		if err != nil {
-			return &ConfigError{
-				Op:  "RefreshSecrets",
-				Err: fmt.Errorf("%w: schema validation failed for %d constraint(s)", ErrConfigValidation, max(1, len(messages))),
-				Context: map[string]any{
-					"schema_errors": messages,
-				},
-			}
-		}
-	}
-	if configTypeSupportsStructValidation[T]() {
-		if _, err := validate.DecodeAndValidate[T](candidate); err != nil {
-			return NewValidationError([]string{err.Error()}, err)
-		}
 	}
 	return nil
 }

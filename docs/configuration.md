@@ -387,6 +387,8 @@ Confii never replaces or extends an existing context deadline. If
 | `WithSysenvFallback(bool)` | Fall back to OS environment variables when a key is not found in config. | `false` |
 | `WithValidateOnLoad(bool)` | Validate the typed struct (via `go-playground/validator` tags) immediately after loading. | `false` |
 | `WithStrictValidation(bool)` | Treat validation failures as errors (requires `WithValidateOnLoad`). | `true` |
+| `WithValidator(validator)` | Add a transactional validation rule and enable validation. | none |
+| `WithExporter(exporter)` | Add a serializer or replace a built-in export format. | JSON/YAML/TOML built in |
 | `WithSchema(schema)` | Set a validation schema (struct type or JSON Schema dict). | none |
 | `WithSchemaPath(path)` | Set the path to a JSON Schema file for validation. | none |
 | `WithFreezeOnLoad(bool)` | Make the config immutable after initialization. `Set()` returns `ErrConfigFrozen`. | `false` |

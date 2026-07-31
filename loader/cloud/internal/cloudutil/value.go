@@ -5,7 +5,6 @@
 package cloudutil
 
 import (
-	"fmt"
 	"strconv"
 	"strings"
 )
@@ -26,29 +25,4 @@ func ParseScalar(value string) any {
 		return f
 	}
 	return value
-}
-
-// SetNested sets a dot-separated key while rejecting scalar intermediates.
-func SetNested(data map[string]any, keyPath string, value any) error {
-	parts := strings.Split(keyPath, ".")
-	if len(parts) == 0 || parts[0] == "" {
-		return fmt.Errorf("empty key path")
-	}
-	current := data
-	for i, part := range parts[:len(parts)-1] {
-		next, ok := current[part]
-		if !ok {
-			nested := make(map[string]any)
-			current[part] = nested
-			current = nested
-			continue
-		}
-		nested, ok := next.(map[string]any)
-		if !ok {
-			return fmt.Errorf("path %s: intermediate value is not a map", strings.Join(parts[:i+1], "."))
-		}
-		current = nested
-	}
-	current[parts[len(parts)-1]] = value
-	return nil
 }

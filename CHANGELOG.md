@@ -38,6 +38,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   valid filename extensions. Reject complete JSON documents presented through
   a selected YAML, TOML, INI, or dotenv parser instead of accepting or
   reinterpreting cross-format content.
+- Consolidate export serialization, snapshot validation, environment
+  selection, and format detection behind one implementation per concern.
+  Runtime mutations now pass through the same validation transaction as
+  construction, reload, extension, override, and secret refresh.
 
 ### Added
 
@@ -46,6 +50,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   behavior.
 - Add `Config.GetFloat64Or`, completing the default-returning typed getter set
   already documented by the project.
+- Make the existing `Exporter` and `Validator` contracts usable application
+  extension points through `WithExporter`, `WithValidator`, and their builder
+  equivalents. Custom validators receive isolated candidate data and reject a
+  snapshot atomically; custom exporters can add formats or replace built-ins.
+- Implement value-safe existence and metadata capabilities for `DictStore`,
+  and use `FileTracker.GetChangedFiles` for batched reload decisions.
+- Add the dependency-free public `configmap` package for deterministic
+  Confii-compatible key-path lookup, existence checks, enumeration, and atomic
+  mutation. Core and cloud loaders now share its typed invalid-path,
+  nil-map, and path-conflict behavior instead of maintaining separate nested
+  map implementations.
 
 ## [1.4.1] - 2026-07-30
 

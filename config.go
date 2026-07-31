@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
 	"sync"
 
 	"github.com/confiify/confii-go/v2/compose"
@@ -63,6 +62,7 @@ type Config[T any] struct {
 	sourceTracker      *sourcetrack.Tracker
 	fileTracker        *sourcetrack.FileTracker
 	composer           *compose.Composer
+	exporters          map[string]Exporter
 
 	// Observability (nil until enabled).
 	observer         *observe.Metrics
@@ -225,11 +225,7 @@ func NewWithContext[T any](ctx context.Context, cfgOpts ...Option) (*Config[T], 
 
 	// Resolve the active environment before building environment-dependent
 	// sources and secret providers.
-	if opts.EnvSwitcher != "" {
-		if envVal := os.Getenv(opts.EnvSwitcher); envVal != "" {
-			opts.Env = envVal
-		}
-	}
+	opts.Env = envhandler.ResolveEnv(opts.Env, opts.isSet("env"), opts.EnvSwitcher, opts.Env)
 	if err := resolveEnvironmentStrategy(&opts); err != nil {
 		return nil, err
 	}
@@ -261,6 +257,13 @@ func NewWithContext[T any](ctx context.Context, cfgOpts ...Option) (*Config[T], 
 	if err != nil {
 		return nil, err
 	}
+	exporters, err := buildExporterRegistry(opts.Exporters)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateCustomValidators(opts.Validators); err != nil {
+		return nil, err
+	}
 
 	// Resolve relative composition paths from the configured working
 	// directory. An empty working directory uses the process directory.
@@ -278,6 +281,7 @@ func NewWithContext[T any](ctx context.Context, cfgOpts ...Option) (*Config[T], 
 		sourceTracker: sourcetrack.NewTracker(opts.DebugMode),
 		fileTracker:   sourcetrack.NewFileTracker(),
 		composer:      compose.New(composerBase, compose.WithMerger(m)),
+		exporters:     exporters,
 		opts:          opts,
 		logger:        opts.Logger,
 		jsonSchema:    jsonSchema,
