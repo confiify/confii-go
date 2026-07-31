@@ -337,12 +337,17 @@ val, _ := store.GetSecret(ctx, "db/credentials", confii.WithField("password"))
 
 ## Vault Auth Methods
 
-The Vault-compatible integration implements nine authentication flows. Pass
-them via `WithVaultAuth`; availability and server-side configuration of a
-method still depend on the selected HashiCorp Vault or OpenBao deployment.
-CI live-tests Token and AppRole against OpenBao. The remaining flows have
-protocol-level tests and require a real provider-side identity setup before
-they can be certified in your deployment:
+The Vault-compatible integration exposes adapters for nine authentication
+methods. AppRole, Kubernetes, AWS IAM, Azure managed identity, and GCP use the
+official HashiCorp Vault auth packages for credential discovery, signing, and
+login payload construction. Token, LDAP, generic JWT, and interactive OIDC use
+the Vault API directly because HashiCorp does not publish corresponding Go auth
+helpers for those flows.
+
+Pass one method via `WithVaultAuth`. CI live-tests Token and AppRole against
+OpenBao and exercises every other adapter against protocol fixtures. Provider
+identity, role, and trust configuration remains deployment-specific and must be
+verified in the target environment:
 
 === "Token"
 
@@ -356,11 +361,16 @@ they can be certified in your deployment:
 
     ```go
     cloud.WithVaultAuth(&cloud.AppRoleAuth{
-        RoleID:     "role-id",
-        SecretID:   "secret-id",
-        MountPoint: "approle",  // default: "approle"
+        RoleID:      "role-id",
+        SecretIDEnv: "VAULT_SECRET_ID",
+        MountPoint:  "approle",  // default: "approle"
     })
     ```
+
+    Exactly one of `SecretID`, `SecretIDFile`, or `SecretIDEnv` is required.
+    File and environment sources are read for each authentication attempt, so
+    rotated credentials do not require rebuilding the store. Set
+    `WrappingToken` when that source contains a Vault response-wrapping token.
 
 === "LDAP"
 
@@ -373,7 +383,7 @@ they can be certified in your deployment:
     // Or with a password provider function:
     cloud.WithVaultAuth(&cloud.LDAPAuth{
         Username: "admin",
-        PasswordProvider: func() (string, error) {
+        PasswordProvider: func(ctx context.Context) (string, error) {
             return os.Getenv("VAULT_LDAP_PASSWORD"), nil
         },
     })
@@ -394,46 +404,58 @@ they can be certified in your deployment:
     ```go
     cloud.WithVaultAuth(&cloud.KubernetesAuth{
         Role:       "my-k8s-role",
-        JWT:        string(serviceAccountToken),
+        TokenPath:  "/var/run/secrets/kubernetes.io/serviceaccount/token",
         MountPoint: "kubernetes",  // default: "kubernetes"
     })
     ```
+
+    Supply at most one of `JWT`, `TokenPath`, or `TokenEnv`. With none set, the
+    official package reads the standard projected service-account token path.
 
 === "AWS IAM"
 
     ```go
     cloud.WithVaultAuth(&cloud.AWSIAMAuth{
-        Role:                  "my-aws-role",
-        MountPoint:            "aws",  // default: "aws"
-        IAMHTTPRequestMethod:  signed.Method,
-        IAMHTTPRequestURL:     signed.URLBase64,
-        IAMHTTPRequestBody:    signed.BodyBase64,
-        IAMHTTPRequestHeaders: signed.HeadersBase64,
+        Role:              "my-aws-role",
+        Region:            "us-east-1",
+        IAMServerIDHeader: "vault.example.com", // optional role binding
+        MountPoint:        "aws",  // default: "aws"
     })
     ```
 
-    The application signs an STS `GetCallerIdentity` request with the AWS SDK and supplies Vault's four base64-encoded IAM request fields.
+    The official auth package discovers the standard AWS credential chain and
+    signs the STS `GetCallerIdentity` request. Applications with an external
+    signer can instead use `AWSIAMSignedRequestAuth` and provide Vault's four
+    base64-encoded IAM request fields explicitly.
 
 === "Azure"
 
     ```go
     cloud.WithVaultAuth(&cloud.AzureAuth{
         Role:       "my-azure-role",
-        JWT:        azureIdentityToken,
-        Resource:   "https://vault.example.com",  // optional
+        Resource:   "https://management.azure.com/",  // optional audience
         MountPoint: "azure",  // default: "azure"
     })
     ```
+
+    `AzureAuth` uses the official package to obtain a managed-identity token and
+    instance metadata from Azure IMDS. Workload identities that already own a
+    JWT can use the explicit `AzureJWTAuth` adapter.
 
 === "GCP"
 
     ```go
     cloud.WithVaultAuth(&cloud.GCPAuth{
-        Role:       "my-gcp-role",
-        JWT:        "eyJhbGci...",  // signed IAM/GCE identity JWT
-        MountPoint: "gcp",  // default: "gcp"
+        Role:                "my-gcp-role",
+        AuthType:            "iam", // "gce" is the default
+        ServiceAccountEmail: "app@project.iam.gserviceaccount.com",
+        MountPoint:          "gcp",  // default: "gcp"
     })
     ```
+
+    GCE mode obtains an identity JWT from the metadata service. IAM mode signs
+    through IAM Credentials using application default credentials. An external
+    identity JWT can use `JWTAuth` with `MountPoint: "gcp"`.
 
 === "OIDC"
 
@@ -457,23 +479,10 @@ cloud.WithVaultAppRole("role-id", "secret-id")
 
 ## Declarative Self-Config Providers
 
-Cloud stores can be wired through `.confii.yaml` when the application blank-imports `github.com/confiify/confii-go/secret/cloud/v2` and builds with the matching tag. Each tagged package registers its provider during `init`.
-
-```yaml
-secrets:
-  provider: vault
-  address: https://vault.internal:8200
-  mount_point: secret
-  kv_version: 2
-  verify: true
-  auth:
-    method: kubernetes
-    role: confii-production
-    token_path: /var/run/secrets/kubernetes.io/serviceaccount/token
-```
-
-The single-provider form remains supported. For mixed backends, configure
-named providers and choose environment-specific defaults:
+Cloud stores can be wired through `.confii.yaml` when the application
+blank-imports `github.com/confiify/confii-go/secret/cloud/v2` and builds with
+the matching tag. Each tagged package registers its provider during `init`.
+Confii v2 requires named providers, including when only one provider is used:
 
 ```yaml
 secrets:
@@ -485,6 +494,7 @@ secrets:
   providers:
     vault:
       type: vault
+      address: https://vault.internal:8200
       mount_point: secret
       kv_version: 2
       auth:
@@ -532,15 +542,19 @@ Provider-specific fields:
 | `gcp` | `project_id`; optional `credentials_file` (otherwise Application Default Credentials are used) |
 | `vault` | `address` or `VAULT_ADDR`; optional `namespace`, `mount_point`, `kv_version`, `verify`, and `auth` |
 
-Vault self-config can declare all nine implemented auth flows: `token`,
-`approle`, `ldap`, `jwt`, `kubernetes`, `aws_iam`, `azure`, `gcp`, and
-interactive `oidc`. This is configuration support, not a claim that every
-method is turnkey or live-certified: Token and AppRole are the CI-tested
-OpenBao paths; the others require provider-side identity configuration. `auth`
-may be a method string with fields alongside it or a nested map with `method`.
-A root `token` or `VAULT_TOKEN` is used for token auth. The same build can
-register multiple providers by enabling multiple tags, for example
-`-tags="aws,vault"`.
+Vault self-config accepts `token`, `approle`, `ldap`, `jwt`, `kubernetes`,
+`aws_iam`, `azure`, `gcp`, and interactive `oidc`. The official-provider forms
+also accept their provider-specific fields: AppRole secret ID sources,
+Kubernetes token sources, AWS `region`, Azure `resource`, and GCP `auth_type`
+plus `service_account_email`. Advanced external-identity forms are named
+explicitly: `aws_signed_request`, `azure_jwt`, and `gcp_jwt`.
+
+This is configuration support, not a claim that every provider identity is
+turnkey or live-certified. Token and AppRole are the CI-tested OpenBao paths;
+the others require provider-side identity configuration. `auth` may be a
+method string with fields alongside it or a nested map with `method`. A root
+`token` or `VAULT_TOKEN` is used for token auth. The same build can register
+multiple providers by enabling multiple tags, for example `-tags="aws,vault"`.
 
 After configuration contains at least one `${secret:...}` reference, run the
 value-safe preflight before deployment:
@@ -627,9 +641,9 @@ password, _ := cfg.Get("database.password")
 
 !!! tip "Initialization ordering"
     Eager materialization follows the built-in order: environment expansion,
-    type casting, then constructor-time secret resolution. Arbitrary hooks
-    registered after `New` remain access-time transformations and are not part
-    of the startup transaction.
+    type casting, then constructor-time secret resolution. Register every hook
+    through constructor options or the builder; the materialization plan is
+    immutable after `New` succeeds.
 
 ---
 

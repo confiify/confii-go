@@ -36,7 +36,7 @@ CRUD, LocalStack, and Vault/OpenBao companion repository.
 - **Multi-source loading** — YAML, JSON, TOML, INI, .env, env vars, HTTP, S3, SSM, Azure Blob, GCS, IBM COS, Git
 - **Type-safe generics** — `Config[T]` with `cfg.Typed()` returning `*T` and full IDE autocomplete
 - **Merge strategies** — replace, shallow merge, deep merge, append, prepend, intersection, union — with per-path overrides
-- **Secret resolution** — `${secret:key}` placeholders from AWS Secrets Manager, Azure Key Vault, GCP Secret Manager, HashiCorp Vault, and OpenBao. The Vault-compatible layer implements nine authentication flows; CI live-tests Token and AppRole against OpenBao, while the other flows have protocol-level tests and require provider-side identity configuration.
+- **Secret resolution** — `${secret:key}` placeholders from AWS Secrets Manager, Azure Key Vault, GCP Secret Manager, HashiCorp Vault, and OpenBao. The Vault-compatible layer exposes nine auth adapters and uses official HashiCorp auth packages where available; CI live-tests Token and AppRole against OpenBao, while the other adapters have protocol-level tests and require provider-side identity configuration.
 - **Config composition** — Hydra-style `_include` and `_defaults` directives with cycle detection
 - **Environment resolution** — Recommended named files or a single file with `default` + environment sections, with explicit hybrid mode for migrations
 - **Hook system** — key, value, condition, and global hooks applied with full key paths while candidate snapshots are materialized

@@ -98,15 +98,39 @@ func buildVaultSelfAuth(name string, cfg map[string]any, token string) (VaultAut
 		}
 		return &TokenAuth{Token: token}, nil
 	case "approle":
-		return &AppRoleAuth{RoleID: selfString(cfg, "role_id"), SecretID: selfString(cfg, "secret_id"), MountPoint: mount}, nil
+		wrappingToken, err := selfBool(cfg, "wrapping_token", false)
+		if err != nil {
+			return nil, err
+		}
+		return &AppRoleAuth{
+			RoleID:        selfString(cfg, "role_id"),
+			SecretID:      selfString(cfg, "secret_id"),
+			SecretIDFile:  selfString(cfg, "secret_id_file"),
+			SecretIDEnv:   selfString(cfg, "secret_id_env"),
+			WrappingToken: wrappingToken,
+			MountPoint:    mount,
+		}, nil
 	case "ldap":
 		return &LDAPAuth{Username: selfString(cfg, "username"), Password: selfString(cfg, "password"), MountPoint: mount}, nil
 	case "jwt":
 		return &JWTAuth{Role: selfString(cfg, "role"), JWT: selfString(cfg, "jwt"), MountPoint: mount}, nil
 	case "kubernetes", "k8s":
-		return &KubernetesAuth{Role: selfString(cfg, "role"), JWT: selfString(cfg, "jwt"), TokenPath: selfString(cfg, "token_path"), MountPoint: mount}, nil
+		return &KubernetesAuth{
+			Role:       selfString(cfg, "role"),
+			JWT:        selfString(cfg, "jwt"),
+			TokenPath:  selfString(cfg, "token_path"),
+			TokenEnv:   selfString(cfg, "token_env"),
+			MountPoint: mount,
+		}, nil
 	case "aws", "aws_iam", "awsiam":
 		return &AWSIAMAuth{
+			Role:              selfString(cfg, "role"),
+			IAMServerIDHeader: selfString(cfg, "iam_server_id_header"),
+			Region:            selfString(cfg, "region"),
+			MountPoint:        mount,
+		}, nil
+	case "aws_signed_request":
+		return &AWSIAMSignedRequestAuth{
 			Role:                  selfString(cfg, "role"),
 			IAMServerIDHeader:     selfString(cfg, "iam_server_id_header"),
 			IAMHTTPRequestMethod:  selfString(cfg, "iam_http_request_method"),
@@ -117,9 +141,14 @@ func buildVaultSelfAuth(name string, cfg map[string]any, token string) (VaultAut
 		}, nil
 	case "azure":
 		return &AzureAuth{
+			Role:       selfString(cfg, "role"),
+			Resource:   selfString(cfg, "resource"),
+			MountPoint: mount,
+		}, nil
+	case "azure_jwt":
+		return &AzureJWTAuth{
 			Role:              selfString(cfg, "role"),
 			JWT:               selfString(cfg, "jwt"),
-			Resource:          selfString(cfg, "resource"),
 			VMName:            selfString(cfg, "vm_name"),
 			VMSSName:          selfString(cfg, "vmss_name"),
 			SubscriptionID:    selfString(cfg, "subscription_id"),
@@ -127,7 +156,17 @@ func buildVaultSelfAuth(name string, cfg map[string]any, token string) (VaultAut
 			MountPoint:        mount,
 		}, nil
 	case "gcp":
-		return &GCPAuth{Role: selfString(cfg, "role"), JWT: selfString(cfg, "jwt"), MountPoint: mount}, nil
+		return &GCPAuth{
+			Role:                selfString(cfg, "role"),
+			AuthType:            selfString(cfg, "auth_type"),
+			ServiceAccountEmail: selfString(cfg, "service_account_email"),
+			MountPoint:          mount,
+		}, nil
+	case "gcp_jwt":
+		if mount == "" {
+			mount = "gcp"
+		}
+		return &JWTAuth{Role: selfString(cfg, "role"), JWT: selfString(cfg, "jwt"), MountPoint: mount}, nil
 	case "oidc":
 		timeout := time.Duration(0)
 		if seconds, err := selfInt(cfg, "callback_timeout_seconds", 0); err != nil {

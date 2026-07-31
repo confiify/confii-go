@@ -117,6 +117,66 @@ func TestWithValidator_RejectsCandidateAndCannotMutatePublishedData(t *testing.T
 	assert.Equal(t, "confii", name)
 }
 
+func TestWithValidator_AppliesToEveryPublishingLifecycle(t *testing.T) {
+	rejectBlocked := validatorFunc(func(data map[string]any) error {
+		if data["name"] == "blocked" {
+			return errors.New("name is blocked")
+		}
+		return nil
+	})
+	base := extensionLoader{"name": "confii"}
+	cfg, err := confii.New[any](
+		confii.WithLoaders(base),
+		confii.WithValidator(rejectBlocked),
+	)
+	require.NoError(t, err)
+
+	err = cfg.Extend(extensionLoader{"name": "blocked"})
+	require.ErrorIs(t, err, confii.ErrConfigValidation)
+	name, getErr := cfg.Get("name")
+	require.NoError(t, getErr)
+	assert.Equal(t, "confii", name)
+
+	restore, err := cfg.Override(map[string]any{"name": "blocked"})
+	require.ErrorIs(t, err, confii.ErrConfigValidation)
+	assert.Nil(t, restore)
+	name, getErr = cfg.Get("name")
+	require.NoError(t, getErr)
+	assert.Equal(t, "confii", name)
+
+	base["name"] = "blocked"
+	err = cfg.Reload(confii.WithIncremental(false))
+	require.ErrorIs(t, err, confii.ErrConfigValidation)
+	name, getErr = cfg.Get("name")
+	require.NoError(t, getErr)
+	assert.Equal(t, "confii", name)
+
+	require.NoError(t, cfg.Reload(
+		confii.WithIncremental(false),
+		confii.WithReloadValidate(false),
+	))
+	name, getErr = cfg.Get("name")
+	require.NoError(t, getErr)
+	assert.Equal(t, "blocked", name)
+}
+
+func TestExtend_UsesCanonicalNonStrictTypedValidation(t *testing.T) {
+	type appConfig struct {
+		Name string `confii:"name" validate:"required"`
+	}
+	cfg, err := confii.New[appConfig](
+		confii.WithLoaders(extensionLoader{"name": "ready"}),
+		confii.WithValidateOnLoad(true),
+		confii.WithStrictValidation(false),
+	)
+	require.NoError(t, err)
+
+	require.NoError(t, cfg.Extend(extensionLoader{"name": ""}))
+	name, err := cfg.Get("name")
+	require.NoError(t, err)
+	assert.Equal(t, "", name)
+}
+
 func TestWithValidator_RejectsNilAndInitialSnapshot(t *testing.T) {
 	var typedNil validatorFunc
 	for name, validator := range map[string]confii.Validator{

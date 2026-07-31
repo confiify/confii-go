@@ -44,7 +44,7 @@ func main() {
 	diffs, _ := vm.DiffVersions(v1.VersionID, v2.VersionID)
 	fmt.Printf("\nChanges between v1 and v2: %d\n", len(diffs))
 	for _, d := range diffs {
-		fmt.Printf("  %s: %s (%v -> %v)\n", d["path"], d["type"], d["old_value"], d["new_value"])
+		fmt.Printf("  %s: %s (%v -> %v)\n", d.Path, d.Type, d.OldValue, d.NewValue)
 	}
 
 	// List all versions

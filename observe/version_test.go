@@ -18,6 +18,8 @@ func TestVersionManager_SaveAndGet(t *testing.T) {
 	v, err := vm.SaveVersion(config, map[string]any{"author": "test"})
 	require.NoError(t, err)
 	assert.NotEmpty(t, v.VersionID)
+	assert.True(t, validVersionID(v.VersionID))
+	assert.False(t, v.Timestamp.IsZero())
 	assert.Equal(t, "localhost", v.Config["database"].(map[string]any)["host"])
 	assert.Equal(t, "test", v.Metadata["author"])
 
@@ -30,14 +32,16 @@ func TestVersionManager_ListVersions(t *testing.T) {
 	dir := t.TempDir()
 	vm := NewVersionManager(dir, 100)
 
-	_, _ = vm.SaveVersion(map[string]any{"v": 1}, nil)
-	_, _ = vm.SaveVersion(map[string]any{"v": 2}, nil)
-	_, _ = vm.SaveVersion(map[string]any{"v": 3}, nil)
+	v1, _ := vm.SaveVersion(map[string]any{"v": 1}, nil)
+	v2, _ := vm.SaveVersion(map[string]any{"v": 2}, nil)
+	v3, _ := vm.SaveVersion(map[string]any{"v": 3}, nil)
 
 	versions := vm.ListVersions()
 	assert.Len(t, versions, 3)
 
-	assert.True(t, versions[0].Timestamp >= versions[1].Timestamp)
+	assert.False(t, versions[0].Timestamp.Before(versions[1].Timestamp))
+	assert.Less(t, v1.VersionID, v2.VersionID)
+	assert.Less(t, v2.VersionID, v3.VersionID)
 }
 
 func TestVersionManager_Eviction(t *testing.T) {

@@ -23,7 +23,7 @@ Confii provides:
 
 - Type-safe generics: Config[T] with cfg.Typed() returning *T with IDE autocomplete
 - Merge strategies (replace, shallow merge, deep merge, append, prepend, intersection, union) with per-path overrides
-- ${secret:key} placeholder resolution from AWS Secrets Manager, Azure Key Vault, GCP Secret Manager, HashiCorp Vault, and OpenBao — with caching, TTL, and multi-store fallback. The Vault-compatible layer implements nine auth flows; CI live-tests Token and AppRole against OpenBao, while other flows have protocol-level tests and require provider-side identity configuration.
+- ${secret:key} placeholder resolution from AWS Secrets Manager, Azure Key Vault, GCP Secret Manager, HashiCorp Vault, and OpenBao — with caching, TTL, and multi-store fallback. The Vault-compatible layer exposes nine auth adapters and uses official HashiCorp auth packages where available; CI live-tests Token and AppRole against OpenBao, while other adapters have protocol-level tests and require provider-side identity configuration.
 - Config composition via _include and _defaults directives with cycle detection
 - Environment resolution: recommended named files or a single file with default + environment sections; explicit hybrid mode supports controlled migrations
 - Key, value, condition, and global hooks for construction-time snapshot transformation

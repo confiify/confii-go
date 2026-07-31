@@ -6,7 +6,9 @@ package cloud
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
+	"path"
 	"strings"
 
 	confii "github.com/confiify/confii-go/v2"
@@ -77,27 +79,62 @@ func (l *GitLoader) Load(ctx context.Context) (map[string]any, error) {
 
 func (l *GitLoader) resolveRawURL() (string, map[string]string, error) {
 	headers := make(map[string]string)
-	repoURL := strings.TrimSuffix(l.repoURL, ".git")
+	repository, err := url.Parse(l.repoURL)
+	if err != nil {
+		return "", nil, fmt.Errorf("parse repository URL: %w", err)
+	}
+	if repository.Scheme != "https" || repository.User != nil || repository.RawQuery != "" || repository.Fragment != "" {
+		return "", nil, fmt.Errorf("repository URL must be an HTTPS URL without credentials, query, or fragment")
+	}
+	if repository.Host != repository.Hostname() {
+		return "", nil, fmt.Errorf("repository URL must not specify a custom port")
+	}
+	repositoryPath := strings.Trim(strings.TrimSuffix(repository.Path, ".git"), "/")
+	if err := validateGitPath(repositoryPath, "repository"); err != nil {
+		return "", nil, err
+	}
+	if err := validateGitPath(l.branch, "branch"); err != nil {
+		return "", nil, err
+	}
+	if err := validateGitPath(l.filePath, "file"); err != nil {
+		return "", nil, err
+	}
 
-	switch {
-	case strings.Contains(repoURL, "github.com"):
-		// https://github.com/{owner}/{repo} → https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{path}
-		path := strings.TrimPrefix(repoURL, "https://github.com/")
-		rawURL := fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/%s", path, l.branch, l.filePath)
+	switch strings.ToLower(repository.Hostname()) {
+	case "github.com":
+		if len(strings.Split(repositoryPath, "/")) != 2 {
+			return "", nil, fmt.Errorf("GitHub repository URL must contain exactly owner and repository")
+		}
+		raw := &url.URL{Scheme: "https", Host: "raw.githubusercontent.com", Path: path.Join(repositoryPath, l.branch, l.filePath)}
 		if l.token != "" {
 			headers["Authorization"] = "token " + l.token
 		}
-		return rawURL, headers, nil
+		return raw.String(), headers, nil
 
-	case strings.Contains(repoURL, "gitlab.com"):
-		// https://gitlab.com/{path} → https://gitlab.com/{path}/-/raw/{branch}/{file_path}
-		rawURL := fmt.Sprintf("%s/-/raw/%s/%s", repoURL, l.branch, l.filePath)
+	case "gitlab.com":
+		if len(strings.Split(repositoryPath, "/")) < 2 {
+			return "", nil, fmt.Errorf("GitLab repository URL must contain a namespace and repository")
+		}
+		raw := &url.URL{Scheme: "https", Host: "gitlab.com", Path: path.Join(repositoryPath, "-", "raw", l.branch, l.filePath)}
 		if l.token != "" {
 			headers["PRIVATE-TOKEN"] = l.token
 		}
-		return rawURL, headers, nil
+		return raw.String(), headers, nil
 
 	default:
-		return "", nil, fmt.Errorf("unsupported git provider: %s (only GitHub and GitLab are supported)", repoURL)
+		return "", nil, fmt.Errorf("unsupported git provider host %q (only github.com and gitlab.com are supported)", repository.Hostname())
 	}
+}
+
+func validateGitPath(value string, name string) error {
+	value = strings.TrimSpace(value)
+	if value == "" || strings.HasPrefix(value, "/") {
+		return fmt.Errorf("%s path must be non-empty and relative", name)
+	}
+	for _, segment := range strings.Split(value, "/") {
+		if segment == "" || segment == "." || segment == ".." {
+			return fmt.Errorf("%s path contains an invalid segment", name)
+		}
+	}
+	return nil
 }

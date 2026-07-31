@@ -7,17 +7,15 @@ package compose
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
-	"github.com/BurntSushi/toml"
+	"github.com/confiify/confii-go/v2/internal/configdecode"
 	"github.com/confiify/confii-go/v2/internal/dictutil"
 	"github.com/confiify/confii-go/v2/internal/formatparse"
-	"gopkg.in/yaml.v3"
 )
 
 const maxDepth = 10
@@ -277,22 +275,12 @@ func (c *Composer) loadFile(ctx context.Context, path string, depth int, visited
 		return nil, err
 	}
 
-	var result map[string]any
 	ext := strings.ToLower(filepath.Ext(path))
-	switch ext {
-	case ".yaml", ".yml":
-		if err = formatparse.ValidateDeclaredContent(formatparse.FormatYAML, data); err == nil {
-			err = yaml.Unmarshal(data, &result)
-		}
-	case ".json":
-		err = json.Unmarshal(data, &result)
-	case ".toml":
-		if err = formatparse.ValidateDeclaredContent(formatparse.FormatTOML, data); err == nil {
-			err = toml.Unmarshal(data, &result)
-		}
-	default:
-		err = fmt.Errorf("unsupported configuration extension %q", ext)
+	format := formatparse.FromExtension(path)
+	if format != formatparse.FormatYAML && format != formatparse.FormatJSON && format != formatparse.FormatTOML {
+		return nil, fmt.Errorf("parse %s: unsupported configuration extension %q", path, ext)
 	}
+	result, err := configdecode.Map(data, format)
 	if err != nil {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}

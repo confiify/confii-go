@@ -9,8 +9,8 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/BurntSushi/toml"
 	confii "github.com/confiify/confii-go/v2"
+	"github.com/confiify/confii-go/v2/internal/configdecode"
 	"github.com/confiify/confii-go/v2/internal/formatparse"
 )
 
@@ -81,12 +81,8 @@ func (l *TOMLLoader) Load(_ context.Context) (map[string]any, error) {
 		}
 		return nil, confii.NewLoadError(l.source, err)
 	}
-	if err := formatparse.ValidateDeclaredContent(formatparse.FormatTOML, data); err != nil {
-		return nil, confii.NewFormatError(l.source, "toml", err)
-	}
-
-	var result map[string]any
-	if err := toml.Unmarshal(data, &result); err != nil {
+	result, err := configdecode.Map(data, formatparse.FormatTOML)
+	if err != nil {
 		return nil, confii.NewFormatError(l.source, "toml", err)
 	}
 	return result, nil

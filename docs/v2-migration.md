@@ -158,7 +158,44 @@ on extension-only parser selection. Also rename content rather than merely its
 file extension: v2 rejects a complete JSON document declared as YAML, TOML,
 INI, or dotenv and never retries it with another parser.
 
-## 8. Verify the upgrade
+## 8. Update Vault auth inputs
+
+The ordinary cloud identity adapters now delegate identity acquisition and
+login construction to HashiCorp's official Vault auth packages:
+
+- `AWSIAMAuth` uses the standard AWS credential chain and accepts `Role`,
+  `Region`, `IAMServerIDHeader`, and `MountPoint`. Use
+  `AWSIAMSignedRequestAuth` only when the application supplies an externally
+  signed request.
+- `AzureAuth` obtains managed identity and instance metadata from Azure IMDS.
+  Use `AzureJWTAuth` for an externally brokered identity JWT.
+- `GCPAuth` selects `gce` or `iam` through `AuthType`; IAM also requires
+  `ServiceAccountEmail`. Use generic `JWTAuth` with the `gcp` mount for an
+  externally supplied GCP identity JWT.
+- AppRole accepts exactly one of `SecretID`, `SecretIDFile`, or `SecretIDEnv`.
+  Kubernetes accepts at most one of `JWT`, `TokenPath`, or `TokenEnv`.
+
+Declarative Vault auth uses the same distinction through `aws_iam`,
+`aws_signed_request`, `azure`, `azure_jwt`, `gcp`, and `gcp_jwt`.
+
+## 9. Update version record consumers
+
+Version IDs are now canonical, time-sortable ULIDs. `Version.Timestamp` is a
+`time.Time`; the duplicate float timestamp and `DateTime` string are gone.
+Format the timestamp at the presentation boundary:
+
+```go
+fmt.Println(version.Timestamp.Format(time.RFC3339Nano))
+```
+
+`VersionManager.DiffVersions` returns `[]diff.ConfigDiff`, matching
+`diff.Diff`. Replace map indexing such as `entry["path"]` with typed fields
+such as `entry.Path`, `entry.Type`, and `entry.NestedDiffs`.
+
+Persisted v1 snapshot filenames and records are not loaded by the v2 manager;
+create a new v2 snapshot baseline after upgrading.
+
+## 10. Verify the upgrade
 
 ```bash
 go mod tidy

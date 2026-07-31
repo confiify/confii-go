@@ -11,7 +11,6 @@ import (
 	"github.com/confiify/confii-go/v2/internal/dictutil"
 	"github.com/confiify/confii-go/v2/observe"
 	"github.com/confiify/confii-go/v2/sourcetrack"
-	"github.com/confiify/confii-go/v2/validate"
 )
 
 // ReloadOption is a functional option that configures the behavior of
@@ -179,38 +178,9 @@ func (c *Config[T]) reloadCandidate(ctx context.Context, opts ...ReloadOption) e
 	if ro.validate != nil {
 		shouldValidate = *ro.validate
 	}
-	if shouldValidate {
-		c.validatedModel = nil
-		// When a JSON Schema is configured (inline map or file
-		// path), validate the new envConfig against it before the
-		// struct decode below. Schema violations roll back via the
-		// shared rollback closure. Sanitized public message; structured
-		// detail on Context["schema_errors"].
-		if c.jsonSchema != nil {
-			msgs, serr := c.jsonSchema.ValidateDetailed(c.envConfig)
-			if serr != nil {
-				count := max(1, len(msgs))
-				validationErr := &ConfigError{
-					Op: "Reload",
-					Err: fmt.Errorf(
-						"%w: schema validation failed for %d constraint(s)",
-						ErrConfigValidation, count,
-					),
-					Context: map[string]any{
-						"schema_errors": msgs,
-					},
-				}
-				rollback(validationErr)
-				return validationErr
-			}
-		}
-		if configTypeSupportsStructValidation[T]() {
-			if _, err := validate.DecodeAndValidate[T](c.envConfig); err != nil {
-				validationErr := NewValidationError([]string{err.Error()}, err)
-				rollback(validationErr)
-				return validationErr
-			}
-		}
+	if err := c.validateCandidate(c.envConfig, shouldValidate); err != nil {
+		rollback(err)
+		return err
 	}
 
 	// A successful dry run restores the snapshots without emitting reload or

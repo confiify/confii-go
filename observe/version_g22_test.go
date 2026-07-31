@@ -65,6 +65,11 @@ func TestManager_SaveVersion_PropagatesMarshalErrors(t *testing.T) {
 	assert.Nil(t, v)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "version:")
+
+	v, err = vm.SaveVersion(map[string]any{"valid": true}, map[string]any{"chan": make(chan int)})
+	assert.Nil(t, v)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "marshal metadata")
 }
 
 func TestManager_DefaultStorage_NoSourceTreeArtifacts(t *testing.T) {
@@ -94,7 +99,7 @@ func TestManager_TimestampOrdering_StrictlyMonotonic(t *testing.T) {
 	vm := NewVersionManager(dir, 100)
 
 	const n = 50
-	timestamps := make([]float64, 0, n)
+	timestamps := make([]time.Time, 0, n)
 	for i := 0; i < n; i++ {
 		v, err := vm.SaveVersion(map[string]any{"i": i}, nil)
 		require.NoError(t, err)
@@ -102,18 +107,18 @@ func TestManager_TimestampOrdering_StrictlyMonotonic(t *testing.T) {
 	}
 
 	for i := 1; i < len(timestamps); i++ {
-		assert.Greater(t, timestamps[i], timestamps[i-1],
+		assert.True(t, timestamps[i].After(timestamps[i-1]),
 			"timestamp at index %d (%v) is not strictly greater than previous (%v)",
 			i, timestamps[i], timestamps[i-1])
 	}
 }
 
-func TestManager_TimestampOrdering_AdvancesPastFloatPrecisionTie(t *testing.T) {
+func TestManager_TimestampOrdering_AdvancesPastClockTie(t *testing.T) {
 	vm := NewVersionManager("", 100)
-	vm.lastTS = time.Now().UnixNano() + int64(time.Second)
-	vm.lastTimestamp = float64(vm.lastTS) / 1e9
+	previous := time.Now().UTC().Add(time.Second)
+	vm.lastTimestamp = previous
 
 	v, err := vm.SaveVersion(map[string]any{"platform": "coarse-clock"}, nil)
 	require.NoError(t, err)
-	assert.Greater(t, v.Timestamp, float64(vm.lastTS-1)/1e9)
+	assert.True(t, v.Timestamp.After(previous))
 }

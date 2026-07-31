@@ -107,6 +107,12 @@ DATABASE_PORT=5432
 DEBUG=true
 ```
 
+Dotenv parsing follows godotenv's quoting, comment, `export`, multiline, and
+variable-expansion grammar. Confii then converts unambiguous scalar values and
+maps dot-separated names such as `database.host` into nested configuration.
+Malformed records follow `WithEnvFileErrorPolicy`; warning logs identify the
+source and line without logging the record's potentially sensitive content.
+
 !!! tip "Combining file formats"
     A project may combine source formats. A common pattern uses YAML for the main
     config, JSON for machine-generated overrides, and `.env` for local secrets:
@@ -221,6 +227,8 @@ l := loader.NewHTTP("https://config.example.com/api/v1/config")
 | Option | Description | Default |
 | --- | --- | --- |
 | `loader.WithTimeout(d)` | HTTP request timeout | `30s` |
+| `loader.WithHTTPClient(client)` | Copy a custom client, transport, redirect policy, and cookie jar | standard client |
+| `loader.WithMaxResponseBytes(n)` | Maximum accepted response body size | `8 MiB` |
 | `loader.WithHeaders(map)` | Custom request headers | none |
 | `loader.WithBasicAuth(user, pass)` | HTTP Basic Authentication | none |
 
@@ -266,6 +274,11 @@ l := loader.NewHTTP("https://config.example.com/api/v1/config")
     format. If the header is missing or ambiguous, it falls back to parsing the
     URL extension (`.json`, `.yaml`, `.yml`, `.toml`). JSON and YAML are
     attempted in order if no format can be determined.
+
+!!! warning "Bounded responses"
+    The loader rejects bodies larger than 8 MiB before parsing. Increase the
+    limit explicitly only for a trusted endpoint whose configuration document
+    is expected to be larger.
 
 ---
 
@@ -332,7 +345,10 @@ go build -tags "aws,azure,gcp,ibm"
 The Git loader fetches configuration from a file in a GitHub or GitLab
 repository via raw content URLs. Install
 `github.com/confiify/confii-go/loader/cloud/v2` first; it does **not** require any
-build tag.
+build tag. Repository URLs must use HTTPS and the exact public host
+`github.com` or `gitlab.com`; embedded credentials, custom ports, query
+strings, fragments, and traversal segments are rejected before a private
+repository token is attached to the provider-specific raw endpoint.
 
 ```go
 import "github.com/confiify/confii-go/loader/cloud/v2"

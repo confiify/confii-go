@@ -6,6 +6,7 @@
 package formatparse
 
 import (
+	"mime"
 	"path/filepath"
 	"strings"
 )
@@ -49,15 +50,24 @@ func FromExtension(filename string) Format {
 
 // FromContentType detects format from an HTTP Content-Type header value.
 func FromContentType(ct string) Format {
-	ct = strings.ToLower(ct)
-	switch {
-	case strings.Contains(ct, "yaml"):
-		return FormatYAML
-	case strings.Contains(ct, "json"):
-		return FormatJSON
-	case strings.Contains(ct, "toml"):
-		return FormatTOML
-	default:
+	mediaType, _, err := mime.ParseMediaType(ct)
+	if err != nil {
 		return FormatUnknown
 	}
+	mediaType = strings.ToLower(mediaType)
+	switch mediaType {
+	case "application/yaml", "application/x-yaml", "text/yaml", "text/x-yaml":
+		return FormatYAML
+	case "application/json", "text/json":
+		return FormatJSON
+	case "application/toml", "application/x-toml", "text/toml":
+		return FormatTOML
+	}
+	if strings.HasSuffix(mediaType, "+yaml") {
+		return FormatYAML
+	}
+	if strings.HasSuffix(mediaType, "+json") {
+		return FormatJSON
+	}
+	return FormatUnknown
 }

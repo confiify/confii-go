@@ -218,7 +218,7 @@ func TestVaultAuth_AWSIAM_HappyPath(t *testing.T) {
 	signedBody := base64.StdEncoding.EncodeToString([]byte("Action=GetCallerIdentity&Version=2011-06-15"))
 	signedHeaders := base64.StdEncoding.EncodeToString([]byte(`{"Authorization":["AWS4-HMAC-SHA256 ..."]}`))
 
-	auth := &AWSIAMAuth{
+	auth := &AWSIAMSignedRequestAuth{
 		Role:                  "demo",
 		IAMHTTPRequestMethod:  "POST",
 		IAMHTTPRequestURL:     signedURL,
@@ -240,17 +240,14 @@ func TestVaultAuth_AWSIAM_HappyPath(t *testing.T) {
 	}
 }
 
-func TestVaultAuth_AWSIAM_UnsignedRequestRejected(t *testing.T) {
-	auth := &AWSIAMAuth{Role: "demo"}
+func TestVaultAuth_AWSIAMSignedRequest_IncompleteRequestRejected(t *testing.T) {
+	auth := &AWSIAMSignedRequestAuth{Role: "demo"}
 	_, err := auth.Authenticate(context.Background(), nil)
 	if err == nil {
 		t.Fatal("expected ErrVaultAuth, got nil")
 	}
 	if !errors.Is(err, confii.ErrVaultAuth) {
 		t.Errorf("error: got %v, want wrapping ErrVaultAuth", err)
-	}
-	if !errors.Is(err, ErrVaultAuthUnsupported) {
-		t.Errorf("error: got %v, want wrapping ErrVaultAuthUnsupported", err)
 	}
 }
 
@@ -260,7 +257,7 @@ func TestVaultAuth_Azure_HappyPath(t *testing.T) {
 		writeAuthOK(w, "azure-minted-token")
 	})
 
-	auth := &AzureAuth{
+	auth := &AzureJWTAuth{
 		Role:           "demo",
 		JWT:            "eyJAzure...",
 		SubscriptionID: "00000000-0000-0000-0000-000000000000",
@@ -280,17 +277,14 @@ func TestVaultAuth_Azure_HappyPath(t *testing.T) {
 	}
 }
 
-func TestVaultAuth_Azure_MissingJWT(t *testing.T) {
-	auth := &AzureAuth{Role: "demo"}
+func TestVaultAuth_AzureJWT_MissingJWT(t *testing.T) {
+	auth := &AzureJWTAuth{Role: "demo"}
 	_, err := auth.Authenticate(context.Background(), nil)
 	if err == nil {
 		t.Fatal("expected ErrVaultAuth, got nil")
 	}
 	if !errors.Is(err, confii.ErrVaultAuth) {
 		t.Errorf("error: got %v, want wrapping ErrVaultAuth", err)
-	}
-	if !errors.Is(err, ErrVaultAuthUnsupported) {
-		t.Errorf("error: got %v, want wrapping ErrVaultAuthUnsupported", err)
 	}
 }
 
@@ -300,7 +294,7 @@ func TestVaultAuth_GCP_HappyPath(t *testing.T) {
 		writeAuthOK(w, "gcp-minted-token")
 	})
 
-	auth := &GCPAuth{Role: "demo", JWT: "eyJGCP..."}
+	auth := &JWTAuth{Role: "demo", JWT: "eyJGCP...", MountPoint: "gcp"}
 	got, err := auth.Authenticate(context.Background(), f.client(t))
 	if err != nil {
 		t.Fatalf("Authenticate: %v", err)
@@ -313,17 +307,14 @@ func TestVaultAuth_GCP_HappyPath(t *testing.T) {
 	}
 }
 
-func TestVaultAuth_GCP_MissingJWT(t *testing.T) {
-	auth := &GCPAuth{Role: "demo"}
+func TestVaultAuth_GCPJWT_MissingJWT(t *testing.T) {
+	auth := &JWTAuth{Role: "demo", MountPoint: "gcp"}
 	_, err := auth.Authenticate(context.Background(), nil)
 	if err == nil {
 		t.Fatal("expected ErrVaultAuth, got nil")
 	}
 	if !errors.Is(err, confii.ErrVaultAuth) {
 		t.Errorf("error: got %v, want wrapping ErrVaultAuth", err)
-	}
-	if !errors.Is(err, ErrVaultAuthUnsupported) {
-		t.Errorf("error: got %v, want wrapping ErrVaultAuthUnsupported", err)
 	}
 }
 

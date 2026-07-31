@@ -10,9 +10,8 @@ import (
 	"os"
 
 	confii "github.com/confiify/confii-go/v2"
+	"github.com/confiify/confii-go/v2/internal/configdecode"
 	"github.com/confiify/confii-go/v2/internal/formatparse"
-	"github.com/confiify/confii-go/v2/internal/typecoerce"
-	"gopkg.in/ini.v1"
 )
 
 // INILoader loads configuration from an INI file.
@@ -96,39 +95,9 @@ func (l *INILoader) Load(_ context.Context) (map[string]any, error) {
 		}
 		return nil, confii.NewLoadError(l.source, err)
 	}
-	if err := formatparse.ValidateDeclaredContent(formatparse.FormatINI, data); err != nil {
-		return nil, confii.NewFormatError(l.source, "ini", err)
-	}
-
-	cfg, err := ini.Load(data)
+	result, err := configdecode.Map(data, formatparse.FormatINI)
 	if err != nil {
 		return nil, confii.NewFormatError(l.source, "ini", err)
-	}
-
-	result := make(map[string]any)
-	for _, section := range cfg.Sections() {
-		name := section.Name()
-		// The gopkg.in/ini.v1 library reports a synthetic
-		// "DEFAULT" section that holds every key/value pair preceding
-		// the first explicit [section] header. Surface those keys as
-		// root-level entries of the result map instead of dropping
-		// them, so defaults-only INI files (and the leading block of
-		// mixed files) round-trip into the configuration.
-		if name == ini.DefaultSection {
-			for _, key := range section.Keys() {
-				result[key.Name()] = typecoerce.ParseScalar(key.Value(), false)
-			}
-			continue
-		}
-		sectionMap := make(map[string]any)
-		for _, key := range section.Keys() {
-			sectionMap[key.Name()] = typecoerce.ParseScalar(key.Value(), false)
-		}
-		result[name] = sectionMap
-	}
-
-	if len(result) == 0 {
-		return nil, nil
 	}
 	return result, nil
 }

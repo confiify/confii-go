@@ -8,14 +8,12 @@ package loader
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 	"os"
 
 	confii "github.com/confiify/confii-go/v2"
-	"github.com/confiify/confii-go/v2/internal/dictutil"
+	"github.com/confiify/confii-go/v2/internal/configdecode"
 	"github.com/confiify/confii-go/v2/internal/formatparse"
-	"gopkg.in/yaml.v3"
 )
 
 // YAMLLoader loads configuration from a YAML file.
@@ -35,7 +33,7 @@ import (
 // dispatched through the policy.
 //
 // Key normalization: YAML maps with non-string keys (integers,
-// booleans, sequences, etc.) decode under gopkg.in/yaml.v3 as
+// booleans, sequences, etc.) decode under go.yaml.in/yaml/v3 as
 // map[interface{}]interface{}, which is incompatible with the rest of
 // the library's map[string]any data model (it breaks dot-path access,
 // JSON export, and typed configuration decoding). The loader walks the
@@ -99,37 +97,11 @@ func (l *YAMLLoader) Load(_ context.Context) (map[string]any, error) {
 		}
 		return nil, confii.NewLoadError(l.source, err)
 	}
-	if err := formatparse.ValidateDeclaredContent(formatparse.FormatYAML, data); err != nil {
+	result, err := configdecode.Map(data, formatparse.FormatYAML)
+	if err != nil {
 		return nil, confii.NewFormatError(l.source, "yaml", err)
 	}
-
-	// Decode into an untyped interface so we can intercept maps with
-	// non-string keys. gopkg.in/yaml.v3 emits
-	// map[interface{}]interface{} for any map containing a non-string
-	// key, which the rest of the library does not understand.
-	var raw any
-	if err := yaml.Unmarshal(data, &raw); err != nil {
-		return nil, confii.NewFormatError(l.source, "yaml", err)
-	}
-	if raw == nil {
-		return nil, nil
-	}
-	normalizedAny, nerr := dictutil.NormalizeKeys(raw)
-	if nerr != nil {
-		// Typed key-collision or key-coercion errors propagate as
-		// format errors so the operator sees the exact ambiguity.
-		return nil, confii.NewFormatError(l.source, "yaml", nerr)
-	}
-	normalized, ok := normalizedAny.(map[string]any)
-	if !ok {
-		// Top-level scalar / sequence YAML documents (e.g. a bare
-		// "value" or "[1,2,3]") cannot be represented as a
-		// map[string]any. Surface this as a typed format error rather
-		// than silently dropping the data.
-		return nil, confii.NewFormatError(l.source, "yaml",
-			fmt.Errorf("expected top-level mapping, got %T", raw))
-	}
-	return normalized, nil
+	return result, nil
 }
 
 // handleMissing dispatches an os.ErrNotExist condition through the

@@ -42,6 +42,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   selection, and format detection behind one implementation per concern.
   Runtime mutations now pass through the same validation transaction as
   construction, reload, extension, override, and secret refresh.
+- Delegate AppRole, Kubernetes, AWS IAM, Azure managed identity, and GCP Vault
+  authentication to HashiCorp's official auth packages. Retain explicit
+  adapters for externally signed AWS requests and externally supplied Azure or
+  GCP identity JWTs, whose acquisition is intentionally owned by the caller.
+- Replace the archived mapstructure module and original YAML import with their
+  maintained successors. Consolidate explicit and declarative dotenv loading
+  on godotenv while preserving Confii's nested keys, scalar coercion, variable
+  expansion, and error policies.
+- Harden remote loaders with standards-based media type parsing, exact Git
+  provider host validation, bounded HTTP response bodies, and injectable HTTP
+  clients.
+- Replace timestamp-hash version identifiers with monotonic ULIDs, represent
+  timestamps as `time.Time`, publish snapshot files through Google's renameio
+  implementation, snapshot metadata immutably, and return the canonical typed
+  diff model from version comparisons.
 
 ### Added
 

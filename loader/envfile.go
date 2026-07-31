@@ -4,19 +4,15 @@
 package loader
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"log/slog"
 	"os"
-	"strings"
 
 	confii "github.com/confiify/confii-go/v2"
-	"github.com/confiify/confii-go/v2/configmap"
+	"github.com/confiify/confii-go/v2/internal/dotenvparse"
 	"github.com/confiify/confii-go/v2/internal/formatparse"
-	"github.com/confiify/confii-go/v2/internal/typecoerce"
 )
 
 // EnvFileLoader loads configuration from a .env file.
@@ -100,100 +96,23 @@ func (l *EnvFileLoader) Load(_ context.Context) (map[string]any, error) {
 		return nil, confii.NewFormatError(l.source, "dotenv", err)
 	}
 
-	result := make(map[string]any)
-	scanner := bufio.NewScanner(bytes.NewReader(data))
-	lineNum := 0
-	for scanner.Scan() {
-		lineNum++
-		line := strings.TrimSpace(scanner.Text())
-
-		// Skip comments and empty lines.
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-
-		// Must contain '='.
-		key, value, ok := strings.Cut(line, "=")
-		if !ok {
-			switch l.errorPolicy {
-			case confii.ErrorPolicyIgnore:
-				continue
-			case confii.ErrorPolicyWarn:
-				l.logger.Warn(
-					"envfile: malformed line skipped (missing '=')",
-					slog.String("source", l.source),
-					slog.Int("line", lineNum),
-					slog.String("content", line),
-				)
-				continue
-			default:
-				// ErrorPolicyRaise (and any unrecognized value) returns a typed error.
-				return nil, confii.NewLoadError(
-					l.source,
-					fmt.Errorf("malformed line %d: missing '=' separator: %q", lineNum, line),
-				)
+	return dotenvparse.Parse(data, func(issue dotenvparse.Issue) error {
+		switch l.errorPolicy {
+		case confii.ErrorPolicyIgnore:
+			return nil
+		case confii.ErrorPolicyWarn:
+			l.logger.Warn(
+				"envfile: malformed line skipped",
+				slog.String("source", l.source),
+				slog.Int("line", issue.Line),
+				slog.Any("error", issue.Err),
+			)
+			return nil
+		default:
+			if issue.Line > 0 {
+				return confii.NewLoadError(l.source, fmt.Errorf("malformed line %d: %w", issue.Line, issue.Err))
 			}
+			return confii.NewLoadError(l.source, issue.Err)
 		}
-		key = strings.TrimSpace(key)
-		value = strings.TrimSpace(value)
-
-		// Handle quoting.
-		value = unquoteEnvValue(value)
-
-		// Type coerce.
-		parsed := typecoerce.ParseScalar(value, false)
-
-		if err := configmap.Set(result, key, parsed); err != nil {
-			switch l.errorPolicy {
-			case confii.ErrorPolicyIgnore:
-				continue
-			case confii.ErrorPolicyWarn:
-				l.logger.Warn(
-					"envfile: invalid key skipped",
-					slog.String("source", l.source),
-					slog.Int("line", lineNum),
-					slog.String("key", key),
-					slog.Any("error", err),
-				)
-				continue
-			default:
-				return nil, confii.NewLoadError(
-					l.source,
-					fmt.Errorf("line %d: %w", lineNum, err),
-				)
-			}
-		}
-	}
-
-	if err := scanner.Err(); err != nil {
-		return nil, confii.NewLoadError(l.source, err)
-	}
-
-	if len(result) == 0 {
-		return nil, nil
-	}
-	return result, nil
-}
-
-// unquoteEnvValue handles single-quoted, double-quoted, and unquoted values.
-func unquoteEnvValue(value string) string {
-	if len(value) >= 2 {
-		if value[0] == '\'' && value[len(value)-1] == '\'' {
-			// Single-quoted: literal, no escapes.
-			return value[1 : len(value)-1]
-		}
-		if value[0] == '"' && value[len(value)-1] == '"' {
-			// Double-quoted: process escape sequences.
-			inner := value[1 : len(value)-1]
-			inner = strings.ReplaceAll(inner, `\n`, "\n")
-			inner = strings.ReplaceAll(inner, `\t`, "\t")
-			return inner
-		}
-	}
-
-	// Unquoted: strip inline comments (" #" and everything after).
-	if idx := strings.Index(value, " #"); idx != -1 {
-		value = strings.TrimSpace(value[:idx])
-	}
-	return value
+	})
 }

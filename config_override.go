@@ -124,6 +124,19 @@ func (c *Config[T]) OverrideWithContext(ctx context.Context, overrides map[strin
 	preOverrideTrackerSnap := c.sourceTracker.Snapshot()
 	preOverrideFrozen := c.frozen
 	c.frozen = false
+	rollbackOverride := func() {
+		c.envConfig = preOverrideEnv
+		c.unresolvedEnvConfig = preOverrideRawEnv
+		c.mergedConfig = preOverrideMerged
+		c.frozen = preOverrideFrozen
+		c.sourceTracker.Restore(preOverrideTrackerSnap)
+		if wasEmpty {
+			c.overrideBaseEnv = nil
+			c.overrideBaseRawEnv = nil
+			c.overrideBaseMerged = nil
+			c.overrideBaseTracker = sourcetrack.Snapshot{}
+		}
+	}
 
 	// A SetNested *PathError on any key halts the override, restores
 	// the pre-Override snapshots (not the override base — surviving
@@ -144,17 +157,7 @@ func (c *Config[T]) OverrideWithContext(ctx context.Context, overrides map[strin
 		frame.payload[k] = stored
 		frame.effectivePayload[k] = effectiveStored
 		if serr := dictutil.SetNested(c.envConfig, k, effectiveStored); serr != nil {
-			c.envConfig = preOverrideEnv
-			c.unresolvedEnvConfig = preOverrideRawEnv
-			c.mergedConfig = preOverrideMerged
-			c.frozen = preOverrideFrozen
-			c.sourceTracker.Restore(preOverrideTrackerSnap)
-			if wasEmpty {
-				c.overrideBaseEnv = nil
-				c.overrideBaseRawEnv = nil
-				c.overrideBaseMerged = nil
-				c.overrideBaseTracker = sourcetrack.Snapshot{}
-			}
+			rollbackOverride()
 			observer := c.observer
 			emitter := c.eventEmitter
 			c.mu.Unlock()
@@ -167,32 +170,20 @@ func (c *Config[T]) OverrideWithContext(ctx context.Context, overrides map[strin
 			return nil, NewInvalidError("Override", k, serr)
 		}
 		if serr := dictutil.SetNested(c.unresolvedEnvConfig, k, stored); serr != nil {
-			c.envConfig = preOverrideEnv
-			c.unresolvedEnvConfig = preOverrideRawEnv
-			c.mergedConfig = preOverrideMerged
-			c.frozen = preOverrideFrozen
-			c.sourceTracker.Restore(preOverrideTrackerSnap)
-			if wasEmpty {
-				c.overrideBaseEnv = nil
-				c.overrideBaseRawEnv = nil
-				c.overrideBaseMerged = nil
-				c.overrideBaseTracker = sourcetrack.Snapshot{}
-			}
+			rollbackOverride()
+			observer := c.observer
+			emitter := c.eventEmitter
 			c.mu.Unlock()
+			if observer != nil {
+				observer.RecordOverrideFailed()
+			}
+			if emitter != nil {
+				emitter.EmitWithContext(ctx, "override_failed", k, serr)
+			}
 			return nil, NewInvalidError("Override", k, serr)
 		}
 		if serr := dictutil.SetNested(c.mergedConfig, k, stored); serr != nil {
-			c.envConfig = preOverrideEnv
-			c.unresolvedEnvConfig = preOverrideRawEnv
-			c.mergedConfig = preOverrideMerged
-			c.frozen = preOverrideFrozen
-			c.sourceTracker.Restore(preOverrideTrackerSnap)
-			if wasEmpty {
-				c.overrideBaseEnv = nil
-				c.overrideBaseRawEnv = nil
-				c.overrideBaseMerged = nil
-				c.overrideBaseTracker = sourcetrack.Snapshot{}
-			}
+			rollbackOverride()
 			observer := c.observer
 			emitter := c.eventEmitter
 			c.mu.Unlock()
@@ -207,6 +198,19 @@ func (c *Config[T]) OverrideWithContext(ctx context.Context, overrides map[strin
 		// Source label "override" (vs Set's "runtime") so Explain can
 		// distinguish runtime mutations from override-scope mutations.
 		c.sourceTracker.TrackValue(k, stored, "override", "override", c.env)
+	}
+	if validationErr := c.validateMaterializedCandidate(c.envConfig); validationErr != nil {
+		rollbackOverride()
+		observer := c.observer
+		emitter := c.eventEmitter
+		c.mu.Unlock()
+		if observer != nil {
+			observer.RecordOverrideFailed()
+		}
+		if emitter != nil {
+			emitter.EmitWithContext(ctx, "override_failed", validationErr)
+		}
+		return nil, validationErr
 	}
 	c.overrideStack = append(c.overrideStack, frame)
 	c.validatedModel = nil

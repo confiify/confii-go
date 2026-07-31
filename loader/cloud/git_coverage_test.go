@@ -97,6 +97,35 @@ func TestGitLoader_ResolveRawURL_UnsupportedCustomDomain(t *testing.T) {
 	assert.Contains(t, err.Error(), "unsupported")
 }
 
+func TestGitLoader_RejectsLookalikeAndInsecureHosts(t *testing.T) {
+	for _, repository := range []string{
+		"https://github.com.evil.example/owner/repo",
+		"https://evil-gitlab.com/group/project",
+		"http://github.com/owner/repo",
+		"https://github.com:8443/owner/repo",
+	} {
+		t.Run(repository, func(t *testing.T) {
+			_, _, err := NewGit(repository, "config.yaml", WithGitToken("must-not-leak")).resolveRawURL()
+			require.Error(t, err)
+		})
+	}
+}
+
+func TestGitLoader_RejectsTraversalAndMalformedRepositoryPaths(t *testing.T) {
+	for _, testCase := range []struct {
+		repository string
+		branch     string
+		file       string
+	}{
+		{repository: "https://github.com/owner", branch: "main", file: "config.yaml"},
+		{repository: "https://github.com/owner/repo", branch: "../main", file: "config.yaml"},
+		{repository: "https://github.com/owner/repo", branch: "main", file: "../config.yaml"},
+	} {
+		_, _, err := NewGit(testCase.repository, testCase.file, WithGitBranch(testCase.branch)).resolveRawURL()
+		require.Error(t, err)
+	}
+}
+
 func TestGitLoader_ResolveRawURL_GitHubNestedPath(t *testing.T) {
 	l := NewGit("https://github.com/org/repo", "path/to/config.yaml",
 		WithGitBranch("main"),

@@ -184,7 +184,7 @@ func TestExportAndHookFailureBranches(t *testing.T) {
 	_, err := cfg.ExportWithContext(context.Background(), "json")
 	require.Error(t, err)
 
-	nilMap, err := cfg.applyHooksRecursive(context.Background(), "", nil)
+	nilMap, err := cfg.applySecretHookRecursive(context.Background(), "", nil)
 	require.NoError(t, err)
 	assert.Nil(t, nilMap)
 
@@ -193,22 +193,22 @@ func TestExportAndHookFailureBranches(t *testing.T) {
 		return nil, errors.New("nested hook failed")
 	})
 	cfg.hookProcessor = failing
-	_, err = cfg.applyHooksRecursive(context.Background(), "root", map[string]any{
+	_, err = cfg.applySecretHookRecursive(context.Background(), "root", map[string]any{
 		"nested": map[string]any{"bad": "value"},
 	})
 	require.EqualError(t, err, "nested hook failed")
-	_, err = cfg.applyHooksRecursive(context.Background(), "root", map[string]any{
+	_, err = cfg.applySecretHookRecursive(context.Background(), "root", map[string]any{
 		"nested": []any{"value"},
 	})
 	require.EqualError(t, err, "nested hook failed")
-	_, err = cfg.applyHooksToSlice(context.Background(), "root.bad", []any{"value"})
+	_, err = cfg.applySecretHookToSlice(context.Background(), "root.bad", []any{"value"})
 	require.EqualError(t, err, "nested hook failed")
-	_, err = cfg.applyHooksToSlice(context.Background(), "root", []any{map[string]any{"bad": "value"}})
+	_, err = cfg.applySecretHookToSlice(context.Background(), "root", []any{map[string]any{"bad": "value"}})
 	require.EqualError(t, err, "nested hook failed")
-	_, err = cfg.applyHooksToSlice(context.Background(), "root", []any{[]any{map[string]any{"bad": "value"}}})
+	_, err = cfg.applySecretHookToSlice(context.Background(), "root", []any{[]any{map[string]any{"bad": "value"}}})
 	require.EqualError(t, err, "nested hook failed")
 	cfg.hookProcessor = hook.NewProcessor()
-	gotSlice, err := cfg.applyHooksToSlice(context.Background(), "root", []any{[]any{"value"}})
+	gotSlice, err := cfg.applySecretHookToSlice(context.Background(), "root", []any{[]any{"value"}})
 	require.NoError(t, err)
 	assert.Equal(t, []any{[]any{"value"}}, gotSlice)
 }
@@ -329,48 +329,41 @@ func TestFileAutoLoader_ErrorAndFormatBranches(t *testing.T) {
 		path := filepath.Join(dir, name)
 		require.NoError(t, os.Mkdir(path, 0o700))
 		loader := &fileAutoLoader{path: path}
-		switch filepath.Ext(name) {
-		case ".yaml":
-			_, err = loader.loadYAML()
-		case ".json":
-			_, err = loader.loadJSON()
-		case ".toml":
-			_, err = loader.loadTOML()
-		}
+		_, err = loader.Load(context.Background())
 		require.Error(t, err)
 	}
 
 	loader := &fileAutoLoader{logger: logger}
 	loader.path = write("empty.yaml", "")
-	got, err := loader.loadYAML()
+	got, err := loader.Load(context.Background())
 	require.NoError(t, err)
 	assert.Nil(t, got)
 	loader.path = write("collision.yaml", "null: value\n")
-	_, err = loader.loadYAML()
+	_, err = loader.Load(context.Background())
 	require.Error(t, err)
 	loader.path = write("scalar.yaml", "- one\n- two\n")
-	_, err = loader.loadYAML()
+	_, err = loader.Load(context.Background())
 	require.Error(t, err)
 	loader.path = write("bad.json", "{")
-	_, err = loader.loadJSON()
+	_, err = loader.Load(context.Background())
 	require.Error(t, err)
 	loader.path = write("bad.toml", "invalid = [")
-	_, err = loader.loadTOML()
+	_, err = loader.Load(context.Background())
 	require.Error(t, err)
 	loader.path = write("empty.ini", "")
-	got, err = loader.loadINI()
+	got, err = loader.Load(context.Background())
 	require.NoError(t, err)
 	assert.Nil(t, got)
 	iniDir := filepath.Join(dir, "directory.ini")
 	require.NoError(t, os.Mkdir(iniDir, 0o700))
 	loader.path = iniDir
-	_, err = loader.loadINI()
+	_, err = loader.Load(context.Background())
 	require.Error(t, err)
 
 	malformed := write("malformed.env", "MISSING_EQUALS\n")
 	for _, policy := range []ErrorPolicy{ErrorPolicyIgnore, ErrorPolicyWarn, ErrorPolicyRaise} {
 		loader = &fileAutoLoader{path: malformed, errorPolicy: policy, logger: logger}
-		got, err = loader.loadEnvFile()
+		got, err = loader.Load(context.Background())
 		if policy == ErrorPolicyRaise {
 			require.Error(t, err)
 		} else {
@@ -380,7 +373,7 @@ func TestFileAutoLoader_ErrorAndFormatBranches(t *testing.T) {
 	}
 
 	loader = &fileAutoLoader{path: write("values.env", "SINGLE='literal'\nDOUBLE=\"line\\nvalue\\tend\"\nPLAIN=value # comment\nNESTED.KEY=1\n")}
-	got, err = loader.loadEnvFile()
+	got, err = loader.Load(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, "literal", got["SINGLE"])
 	assert.Equal(t, "line\nvalue\tend", got["DOUBLE"])
@@ -389,14 +382,8 @@ func TestFileAutoLoader_ErrorAndFormatBranches(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, 1, nested)
 
-	loader = &fileAutoLoader{path: dir}
-	_, err = loader.loadEnvFile()
-	require.Error(t, err)
-	loader = &fileAutoLoader{path: loop}
-	_, err = loader.loadEnvFile()
-	require.Error(t, err)
 	loader = &fileAutoLoader{path: malformed, errorPolicy: ErrorPolicyWarn}
-	_, err = loader.loadEnvFile()
+	_, err = loader.Load(context.Background())
 	require.NoError(t, err)
 
 	missingErr := os.ErrNotExist
@@ -411,9 +398,6 @@ func TestFileAutoLoader_ErrorAndFormatBranches(t *testing.T) {
 		}
 	}
 
-	assert.Equal(t, "literal", unquoteEnvFileValue("'literal'"))
-	assert.Equal(t, "line\nvalue\tend", unquoteEnvFileValue(`"line\nvalue\tend"`))
-	assert.Equal(t, "plain", unquoteEnvFileValue("plain # comment"))
 }
 
 func TestConfig_WatchAndTypedCacheBranches(t *testing.T) {

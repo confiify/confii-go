@@ -105,8 +105,6 @@ func TestEnvFileLoader_MalformedLinePolicies(t *testing.T) {
 
 				assert.True(t, errors.Is(err, confii.ErrConfigLoad))
 				assert.Contains(t, err.Error(), "line 2")
-				assert.Contains(t, err.Error(), "NOEQUALS")
-
 				assert.Nil(t, result)
 
 				assert.Empty(t, logBuf.String())

@@ -5,25 +5,29 @@ package loader
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"time"
 
-	"github.com/BurntSushi/toml"
 	confii "github.com/confiify/confii-go/v2"
+	"github.com/confiify/confii-go/v2/internal/configdecode"
 	"github.com/confiify/confii-go/v2/internal/formatparse"
-	"gopkg.in/yaml.v3"
 )
 
 // HTTPLoader loads configuration from an HTTP/HTTPS endpoint.
 type HTTPLoader struct {
-	url     string
-	timeout time.Duration
-	headers map[string]string
-	auth    *BasicAuth
+	url              string
+	client           *http.Client
+	maxResponseBytes int64
+	headers          map[string]string
+	auth             *BasicAuth
 }
+
+// DefaultHTTPMaxResponseBytes is the maximum response body accepted by a new
+// HTTP loader. Configuration documents larger than 8 MiB are rejected before
+// parsing to prevent unbounded memory consumption.
+const DefaultHTTPMaxResponseBytes int64 = 8 << 20
 
 // BasicAuth holds HTTP Basic Authentication credentials. Values are kept in
 // memory for the lifetime of the loader and must not be included in logs or a
@@ -43,7 +47,32 @@ type HTTPOption func(*HTTPLoader)
 // non-positive duration disables http.Client's timeout; callers should then
 // provide a context deadline.
 func WithTimeout(d time.Duration) HTTPOption {
-	return func(l *HTTPLoader) { l.timeout = d }
+	return func(l *HTTPLoader) { l.client.Timeout = d }
+}
+
+// WithHTTPClient replaces the client used by the loader. The client value is
+// copied when the option is applied, so callers may safely reuse or modify the
+// original client structure. Its Transport, redirect policy, cookie jar, and
+// Timeout are preserved. Options are applied in order, so a later WithTimeout
+// overrides the copied timeout.
+func WithHTTPClient(client *http.Client) HTTPOption {
+	return func(l *HTTPLoader) {
+		if client == nil {
+			return
+		}
+		copy := *client
+		l.client = &copy
+	}
+}
+
+// WithMaxResponseBytes sets the response body limit. Non-positive values are
+// ignored so an HTTP loader always retains a finite limit.
+func WithMaxResponseBytes(limit int64) HTTPOption {
+	return func(l *HTTPLoader) {
+		if limit > 0 {
+			l.maxResponseBytes = limit
+		}
+	}
 }
 
 // WithHeaders replaces the request headers. The map is copied when the option
@@ -70,9 +99,10 @@ func WithBasicAuth(username, password string) HTTPOption {
 // Options are applied in order, and later options override earlier settings.
 func NewHTTP(url string, opts ...HTTPOption) *HTTPLoader {
 	l := &HTTPLoader{
-		url:     url,
-		timeout: 30 * time.Second,
-		headers: make(map[string]string),
+		url:              url,
+		client:           &http.Client{Timeout: 30 * time.Second},
+		maxResponseBytes: DefaultHTTPMaxResponseBytes,
+		headers:          make(map[string]string),
 	}
 	for _, opt := range opts {
 		opt(l)
@@ -90,7 +120,7 @@ func (l *HTTPLoader) Source() string { return l.url }
 // [confii.ErrConfigLoad]; parsing failures wrap [confii.ErrConfigFormat]. The
 // request honors ctx and the configured client timeout.
 func (l *HTTPLoader) Load(ctx context.Context) (map[string]any, error) {
-	client := &http.Client{Timeout: l.timeout}
+	client := *l.client
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, l.url, nil)
 	if err != nil {
@@ -114,9 +144,12 @@ func (l *HTTPLoader) Load(ctx context.Context) (map[string]any, error) {
 		return nil, confii.NewLoadError(l.url, fmt.Errorf("HTTP %d", resp.StatusCode))
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, l.maxResponseBytes+1))
 	if err != nil {
 		return nil, confii.NewLoadError(l.url, err)
+	}
+	if int64(len(body)) > l.maxResponseBytes {
+		return nil, confii.NewLoadError(l.url, fmt.Errorf("response body exceeds %d bytes", l.maxResponseBytes))
 	}
 
 	// Detect format from Content-Type, then URL extension. When neither is
@@ -132,7 +165,7 @@ func (l *HTTPLoader) Load(ctx context.Context) (map[string]any, error) {
 //
 // Supported formats:
 //   - [FormatJSON]: parsed via [encoding/json.Unmarshal].
-//   - [FormatYAML]: parsed via [gopkg.in/yaml.v3.Unmarshal].
+//   - [FormatYAML]: parsed via [go.yaml.in/yaml/v3.Unmarshal].
 //   - [FormatTOML]: parsed via [github.com/BurntSushi/toml.Unmarshal], the
 //     same implementation used by [TOMLLoader.Load].
 //   - [FormatUnknown]: tries JSON first, then YAML. This preserves
@@ -144,29 +177,19 @@ func (l *HTTPLoader) Load(ctx context.Context) (map[string]any, error) {
 // JSON. FormatUnknown does not auto-detect TOML. source is included in the
 // returned [confii.ConfigError] and should be stable and non-sensitive.
 func ParseContent(data []byte, format Format, source string) (map[string]any, error) {
-	var result map[string]any
-	var err error
-
+	var (
+		result map[string]any
+		err    error
+	)
 	switch format {
 	case FormatJSON:
-		err = json.Unmarshal(data, &result)
+		result, err = configdecode.Map(data, formatparse.FormatJSON)
 	case FormatYAML:
-		if err = formatparse.ValidateDeclaredContent(formatparse.FormatYAML, data); err == nil {
-			err = yaml.Unmarshal(data, &result)
-		}
+		result, err = configdecode.Map(data, formatparse.FormatYAML)
 	case FormatTOML:
-		if err = formatparse.ValidateDeclaredContent(formatparse.FormatTOML, data); err == nil {
-			err = toml.Unmarshal(data, &result)
-		}
+		result, err = configdecode.Map(data, formatparse.FormatTOML)
 	case FormatUnknown:
-		jsonErr := json.Unmarshal(data, &result)
-		if jsonErr == nil {
-			return result, nil
-		}
-		result = nil
-		if yamlErr := yaml.Unmarshal(data, &result); yamlErr != nil {
-			err = fmt.Errorf("JSON parse: %v; YAML parse: %w", jsonErr, yamlErr)
-		}
+		result, err = configdecode.AutoMap(data)
 	default:
 		err = fmt.Errorf("unsupported format %q", format)
 	}

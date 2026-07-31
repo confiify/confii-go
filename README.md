@@ -94,7 +94,7 @@ Go has several configuration libraries, but none provides a complete configurati
 
 **1. The multi-source merge problem.** Viper's deep merge has [known limitations](https://github.com/spf13/viper/issues/181) with slices and nested maps. Confii provides selectable merge strategies with per-path overrides — so `database` can use `replace` while `features` uses `append` in the same merge.
 
-**2. Secret management as a first-class concern.** Confii natively resolves `${secret:db/password}` placeholders from AWS Secrets Manager, Azure Key Vault, GCP Secret Manager, HashiCorp Vault, and OpenBao — with caching, TTL, and a pluggable store interface. The Vault-compatible integration implements nine authentication flows; CI live-tests Token and AppRole against OpenBao, while the remaining flows have protocol-level tests and require provider-side identity configuration.
+**2. Secret management as a first-class concern.** Confii natively resolves `${secret:db/password}` placeholders from AWS Secrets Manager, Azure Key Vault, GCP Secret Manager, HashiCorp Vault, and OpenBao — with caching, TTL, and a pluggable store interface. The Vault-compatible integration exposes nine auth adapters, using official HashiCorp packages where available; CI live-tests Token and AppRole against OpenBao, while the remaining adapters have protocol-level tests and require provider-side identity configuration.
 
 **3. Environment-aware configuration.** Confii supports both recommended named files (`config/default.yaml` + `config/{environment}.yaml`) and a single file with `default` + environment sections. Teams choose one primary model; explicit hybrid mode exists for controlled migrations.
 

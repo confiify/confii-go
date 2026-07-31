@@ -11,7 +11,6 @@ import (
 
 	"github.com/confiify/confii-go/v2/internal/dictutil"
 	"github.com/confiify/confii-go/v2/observe"
-	"github.com/confiify/confii-go/v2/validate"
 )
 
 // Extend adds an additional loader at runtime and merges its config into
@@ -162,38 +161,9 @@ func (c *Config[T]) extendCandidate(ctx context.Context, l Loader) error {
 		return materializeErr
 	}
 
-	// Validate the candidate when validation-on-load is enabled.
-	//
-	// A JSON Schema (inline map or compiled file path) is
-	// honored in addition to the struct path. Schema violations roll
-	// back via the shared closure with a sanitized public message and
-	// the structured violation list on Context["schema_errors"].
-	if c.opts.ValidateOnLoad {
-		if c.jsonSchema != nil {
-			msgs, serr := c.jsonSchema.ValidateDetailed(c.envConfig)
-			if serr != nil {
-				count := max(1, len(msgs))
-				validationErr := &ConfigError{
-					Op: "Extend",
-					Err: fmt.Errorf(
-						"%w: schema validation failed for %d constraint(s)",
-						ErrConfigValidation, count,
-					),
-					Context: map[string]any{
-						"schema_errors": msgs,
-					},
-				}
-				rollback(validationErr)
-				return validationErr
-			}
-		}
-		if configTypeSupportsStructValidation[T]() {
-			if _, verr := validate.DecodeAndValidate[T](c.envConfig); verr != nil {
-				validationErr := NewValidationError([]string{verr.Error()}, verr)
-				rollback(validationErr)
-				return validationErr
-			}
-		}
+	if err := c.validateMaterializedCandidate(c.envConfig); err != nil {
+		rollback(err)
+		return err
 	}
 
 	// Commit only after the candidate has loaded, composed, and validated.

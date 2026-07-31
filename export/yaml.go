@@ -3,7 +3,7 @@
 
 package export
 
-import "gopkg.in/yaml.v3"
+import "go.yaml.in/yaml/v3"
 
 // YAMLExporter exports configuration as YAML.
 type YAMLExporter struct{}

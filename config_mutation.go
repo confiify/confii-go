@@ -367,41 +367,11 @@ func (c *Config[T]) notifyChangesUnlocked(
 	if len(callbacks) == 0 {
 		return
 	}
-	// Iterate the union of keys so removed keys (present in oldFlat,
-	// absent from newFlat) and newly introduced keys (present in
-	// newFlat, absent from oldFlat) are both reported.
-	seen := make(map[string]struct{}, len(oldFlat)+len(newFlat))
-	for key := range oldFlat {
-		seen[key] = struct{}{}
-	}
-	for key := range newFlat {
-		seen[key] = struct{}{}
-	}
-	for key := range seen {
-		oldVal, hadOld := oldFlat[key]
-		newVal, hasNew := newFlat[key]
-		// Suppress only when both sides are present AND structurally
-		// equal under reflect.DeepEqual.
-		//
-		// reflect.DeepEqual is type-aware: int(8080) and float64(8080)
-		// are not equal, so a JSON-decoded float64 replacing an int
-		// correctly fires the callback for downstream re-coercion.
-		if hadOld && hasNew && reflect.DeepEqual(oldVal, newVal) {
-			continue
-		}
-		// Removed keys surface (oldVal, nil); added keys surface
-		// (nil, newVal) — the deletion contract.
-		var emitOld, emitNew any
-		if hadOld {
-			emitOld = oldVal
-		}
-		if hasNew {
-			emitNew = newVal
-		}
+	c.notifyChangeSet(oldFlat, newFlat, func(key string, oldVal, newVal any) {
 		for i, cb := range callbacks {
-			c.invokeChangeCallback(cb, i, key, emitOld, emitNew)
+			c.invokeChangeCallback(cb, i, key, oldVal, newVal)
 		}
-	}
+	})
 }
 
 // invokeChangeCallback runs cb under a recover guard. A panicking

@@ -19,7 +19,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/confiify/confii-go/v2/selfconfig"
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 type initLayout string

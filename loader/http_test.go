@@ -7,14 +7,22 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	confii "github.com/confiify/confii-go/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return f(request)
+}
 
 func newHTTPTestServer(t *testing.T, handler http.Handler) *httptest.Server {
 	t.Helper()
@@ -181,6 +189,36 @@ func TestHTTPLoader_RequestAndTransportErrors(t *testing.T) {
 	_, err = NewHTTP("http://127.0.0.1:1", WithTimeout(1)).Load(ctx)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, confii.ErrConfigLoad)
+}
+
+func TestHTTPLoader_RejectsOversizedResponse(t *testing.T) {
+	srv := newHTTPTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"value":"too large"}`))
+	}))
+	defer srv.Close()
+
+	_, err := NewHTTP(srv.URL, WithMaxResponseBytes(8)).Load(context.Background())
+	require.Error(t, err)
+	assert.ErrorIs(t, err, confii.ErrConfigLoad)
+	assert.Contains(t, err.Error(), "exceeds 8 bytes")
+}
+
+func TestHTTPLoader_UsesCopiedCustomClient(t *testing.T) {
+	funcClient := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/problem+json; charset=utf-8"}},
+			Body:       io.NopCloser(strings.NewReader(`{"source":"custom-client"}`)),
+			Request:    request,
+		}, nil
+	})}
+	loader := NewHTTP("https://config.example/app", WithHTTPClient(funcClient))
+	funcClient.Transport = nil
+
+	result, err := loader.Load(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "custom-client", result["source"])
 }
 
 func TestParseContent_ExplicitFormatsAndUnsupported(t *testing.T) {

@@ -98,29 +98,3 @@ func FuzzEnvFileLoader(f *testing.F) {
 		assertEnvFileInvariants(t, confii.ErrorPolicyRaise, gotResult, gotErr)
 	})
 }
-
-func FuzzUnquoteEnvValue(f *testing.F) {
-	seeds := []string{
-		"plain", "'single'", `"double"`,
-		`"with\nnewline"`, `"with\ttab"`,
-		"value # comment", "value  #  comment",
-		"'", `"`, "''", `""`,
-		"'unmatched", `"unmatched`,
-		"a'b", `a"b`,
-		"", " ",
-		`"nested 'quotes'"`,
-		`'"nested "quotes"'`,
-	}
-	for _, s := range seeds {
-		f.Add(s)
-	}
-
-	f.Fuzz(func(t *testing.T, input string) {
-		out := unquoteEnvValue(input)
-
-		if len(out) > len(input) {
-			t.Fatalf("unquoteEnvValue grew the input: in=%q (%d bytes) out=%q (%d bytes)",
-				input, len(input), out, len(out))
-		}
-	})
-}

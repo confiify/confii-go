@@ -116,6 +116,12 @@ type Config[T any] struct {
 	overrideBaseFrozen  bool
 }
 
+// Logger returns the logger resolved when the Config was constructed. The
+// returned pointer is also used by Confii's loaders, hooks, and validators.
+// Supply a different logger through [WithLogger] before construction rather
+// than attempting to replace it through this accessor.
+func (c *Config[T]) Logger() *slog.Logger { return c.logger }
+
 // New constructs a ready-to-read Config using an implicit background context.
 // The startup timeout configured by [WithStartupTimeout] bounds source loading,
 // provider authentication, transformation, secret resolution, and validation.

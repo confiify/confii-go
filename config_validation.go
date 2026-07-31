@@ -54,7 +54,14 @@ func (c *Config[T]) runValidateOnLoad() error {
 // reload, mutation, extension, override, and secret refresh enforce identical
 // rules before publication.
 func (c *Config[T]) validateMaterializedCandidate(candidate map[string]any) error {
-	if !c.opts.ValidateOnLoad {
+	return c.validateCandidate(candidate, c.opts.ValidateOnLoad)
+}
+
+// validateCandidate applies the canonical validation plan when enabled. The
+// explicit switch lets Reload override validate_on_load for one transaction
+// without maintaining a second implementation of the validation pipeline.
+func (c *Config[T]) validateCandidate(candidate map[string]any, enabled bool) error {
+	if !enabled {
 		return nil
 	}
 

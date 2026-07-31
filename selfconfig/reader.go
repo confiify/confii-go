@@ -33,7 +33,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/confiify/confii-go/v2/internal/formatparse"
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 // Settings is the strictly decoded project-level Confii configuration. Pointer

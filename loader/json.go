@@ -5,12 +5,13 @@ package loader
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"os"
 
 	confii "github.com/confiify/confii-go/v2"
+	"github.com/confiify/confii-go/v2/internal/configdecode"
+	"github.com/confiify/confii-go/v2/internal/formatparse"
 )
 
 // JSONLoader loads configuration from a JSON file.
@@ -81,8 +82,8 @@ func (l *JSONLoader) Load(_ context.Context) (map[string]any, error) {
 		return nil, confii.NewLoadError(l.source, err)
 	}
 
-	var result map[string]any
-	if err := json.Unmarshal(data, &result); err != nil {
+	result, err := configdecode.Map(data, formatparse.FormatJSON)
+	if err != nil {
 		return nil, confii.NewFormatError(l.source, "json", err)
 	}
 	return result, nil
