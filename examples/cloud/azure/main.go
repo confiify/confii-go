@@ -33,6 +33,10 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	_, _ = store.GetSecret(ctx, "database-password")
-	_, _ = cfg.Get("database.host")
+	if _, err := store.GetSecret(ctx, "database-password"); err != nil {
+		log.Fatal(err)
+	}
+	if _, err := cfg.Get("database.host"); err != nil {
+		log.Fatal(err)
+	}
 }

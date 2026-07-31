@@ -186,3 +186,22 @@ func TestCloseReleasesDeclarativeProvider(t *testing.T) {
 	require.NoError(t, cfg.Close())
 	assert.Equal(t, int32(1), store.closed.Load())
 }
+
+func TestCloseReleasesDeclarativeProviderInitializedByRuntimeMutation(t *testing.T) {
+	providerType := "late-closeable-context-provider"
+	store := &closeableSecretStore{}
+	RegisterSelfConfigSecretProvider(providerType, func(context.Context, map[string]any) (SecretReader, error) {
+		return store, nil
+	})
+	t.Cleanup(func() { selfConfigSecretProviders.Delete(providerType) })
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".confii.yaml"), []byte("secrets:\n  default_provider: test\n  providers:\n    test:\n      type: "+providerType+"\n"), 0o600))
+	cfg, err := New[any](WithWorkingDir(dir), WithLoaders(&contextMapLoader{name: "plain", data: map[string]any{"ready": true}}))
+	require.NoError(t, err)
+	assert.Equal(t, int32(0), store.closed.Load())
+
+	require.NoError(t, cfg.Set("runtime_secret", "${secret:key}"))
+	require.NoError(t, cfg.Close())
+	require.NoError(t, cfg.Close())
+	assert.Equal(t, int32(1), store.closed.Load())
+}

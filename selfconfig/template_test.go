@@ -62,6 +62,8 @@ func TestDefaultYAMLIsSafeAndMatchesBuiltInDefaults(t *testing.T) {
 	assert.Equal(t, "last_wins", settings.EnvironmentConflictPolicy)
 	assert.Equal(t, "raise", settings.OnError)
 	assert.Empty(t, settings.LogLevel)
+	assert.Equal(t, "150ms", settings.ReloadDebounce)
+	assert.Empty(t, settings.SensitivePaths)
 
 	require.NotNil(t, settings.UseEnvExpander)
 	assert.True(t, *settings.UseEnvExpander)

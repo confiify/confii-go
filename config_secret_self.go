@@ -121,27 +121,56 @@ type selfConfigResourceCollectorContextKey struct{}
 type selfConfigResourceCollector struct {
 	mu        sync.Mutex
 	resources []any
+	closed    bool
 }
 
-func (c *selfConfigResourceCollector) add(resource any) {
+func newSelfConfigResourceCollector() *selfConfigResourceCollector {
+	return &selfConfigResourceCollector{}
+}
+
+func (c *selfConfigResourceCollector) add(resource any) bool {
 	if c == nil || resource == nil {
-		return
+		return true
 	}
-	c.mu.Lock()
-	c.resources = append(c.resources, resource)
-	c.mu.Unlock()
-}
-
-func (c *selfConfigResourceCollector) snapshot() []any {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return append([]any(nil), c.resources...)
+	if c.closed {
+		return false
+	}
+	c.resources = append(c.resources, resource)
+	return true
 }
 
-func collectSelfConfigResource(ctx context.Context, resource any) {
-	if collector, ok := ctx.Value(selfConfigResourceCollectorContextKey{}).(*selfConfigResourceCollector); ok {
-		collector.add(resource)
+func (c *selfConfigResourceCollector) closeAndSnapshot() []any {
+	if c == nil {
+		return nil
 	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		return nil
+	}
+	c.closed = true
+	resources := append([]any(nil), c.resources...)
+	c.resources = nil
+	return resources
+}
+
+func collectSelfConfigResource(ctx context.Context, resource any) bool {
+	if collector, ok := ctx.Value(selfConfigResourceCollectorContextKey{}).(*selfConfigResourceCollector); ok {
+		return collector.add(resource)
+	}
+	return true
+}
+
+func (c *Config[T]) withManagedResourceContext(ctx context.Context) context.Context {
+	if ctx == nil || c == nil || c.resourceRegistry == nil {
+		return ctx
+	}
+	if existing, ok := ctx.Value(selfConfigResourceCollectorContextKey{}).(*selfConfigResourceCollector); ok && existing == c.resourceRegistry {
+		return ctx
+	}
+	return context.WithValue(ctx, selfConfigResourceCollectorContextKey{}, c.resourceRegistry)
 }
 
 func buildNamedSelfConfigSecretHook(secrets map[string]any, environment string) (hook.Func, string, []string, error) {
@@ -280,8 +309,14 @@ func (r *selfConfigSecretRouter) get(ctx context.Context, provider, key, field, 
 			spec.mu.Unlock()
 			return nil, fmt.Errorf("%w: secret provider %q (%s) failed to initialize: %w", ErrSecretAccess, provider, spec.providerType, initErr)
 		}
+		if !collectSelfConfigResource(ctx, store) {
+			if closer, ok := store.(interface{ Close() error }); ok {
+				_ = closer.Close()
+			}
+			spec.mu.Unlock()
+			return nil, fmt.Errorf("%w: secret provider %q initialized after configuration close", ErrSecretAccess, provider)
+		}
 		spec.store = store
-		collectSelfConfigResource(ctx, store)
 	}
 	spec.mu.Unlock()
 	return getSelfConfigSecret(ctx, store, key, field, version)

@@ -28,6 +28,29 @@ func TestVersionManager_SaveAndGet(t *testing.T) {
 	assert.Equal(t, v.VersionID, got.VersionID)
 }
 
+func TestVersionManager_ReturnsDetachedRecords(t *testing.T) {
+	vm := NewVersionManager("", 3)
+	saved, err := vm.SaveVersionWithSensitivePaths(
+		map[string]any{"database": map[string]any{"password": "secret"}},
+		map[string]any{"author": "test"},
+		[]string{"database.password"},
+	)
+	require.NoError(t, err)
+	saved.Config["database"].(map[string]any)["password"] = "changed"
+	saved.Metadata["author"] = "changed"
+	saved.SensitivePaths[0] = "changed"
+
+	stored := vm.GetVersion(saved.VersionID)
+	require.NotNil(t, stored)
+	assert.Equal(t, "secret", stored.Config["database"].(map[string]any)["password"])
+	assert.Equal(t, "test", stored.Metadata["author"])
+	assert.Equal(t, []string{"database.password"}, stored.SensitivePaths)
+
+	listed := vm.ListVersions()
+	listed[0].Config["database"].(map[string]any)["password"] = "listed-change"
+	assert.Equal(t, "secret", vm.LatestVersion().Config["database"].(map[string]any)["password"])
+}
+
 func TestVersionManager_ListVersions(t *testing.T) {
 	dir := t.TempDir()
 	vm := NewVersionManager(dir, 100)
@@ -54,6 +77,30 @@ func TestVersionManager_Eviction(t *testing.T) {
 
 	versions := vm.ListVersions()
 	assert.Len(t, versions, 2)
+}
+
+func TestVersionManager_ReconfigureAppliesRetentionImmediately(t *testing.T) {
+	vm := NewVersionManager("", 3)
+
+	first, err := vm.SaveVersion(map[string]any{"v": 1}, nil)
+	require.NoError(t, err)
+	_, err = vm.SaveVersion(map[string]any{"v": 2}, nil)
+	require.NoError(t, err)
+	latest, err := vm.SaveVersion(map[string]any{"v": 3}, nil)
+	require.NoError(t, err)
+
+	vm.Reconfigure("", 1)
+	versions := vm.ListVersions()
+	require.Len(t, versions, 1)
+	assert.Equal(t, latest.VersionID, versions[0].VersionID)
+	assert.Nil(t, vm.GetVersion(first.VersionID), "tightening retention must evict the oldest snapshots immediately")
+
+	vm.Reconfigure("", 0)
+	newest, err := vm.SaveVersion(map[string]any{"v": 4}, nil)
+	require.NoError(t, err)
+	versions = vm.ListVersions()
+	require.Len(t, versions, 1, "a non-positive reconfiguration must retain the existing cap")
+	assert.Equal(t, newest.VersionID, versions[0].VersionID)
 }
 
 func TestVersionManager_LatestVersion(t *testing.T) {

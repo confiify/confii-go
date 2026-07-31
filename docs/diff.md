@@ -34,6 +34,12 @@ import "github.com/confiify/confii-go/v2/diff"
 diffs := diff.Diff(map1, map2)
 ```
 
+!!! warning "Choose the Config API for safe diagnostics"
+    `Config.Diff`, `Config.DetectDrift`, and the `confii diff` command preserve
+    sensitivity metadata and replace secret-backed values with a redaction
+    marker. The lower-level `diff.Diff` function has no metadata and compares
+    the raw values supplied by its caller.
+
 ---
 
 ## ConfigDiff Type

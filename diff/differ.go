@@ -7,6 +7,7 @@ package diff
 import (
 	"encoding/json"
 	"sort"
+	"strings"
 )
 
 // DiffType categorizes a configuration difference.
@@ -37,6 +38,35 @@ type ConfigDiff struct {
 	Path string `json:"path"`
 	// NestedDiffs contains child differences when both values are maps.
 	NestedDiffs []ConfigDiff `json:"nested_diffs,omitempty"`
+}
+
+// Redact returns a copy of diffs with values at, below, or above any sensitive
+// path replaced by replacement. Parent entries are protected because their map
+// values may contain a sensitive descendant. The input slice is not mutated.
+func Redact(diffs []ConfigDiff, sensitivePaths []string, replacement any) []ConfigDiff {
+	result := make([]ConfigDiff, len(diffs))
+	for index, item := range diffs {
+		result[index] = item
+		if matchesSensitivePath(item.Path, sensitivePaths) {
+			if item.OldValue != nil {
+				result[index].OldValue = replacement
+			}
+			if item.NewValue != nil {
+				result[index].NewValue = replacement
+			}
+		}
+		result[index].NestedDiffs = Redact(item.NestedDiffs, sensitivePaths, replacement)
+	}
+	return result
+}
+
+func matchesSensitivePath(path string, sensitivePaths []string) bool {
+	for _, sensitive := range sensitivePaths {
+		if path == sensitive || strings.HasPrefix(path, sensitive+".") || strings.HasPrefix(sensitive, path+".") {
+			return true
+		}
+	}
+	return false
 }
 
 // Diff compares config1 with config2. Results are ordered lexicographically by

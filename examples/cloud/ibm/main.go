@@ -19,5 +19,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	_, _ = cfg.Get("database.host")
+	if _, err := cfg.Get("database.host"); err != nil {
+		log.Fatal(err)
+	}
 }

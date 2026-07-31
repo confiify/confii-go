@@ -44,6 +44,31 @@ func TestMetrics_RecordAccess_Disabled(t *testing.T) {
 	assert.Equal(t, 0, stats["accessed_keys"])
 }
 
+func TestMetrics_DisabledSuppressesEveryOperationCounter(t *testing.T) {
+	m := NewMetrics(5)
+	m.Disable()
+	m.RecordAccess("key", time.Millisecond)
+	m.RecordReload(time.Millisecond)
+	m.RecordReloadFailed(time.Millisecond)
+	m.RecordExtend(time.Millisecond)
+	m.RecordExtendFailed(time.Millisecond)
+	m.RecordSet()
+	m.RecordSetFailed()
+	m.RecordOverride()
+	m.RecordOverrideFailed()
+	m.RecordOverrideRestored()
+	m.RecordChange()
+
+	stats := m.Statistics()
+	for _, key := range []string{
+		"accessed_keys", "reload_count", "reload_failed_count",
+		"extend_count", "extend_failed_count", "set_count", "set_failed_count",
+		"override_count", "override_failed_count", "override_restored_count", "change_count",
+	} {
+		assert.Equal(t, 0, stats[key], key)
+	}
+}
+
 func TestMetrics_EnableAfterDisable(t *testing.T) {
 	m := NewMetrics(5)
 	m.Disable()

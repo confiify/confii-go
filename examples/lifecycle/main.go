@@ -30,18 +30,29 @@ func main() {
 	})
 
 	// --- Set values ---
-	_ = cfg.Set("app.version", "2.0.0")
+	if err := cfg.Set("app.version", "2.0.0"); err != nil {
+		log.Fatal(err)
+	}
 
 	// Protected set (errors if key exists)
 	err = cfg.Set("app.name", "other", confii.WithOverride(false))
 	fmt.Println("Protected set error:", err) // ErrConfigFrozen or override error
 
 	// --- Temporary override ---
-	restore, _ := cfg.Override(map[string]any{"database.host": "test-db"})
-	host, _ := cfg.Get("database.host")
+	restore, err := cfg.Override(map[string]any{"database.host": "test-db"})
+	if err != nil {
+		log.Fatal(err)
+	}
+	host, err := cfg.Get("database.host")
+	if err != nil {
+		log.Fatal(err)
+	}
 	fmt.Println("Overridden host:", host) // test-db
 	restore()
-	host, _ = cfg.Get("database.host")
+	host, err = cfg.Get("database.host")
+	if err != nil {
+		log.Fatal(err)
+	}
 	fmt.Println("Restored host:", host) // localhost
 
 	// --- Reload ---

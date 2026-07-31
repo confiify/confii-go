@@ -14,6 +14,76 @@ import (
 	"github.com/confiify/confii-go/v2/sourcetrack"
 )
 
+// MetricsReader exposes detached observability snapshots without granting
+// access to Confii's mutable metrics collector.
+type MetricsReader interface {
+	Statistics() map[string]any
+}
+
+// EventSubscriber registers and removes lifecycle listeners without exposing
+// the Config-owned event emitter's Emit operations. Listener delivery is
+// synchronous and follows registration order.
+type EventSubscriber interface {
+	On(event string, listener func(args ...any)) EventSubscriber
+	OnWithContext(event string, listener func(context.Context, ...any)) EventSubscriber
+	Off(event string)
+	OffWithContext(event string)
+}
+
+// VersionReader provides detached access to Config-owned version history.
+// Saving, rollback, retention, and storage reconfiguration remain lifecycle
+// operations on Config.
+type VersionReader interface {
+	GetVersion(versionID string) *observe.Version
+	ListVersions() []*observe.Version
+	LatestVersion() *observe.Version
+	DiffVersions(firstVersionID, secondVersionID string) ([]diff.ConfigDiff, error)
+}
+
+type metricsReader struct{ metrics *observe.Metrics }
+
+func (reader *metricsReader) Statistics() map[string]any {
+	return reader.metrics.Statistics()
+}
+
+type eventSubscriber struct{ emitter *observe.EventEmitter }
+
+func (subscriber *eventSubscriber) On(event string, listener func(args ...any)) EventSubscriber {
+	subscriber.emitter.On(event, listener)
+	return subscriber
+}
+
+func (subscriber *eventSubscriber) OnWithContext(event string, listener func(context.Context, ...any)) EventSubscriber {
+	subscriber.emitter.OnWithContext(event, listener)
+	return subscriber
+}
+
+func (subscriber *eventSubscriber) Off(event string) {
+	subscriber.emitter.Off(event)
+}
+
+func (subscriber *eventSubscriber) OffWithContext(event string) {
+	subscriber.emitter.OffWithContext(event)
+}
+
+type versionReader struct{ manager *observe.VersionManager }
+
+func (reader *versionReader) GetVersion(versionID string) *observe.Version {
+	return reader.manager.GetVersion(versionID)
+}
+
+func (reader *versionReader) ListVersions() []*observe.Version {
+	return reader.manager.ListVersions()
+}
+
+func (reader *versionReader) LatestVersion() *observe.Version {
+	return reader.manager.LatestVersion()
+}
+
+func (reader *versionReader) DiffVersions(firstVersionID, secondVersionID string) ([]diff.ConfigDiff, error) {
+	return reader.manager.DiffVersions(firstVersionID, secondVersionID)
+}
+
 // Diff compares this Config's materialized snapshot with other. Results use
 // dot-separated leaf paths and classify each difference as added, removed, or
 // modified; see [diff.ConfigDiff]. Passing nil returns an error. The method
@@ -40,7 +110,15 @@ func (c *Config[T]) DiffWithContext(ctx context.Context, other *Config[T]) ([]di
 	if err != nil {
 		return nil, err
 	}
-	return diff.Diff(left, right), nil
+	c.mu.RLock()
+	paths := cloneSensitivePaths(c.sensitivePaths)
+	c.mu.RUnlock()
+	other.mu.RLock()
+	for path := range other.sensitivePaths {
+		paths[path] = struct{}{}
+	}
+	other.mu.RUnlock()
+	return redactConfigDiffs(diff.Diff(left, right), paths), nil
 }
 
 // DetectDrift compares intended with the current materialized snapshot. A key
@@ -60,41 +138,73 @@ func (c *Config[T]) DetectDriftWithContext(ctx context.Context, intended map[str
 	if err != nil {
 		return nil, err
 	}
-	return diff.Diff(intended, current), nil
+	c.mu.RLock()
+	paths := cloneSensitivePaths(c.sensitivePaths)
+	c.mu.RUnlock()
+	return redactConfigDiffs(diff.Diff(intended, current), paths), nil
 }
 
-// EnableObservability enables in-process metrics and returns the Config-owned,
-// concurrency-safe collector. Repeated calls return the same collector and do
-// not reset existing counters. Use [Config.GetMetrics] for a map snapshot.
-func (c *Config[T]) EnableObservability() *observe.Metrics {
+// EnableObservability enables in-process metrics and returns a read-only view.
+// Repeated calls return the same view and do not reset existing counters. Use
+// [Config.DisableObservability] to pause collection and [Config.ResetMetrics]
+// to clear retained values.
+func (c *Config[T]) EnableObservability() MetricsReader {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.observer == nil {
 		c.observer = observe.NewMetrics(len(dictutil.FlatKeys(c.envConfig)))
 	}
-	return c.observer
+	c.observer.Enable()
+	if c.metricsReader == nil {
+		c.metricsReader = &metricsReader{metrics: c.observer}
+	}
+	return c.metricsReader
 }
 
-// EnableEvents enables synchronous lifecycle event delivery and returns the
-// Config-owned, concurrency-safe emitter. Repeated calls return the same
-// emitter. Register listeners on the returned value before the operations they
-// must observe; events emitted before registration are not replayed.
-func (c *Config[T]) EnableEvents() *observe.EventEmitter {
+// DisableObservability pauses metrics collection without discarding retained
+// counters. It is a no-op when observability has not been enabled.
+func (c *Config[T]) DisableObservability() {
+	c.mu.RLock()
+	observer := c.observer
+	c.mu.RUnlock()
+	if observer != nil {
+		observer.Disable()
+	}
+}
+
+// ResetMetrics clears retained counters and timings without disabling future
+// collection. It is a no-op when observability has not been enabled.
+func (c *Config[T]) ResetMetrics() {
+	c.mu.RLock()
+	observer := c.observer
+	c.mu.RUnlock()
+	if observer != nil {
+		observer.Reset()
+	}
+}
+
+// EnableEvents enables synchronous lifecycle event delivery and returns a
+// subscription-only view. Callers can register and remove listeners but cannot
+// fabricate Config lifecycle events. Repeated calls return the same view.
+func (c *Config[T]) EnableEvents() EventSubscriber {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.eventEmitter == nil {
 		c.eventEmitter = observe.NewEventEmitter(c.logger)
 	}
-	return c.eventEmitter
+	if c.eventSubscriber == nil {
+		c.eventSubscriber = &eventSubscriber{emitter: c.eventEmitter}
+	}
+	return c.eventSubscriber
 }
 
-// EnableVersioning configures snapshot history and returns the Config-owned,
-// concurrency-safe manager. storagePath selects optional disk persistence; an
+// EnableVersioning configures snapshot history and returns a read-only view.
+// storagePath selects optional disk persistence; an
 // empty path keeps versions in memory only. maxVersions limits retained
 // versions, with non-positive values selecting the package default. Repeated
 // calls preserve retained in-memory versions and apply the latest settings to
 // future saves.
-func (c *Config[T]) EnableVersioning(storagePath string, maxVersions int) *observe.VersionManager {
+func (c *Config[T]) EnableVersioning(storagePath string, maxVersions int) VersionReader {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.versionMgr == nil {
@@ -102,7 +212,10 @@ func (c *Config[T]) EnableVersioning(storagePath string, maxVersions int) *obser
 	} else {
 		c.versionMgr.Reconfigure(storagePath, maxVersions)
 	}
-	return c.versionMgr
+	if c.versionReader == nil {
+		c.versionReader = &versionReader{manager: c.versionMgr}
+	}
+	return c.versionReader
 }
 
 // GetMetrics returns a detached snapshot of current counters, durations, and
@@ -141,11 +254,13 @@ func (c *Config[T]) SaveVersionWithContext(ctx context.Context, metadata map[str
 	c.mu.Lock()
 	if c.versionMgr == nil {
 		c.versionMgr = observe.NewVersionManager("", 0)
+		c.versionReader = &versionReader{manager: c.versionMgr}
 	}
 	mgr := c.versionMgr
 	envSnapshot := dictutil.DeepCopy(c.envConfig)
+	sensitivePaths := sensitivePathList(c.sensitivePaths)
 	c.mu.Unlock()
-	version, err := mgr.SaveVersion(envSnapshot, metadata)
+	version, err := mgr.SaveVersionWithSensitivePaths(envSnapshot, metadata, sensitivePaths)
 	if err != nil {
 		return nil, err
 	}
@@ -234,6 +349,7 @@ func (c *Config[T]) RollbackToVersionWithContext(ctx context.Context, versionID 
 	c.envConfig = dictutil.DeepCopy(snapshot)
 	c.unresolvedEnvConfig = dictutil.DeepCopy(snapshot)
 	c.mergedConfig = dictutil.DeepCopy(snapshot)
+	c.sensitivePaths = sensitivePathSet(v.SensitivePaths)
 	c.sourceTracker.Restore(tracker.Snapshot())
 	c.validatedModel = nil
 	c.revision++

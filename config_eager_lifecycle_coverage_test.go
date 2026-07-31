@@ -117,9 +117,9 @@ func TestSecretBackedInspectionFallbackBranches(t *testing.T) {
 	cfg := newTestConfig(t, map[string]any{"plain": "value"})
 	cfg.mu.Lock()
 	cfg.unresolvedEnvConfig = nil
-	assert.False(t, cfg.secretBackedPathLocked("plain"))
+	assert.False(t, cfg.sensitivePathLocked("plain"))
 	cfg.unresolvedEnvConfig = map[string]any{"other": "value"}
-	assert.False(t, cfg.secretBackedPathLocked("plain"))
+	assert.False(t, cfg.sensitivePathLocked("plain"))
 	cfg.mu.Unlock()
 }
 

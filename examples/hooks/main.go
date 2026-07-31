@@ -3,8 +3,8 @@
 
 // Package main demonstrates the hook system. Confii supports 4 hook types:
 // key hooks, value hooks, condition hooks, and global hooks.
-// Hooks transform leaf values when Confii prepares a read, including the map
-// traversal performed before Typed decodes a struct.
+// Hooks transform leaf values while Confii materializes the published
+// snapshot. Get and Typed then observe the same transformed value.
 package main
 
 import (
@@ -52,7 +52,10 @@ func main() {
 		log.Fatal(err)
 	}
 
-	name, _ := cfg.Get("app.name")
+	name, err := cfg.Get("app.name")
+	if err != nil {
+		log.Fatal(err)
+	}
 	fmt.Println("App name:", name) // MY-SERVICE (uppercased by key hook)
 
 	// Typed and Get observe the same already-materialized snapshot.

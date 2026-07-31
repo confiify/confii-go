@@ -89,6 +89,34 @@ func TestStartWatching_FileSources_WithoutOperationTimeout(t *testing.T) {
 	testStartWatchingReloadsFile(t, confii.WithOperationTimeout(0))
 }
 
+func TestStartWatching_CompositionDependencyTriggersReload(t *testing.T) {
+	dir := t.TempDir()
+	root := filepath.Join(dir, "root.yaml")
+	dependency := filepath.Join(dir, "shared.yaml")
+	require.NoError(t, os.WriteFile(root, []byte("_include: shared.yaml\napp: demo\n"), 0o600))
+	require.NoError(t, os.WriteFile(dependency, []byte("shared: before\n"), 0o600))
+
+	cfg, err := confii.NewWithContext[any](context.Background(),
+		confii.WithLoaders(loader.NewYAML(root)),
+		confii.WithDynamicReloading(true),
+	)
+	require.NoError(t, err)
+	defer cfg.StopWatching()
+
+	require.NoError(t, os.WriteFile(dependency, []byte("shared: after\n"), 0o600))
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		value, getErr := cfg.Get("shared")
+		if getErr == nil && value == "after" {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	value, getErr := cfg.Get("shared")
+	require.NoError(t, getErr)
+	assert.Equal(t, "after", value, "changing an included file must trigger automatic reload")
+}
+
 func testStartWatchingReloadsFile(t *testing.T, options ...confii.Option) {
 	t.Helper()
 	dir := t.TempDir()

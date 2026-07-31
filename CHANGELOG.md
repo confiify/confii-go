@@ -6,7 +6,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Add a configurable trailing-edge reload debounce (`reload_debounce` and
+  `WithReloadDebounce`) with a 150ms default. Editor write bursts now produce
+  one watcher-driven reload, zero retains immediate behavior, and shutdown
+  cancels pending work.
+- Add explicit sensitivity classification through `sensitive_paths` and
+  `WithSensitivePaths`. Declared paths are combined with automatically detected
+  secret references and remain redacted across hooks, runtime mutations,
+  versions, rollback, diffs, generated documentation, and source inspection.
+
 ### Fixed
+
+- Make explicit `WithEnv` selection authoritative for environment-specific
+  self-config overlays and scope cached self-config results by environment;
+  callers now receive detached settings instead of cache-owned pointers.
+- Register declarative secret providers created during runtime mutation with
+  the Config lifecycle, including providers initialized lazily after startup,
+  and close late creations safely when they race with `Config.Close`.
+- Fail construction when dynamic watcher setup fails, watch transitive
+  composition includes, and atomically adopt changed dependency sets after
+  successful reload and extend transactions.
+- Validate nil and typed-nil collaborators, option enums, merge paths, hook
+  registrations, and secret resolver hooks before source I/O; defensively own
+  caller-provided option slices, maps, and inline schemas.
+- Preserve secret-derived sensitivity metadata through mutation, refresh,
+  source transactions, overrides, version persistence, and rollback. Config
+  diff/drift, CLI diff, documentation generation, schema/explain output, and
+  detached source-tracker inspection redact those paths by default.
 
 - Make an override restore function a no-op after `Config.Close` so the closed
   snapshot remains immutable and emits no further lifecycle signals.
@@ -35,6 +63,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   path cannot be canonicalized instead of weakening cycle detection.
 
 ### Changed
+
+- Return capability-oriented views from `EnableObservability`, `EnableEvents`,
+  and `EnableVersioning` instead of Config-owned mutable collaborators. Metrics
+  control remains on Config, event consumers can subscribe without fabricating
+  lifecycle events, and version consumers can inspect history without bypassing
+  Config's transactional save and rollback operations.
+- Make disabling metrics pause every access and lifecycle counter consistently;
+  `Config.ResetMetrics` clears retained observations without exposing the
+  mutable collector.
+
+- Give `Typed` and `TypedWithContext` identical cached shared-view semantics,
+  and add `TypedCopy` plus `TypedCopyWithContext` for explicitly detached typed
+  models. Context selection now changes operation control, not value ownership.
+- Return a detached, redacted tracker from `Config.SourceTracker` instead of
+  exposing the live mutable collaborator.
+- Return detached version records from save, lookup, list, and latest-version
+  operations so caller mutation cannot corrupt retained version history.
 
 - Adopt Go semantic import versioning for the v2 API. The core module is now
   `github.com/confiify/confii-go/v2`; the independently versioned cloud modules

@@ -145,10 +145,12 @@ func TestClearCache_ClearsAllEntries(t *testing.T) {
 
 	hitA, err := selfconfig.Read(dirA)
 	require.NoError(t, err)
-	assert.Same(t, firstA, hitA, "second Read of dirA must hit cache")
+	assert.Equal(t, firstA, hitA, "second Read of dirA must return cached content")
+	assert.NotSame(t, firstA, hitA, "cached settings must be detached")
 	hitB, err := selfconfig.Read(dirB)
 	require.NoError(t, err)
-	assert.Same(t, firstB, hitB, "second Read of dirB must hit cache")
+	assert.Equal(t, firstB, hitB, "second Read of dirB must return cached content")
+	assert.NotSame(t, firstB, hitB, "cached settings must be detached")
 
 	selfconfig.ClearCache()
 

@@ -208,7 +208,9 @@ cfg.OnChange(func(key string, oldVal, newVal any) {
     Callbacks run in registration order for each changed key. Callback panics are recovered and do not propagate.
 
 !!! note "When do callbacks fire?"
-    Callbacks fire during `Reload` (after changes are applied, not during dry-run). They do **not** fire on `Set` or `Override`.
+    Callbacks fire after successful `Set`, `Override`, override restoration,
+    `Reload`, `Extend`, secret refresh, and version rollback commits. Dry runs,
+    rejected candidates, and no-op operations do not deliver changes.
 
 ---
 

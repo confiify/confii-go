@@ -67,6 +67,38 @@ func NewTracker(debugMode bool) *Tracker {
 	}
 }
 
+// Clone returns an independent tracker containing the same source records and
+// debug-mode setting. Mutations on either tracker do not affect the other.
+func (t *Tracker) Clone() *Tracker {
+	clone := NewTracker(t.debugMode)
+	clone.Restore(t.Snapshot())
+	return clone
+}
+
+// RedactValues replaces current and historical values for paths with
+// replacement. A path also protects its ancestors and descendants so a
+// parent-shaped source record cannot expose a nested sensitive value.
+func (t *Tracker) RedactValues(paths []string, replacement any) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for key, info := range t.sources {
+		redact := false
+		for _, path := range paths {
+			if key == path || strings.HasPrefix(key, path+".") || strings.HasPrefix(path, key+".") {
+				redact = true
+				break
+			}
+		}
+		if !redact || info == nil {
+			continue
+		}
+		info.Value = dictutil.DeepCopyValue(replacement)
+		for index := range info.History {
+			info.History[index].Value = dictutil.DeepCopyValue(replacement)
+		}
+	}
+}
+
 // cloneSourceInfo returns a deep copy of info or nil if info is nil.
 // Both [SourceInfo.Value] and every [OverrideEntry.Value] are routed
 // through [dictutil.DeepCopyValue] so a caller mutating a returned

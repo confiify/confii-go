@@ -36,7 +36,10 @@ func main() {
 		log.Fatal(err)
 	}
 
-	model, _ := cfg.Typed()
+	model, err := cfg.Typed()
+	if err != nil {
+		log.Fatal(err)
+	}
 	fmt.Println("App:", model.App.Name)
 	fmt.Println("Frozen:", cfg.IsFrozen())
 }

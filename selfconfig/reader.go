@@ -24,6 +24,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -32,6 +33,7 @@ import (
 	"sync"
 
 	"github.com/BurntSushi/toml"
+	"github.com/confiify/confii-go/v2/internal/dictutil"
 	"github.com/confiify/confii-go/v2/internal/formatparse"
 	"go.yaml.in/yaml/v3"
 )
@@ -64,6 +66,12 @@ type Settings struct {
 	UseTypeCasting *bool `yaml:"use_type_casting" json:"use_type_casting" toml:"use_type_casting"`
 	// DynamicReloading watches local file sources and republishes valid changes.
 	DynamicReloading *bool `yaml:"dynamic_reloading" json:"dynamic_reloading" toml:"dynamic_reloading"`
+	// ReloadDebounce coalesces bursts of local filesystem events. It uses Go
+	// duration syntax; zero disables coalescing.
+	ReloadDebounce string `yaml:"reload_debounce" json:"reload_debounce" toml:"reload_debounce"`
+	// SensitivePaths contains dot-separated paths that diagnostics must redact,
+	// including values produced by custom loaders or transformation hooks.
+	SensitivePaths []string `yaml:"sensitive_paths" json:"sensitive_paths" toml:"sensitive_paths"`
 	// FreezeOnLoad freezes the Config after successful initialization.
 	FreezeOnLoad *bool `yaml:"freeze_on_load" json:"freeze_on_load" toml:"freeze_on_load"`
 	// DebugMode retains additional source values and diagnostic metadata.
@@ -74,7 +82,7 @@ type Settings struct {
 	SchemaPath string `yaml:"schema_path" json:"schema_path" toml:"schema_path"`
 	// EnvironmentStrategy selects auto, sectioned, named_files, or hybrid interpretation.
 	EnvironmentStrategy string `yaml:"environment_strategy" json:"environment_strategy" toml:"environment_strategy"`
-	// EnvironmentConflictPolicy selects error, section-wins, or flat-wins behavior.
+	// EnvironmentConflictPolicy selects error, warn, or last_wins behavior.
 	EnvironmentConflictPolicy string `yaml:"environment_conflict_policy" json:"environment_conflict_policy" toml:"environment_conflict_policy"`
 	// Startup configures construction-time context behavior.
 	Startup StartupSettings `yaml:"startup" json:"startup" toml:"startup"`
@@ -148,11 +156,36 @@ type cacheEntry struct {
 	switcherValue string
 }
 
+type cacheKeyValue struct {
+	directory        string
+	environment      string
+	environmentIsSet bool
+}
+
+// ReadOption configures self-configuration discovery.
+type ReadOption func(*readOptions)
+
+type readOptions struct {
+	environment      string
+	environmentIsSet bool
+}
+
+// WithEnvironment makes environment authoritative for selecting the optional
+// environment-specific self-config overlay. An explicitly empty value disables
+// overlay selection. Without this option, Read uses env_switcher followed by
+// default_environment from the base self-config file.
+func WithEnvironment(environment string) ReadOption {
+	return func(options *readOptions) {
+		options.environment = environment
+		options.environmentIsSet = true
+	}
+}
+
 // Module-level cache keyed by absolute working directory path. Distinct working
 // directories never share self-config state.
 var (
 	cacheMu sync.Mutex
-	cache   = map[string]cacheEntry{}
+	cache   = map[cacheKeyValue]cacheEntry{}
 )
 
 // cacheKey resolves dir to its absolute path for use as the cache key.
@@ -175,20 +208,40 @@ func cacheKey(dir string) string {
 // keys nested inside Sources and Secrets remain extensible.
 //
 // Results are cached by absolute working directory and invalidated when the
-// selected environment-switcher value changes. The returned Settings is
-// cache-owned and must be treated as read-only. Call [ClearCache] after changing
-// a self-config file in a long-running process.
+// selected environment-switcher value changes. Each call returns a detached
+// Settings copy. Call [ClearCache] after changing a self-config file in a
+// long-running process.
 func Read(dir string) (*Settings, error) {
+	return ReadWithOptions(dir)
+}
+
+// ReadWithOptions discovers and decodes self-configuration using opts. Results
+// are cached independently for each project directory and explicit environment
+// selection. The returned Settings is a detached copy owned by the caller.
+func ReadWithOptions(dir string, opts ...ReadOption) (*Settings, error) {
 	if dir == "" {
 		dir = "."
 	}
+	resolved := readOptions{}
+	for index, option := range opts {
+		if option == nil {
+			return nil, fmt.Errorf("selfconfig: read option %d is nil", index)
+		}
+		if err := applyReadOption(option, &resolved, index); err != nil {
+			return nil, err
+		}
+	}
 
-	key := cacheKey(dir)
+	key := cacheKeyValue{
+		directory:        cacheKey(dir),
+		environment:      resolved.environment,
+		environmentIsSet: resolved.environmentIsSet,
+	}
 
 	cacheMu.Lock()
 	if entry, ok := cache[key]; ok {
 		if entry.envSwitcher == "" || os.Getenv(entry.envSwitcher) == entry.switcherValue {
-			result := entry.settings
+			result := cloneSettings(entry.settings)
 			cacheMu.Unlock()
 			return result, nil
 		}
@@ -196,7 +249,7 @@ func Read(dir string) (*Settings, error) {
 	}
 	cacheMu.Unlock()
 
-	settings, err := readFromDir(dir)
+	settings, err := readFromDir(dir, resolved)
 	if err != nil {
 		return nil, err
 	}
@@ -212,7 +265,17 @@ func Read(dir string) (*Settings, error) {
 	cache[key] = entry
 	cacheMu.Unlock()
 
-	return settings, nil
+	return cloneSettings(settings), nil
+}
+
+func applyReadOption(option ReadOption, settings *readOptions, index int) (err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("selfconfig: read option %d panicked: %v", index, recovered)
+		}
+	}()
+	option(settings)
+	return nil
 }
 
 // ClearCache invalidates all cached self-configuration. It is safe for
@@ -220,26 +283,26 @@ func Read(dir string) (*Settings, error) {
 func ClearCache() {
 	cacheMu.Lock()
 	defer cacheMu.Unlock()
-	cache = map[string]cacheEntry{}
+	cache = map[cacheKeyValue]cacheEntry{}
 }
 
-func readFromDir(dir string) (*Settings, error) {
+func readFromDir(dir string, options readOptions) (*Settings, error) {
 	// Try dedicated confii files in the given directory.
-	settings, found, err := readFirstFromDir(dir)
+	settings, found, err := readFirstFromDir(dir, options)
 	if err != nil || found {
 		return settings, err
 	}
 
 	// Fall back to ~/.config/confii/ (XDG-style).
 	if home, err := os.UserHomeDir(); err == nil {
-		settings, _, readErr := readFirstFromDir(filepath.Join(home, ".config", "confii"))
+		settings, _, readErr := readFirstFromDir(filepath.Join(home, ".config", "confii"), options)
 		return settings, readErr
 	}
 
 	return nil, nil
 }
 
-func readFirstFromDir(dir string) (*Settings, bool, error) {
+func readFirstFromDir(dir string, options readOptions) (*Settings, bool, error) {
 	base, found, err := discoverBaseFile(dir)
 	if err != nil || !found {
 		return nil, found, err
@@ -253,7 +316,9 @@ func readFirstFromDir(dir string) (*Settings, bool, error) {
 		return nil, true, err
 	}
 	environment := baseSettings.DefaultEnvironment
-	if baseSettings.EnvSwitcher != "" {
+	if options.environmentIsSet {
+		environment = options.environment
+	} else if baseSettings.EnvSwitcher != "" {
 		if selected := strings.TrimSpace(os.Getenv(baseSettings.EnvSwitcher)); selected != "" {
 			environment = selected
 		}
@@ -278,6 +343,25 @@ func readFirstFromDir(dir string) (*Settings, bool, error) {
 	merged := mergeSettingsMaps(baseMap, overlayMap)
 	settings, err := decodeSettingsMap(merged, base.extension, base.path+" + "+overlay.path)
 	return settings, true, err
+}
+
+func cloneSettings(settings *Settings) *Settings {
+	if settings == nil {
+		return nil
+	}
+	cloned := *settings
+	cloned.Merge.Paths = maps.Clone(settings.Merge.Paths)
+	cloned.SensitivePaths = append([]string(nil), settings.SensitivePaths...)
+	if settings.Sources != nil {
+		cloned.Sources = make([]map[string]any, len(settings.Sources))
+		for index, source := range settings.Sources {
+			cloned.Sources[index] = dictutil.DeepCopy(source)
+		}
+	}
+	if settings.Secrets != nil {
+		cloned.Secrets = dictutil.DeepCopy(settings.Secrets)
+	}
+	return &cloned
 }
 
 type discoveredSelfConfig struct {

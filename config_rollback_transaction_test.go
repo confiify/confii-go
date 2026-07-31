@@ -6,6 +6,8 @@ package confii_test
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -27,11 +29,14 @@ func TestRollbackValidatesBeforePublication(t *testing.T) {
 		confii.WithValidator(rejectBlocked),
 	)
 	require.NoError(t, err)
-	manager := cfg.EnableVersioning("", 10)
-	invalid, err := manager.SaveVersion(map[string]any{"name": "blocked"}, nil)
-	require.NoError(t, err)
+	versionDirectory := t.TempDir()
+	manager := cfg.EnableVersioning(versionDirectory, 10)
+	invalidID := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	invalidRecord := `{"version_id":"01ARZ3NDEKTSV4RRFFQ69G5FAV","config":{"name":"blocked"},"timestamp":"2026-01-01T00:00:00Z"}`
+	require.NoError(t, os.WriteFile(filepath.Join(versionDirectory, invalidID+".json"), []byte(invalidRecord), 0o600))
+	require.NotNil(t, manager.GetVersion(invalidID))
 
-	err = cfg.RollbackToVersion(invalid.VersionID)
+	err = cfg.RollbackToVersion(invalidID)
 	require.ErrorIs(t, err, confii.ErrConfigValidation)
 	assert.Equal(t, "ready", cfg.GetStringOr("name", ""))
 }

@@ -29,5 +29,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	_, _ = store.GetSecret(ctx, "apps/confii/database", confii.WithField("password"))
+	if _, err := store.GetSecret(ctx, "apps/confii/database", confii.WithField("password")); err != nil {
+		log.Fatal(err)
+	}
 }

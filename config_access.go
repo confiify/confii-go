@@ -411,8 +411,8 @@ func (c *Config[T]) ToDictWithContext(ctx context.Context) (map[string]any, erro
 // The decoded pointer is cached until the Config publishes another snapshot.
 // Repeated Typed calls may therefore return the same pointer. Mutating it
 // changes that typed view but does not write back to Config.Get or ToDict;
-// use [Config.Set] for a configuration mutation. Call TypedWithContext when an
-// independently decoded value is required.
+// use [Config.Set] for a configuration mutation. Call [Config.TypedCopy] when
+// an independently decoded value is required.
 //
 //	type AppConfig struct {
 //		Server struct {
@@ -429,12 +429,25 @@ func (c *Config[T]) Typed() (*T, error) {
 	return c.typedCtx(ctx, true)
 }
 
-// TypedWithContext decodes and validates the published configuration snapshot
-// into a new *T on every call. The returned value is independent from the
-// Config and other typed results. It returns immediately when ctx is canceled.
-// The context does not trigger transformation hooks or remote secret
-// resolution during the read.
+// TypedWithContext is the context-aware form of [Config.Typed]. It uses the
+// same cached shared-view semantics; context changes cancellation and deadline
+// propagation, not ownership. The context does not trigger transformation
+// hooks or remote secret resolution during the read.
 func (c *Config[T]) TypedWithContext(ctx context.Context) (*T, error) {
+	return c.typedCtx(ctx, true)
+}
+
+// TypedCopy decodes and validates the current published snapshot into a new
+// *T. The returned value is detached from Config and every other typed result.
+func (c *Config[T]) TypedCopy() (*T, error) {
+	ctx, cancel := c.implicitOperationContext()
+	defer cancel()
+	return c.typedCtx(ctx, false)
+}
+
+// TypedCopyWithContext is the context-aware form of [Config.TypedCopy]. A nil
+// or canceled context returns an error without a partially decoded value.
+func (c *Config[T]) TypedCopyWithContext(ctx context.Context) (*T, error) {
 	return c.typedCtx(ctx, false)
 }
 

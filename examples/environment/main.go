@@ -21,7 +21,10 @@ func main() {
 		log.Fatal(err)
 	}
 
-	host, _ := cfg.Get("database.host")
+	host, err := cfg.Get("database.host")
+	if err != nil {
+		log.Fatal(err)
+	}
 	port := cfg.GetIntOr("database.port", 0)
 	debug := cfg.GetBoolOr("app.debug", true)
 

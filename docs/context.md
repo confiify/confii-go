@@ -58,6 +58,7 @@ The naming contract is uniform across the paired public API:
 | `cfg.Get(key)` | `cfg.GetWithContext(ctx, key)` |
 | `cfg.ToDict()` | `cfg.ToDictWithContext(ctx)` |
 | `cfg.Typed()` | `cfg.TypedWithContext(ctx)` |
+| `cfg.TypedCopy()` | `cfg.TypedCopyWithContext(ctx)` |
 | `cfg.Set(key, value)` | `cfg.SetWithContext(ctx, key, value)` |
 | `cfg.Override(values)` | `cfg.OverrideWithContext(ctx, values)` |
 | `cfg.Reload(...)` | `cfg.ReloadWithContext(ctx, ...)` |
@@ -105,6 +106,10 @@ cfg.EnableEvents().OnWithContext("reload", func(ctx context.Context, args ...any
 
 Context-free `OnChange` and `On` listeners remain available.
 
+`Typed` and `TypedWithContext` share the same cached typed-view semantics.
+Use `TypedCopy` or `TypedCopyWithContext` when ownership isolation is required;
+the presence of a context does not implicitly request a copy.
+
 ## Resource ownership
 
 Call `Close` when the Config is no longer needed:
@@ -116,7 +121,8 @@ defer cfg.Close()
 ```
 
 `Close` is idempotent. It stops watchers and closes owned loaders, managed
-resolvers, and declaratively created providers that implement `Close() error`.
+resolvers, and declaratively created providers that implement `Close() error`,
+including a provider first initialized lazily by a runtime mutation.
 The final snapshot remains readable, while mutations return
 `confii.ErrConfigClosed`.
 

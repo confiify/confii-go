@@ -22,7 +22,10 @@ func main() {
 	}
 
 	// Untyped access
-	name, _ := cfg.Get("app.name")
+	name, err := cfg.Get("app.name")
+	if err != nil {
+		log.Fatal(err)
+	}
 	fmt.Println("App:", name)
 
 	// Typed getters with defaults

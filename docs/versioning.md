@@ -12,6 +12,9 @@ Call `EnableVersioning` with a storage path and maximum number of versions to ke
 vm := cfg.EnableVersioning("/tmp/config-versions", 100)
 ```
 
+The returned `confii.VersionReader` is a read-only history view. Capture and
+rollback remain transactional `Config` operations.
+
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | `storagePath` | Directory for storing version JSON files; empty keeps versions in memory only | in memory |
@@ -51,8 +54,15 @@ type Version struct {
     Config    map[string]any `json:"config"`
     Timestamp time.Time      `json:"timestamp"`
     Metadata  map[string]any `json:"metadata,omitempty"`
+    SensitivePaths []string  `json:"sensitive_paths,omitempty"`
 }
 ```
+
+`SensitivePaths` contains paths detected from secret references plus explicit
+`sensitive_paths` / `WithSensitivePaths` declarations, never secret values or
+provider coordinates. Confii persists it so a rollback retains the redaction
+policy of the restored materialized snapshot and `DiffVersions` can redact
+secret-derived values by default.
 
 !!! tip "Metadata is optional"
     Pass `nil` if you do not need metadata:

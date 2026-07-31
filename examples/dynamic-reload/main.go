@@ -17,10 +17,16 @@ import (
 func main() {
 	cfg, err := confii.New[any](confii.WithLoaders(loader.NewYAML("config.yaml")),
 		confii.WithDynamicReloading(true), // enables fsnotify file watcher
+		confii.WithReloadDebounce(150*time.Millisecond),
 	)
 	if err != nil {
 		log.Fatal(err)
 	}
+	defer func() {
+		if err := cfg.Close(); err != nil {
+			log.Printf("close configuration: %v", err)
+		}
+	}()
 
 	// Register a callback to react to changes
 	cfg.OnChange(func(key string, oldVal, newVal any) {
@@ -39,6 +45,4 @@ func main() {
 		fmt.Printf("Current debug value: %v\n", debug)
 	}
 
-	// Stop watching when done
-	cfg.StopWatching()
 }

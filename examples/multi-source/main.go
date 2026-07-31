@@ -25,9 +25,9 @@ func main() {
 		log.Fatal(err)
 	}
 
-	host, _ := cfg.Get("database.host")
-	ssl, _ := cfg.Get("database.ssl")
-	ttl, _ := cfg.Get("cache.ttl")
+	host := cfg.MustGet("database.host")
+	ssl := cfg.MustGet("database.ssl")
+	ttl := cfg.MustGet("cache.ttl")
 
 	fmt.Println("Host:", host) // prod-db.example.com (from overrides.yaml)
 	fmt.Println("SSL:", ssl)   // true (added by overrides.yaml)

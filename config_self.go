@@ -27,7 +27,13 @@ func applySelfConfig(opts *options) error {
 	if workdir == "" {
 		workdir = "."
 	}
-	settings, err := selfconfig.Read(workdir)
+	var settings *selfconfig.Settings
+	var err error
+	if opts.isSet("env") {
+		settings, err = selfconfig.ReadWithOptions(workdir, selfconfig.WithEnvironment(opts.Env))
+	} else {
+		settings, err = selfconfig.Read(workdir)
+	}
 	if err != nil {
 		return err
 	}
@@ -86,6 +92,16 @@ func applySelfConfig(opts *options) error {
 	}
 	if !opts.isSet("dynamic_reloading") && settings.DynamicReloading != nil {
 		opts.DynamicReloading = *settings.DynamicReloading
+	}
+	if !opts.isSet("reload_debounce") && settings.ReloadDebounce != "" {
+		interval, err := time.ParseDuration(strings.TrimSpace(settings.ReloadDebounce))
+		if err != nil {
+			return &ConfigError{Op: "ApplySelfConfig", Code: ConfigErrorCodeLoad, Err: fmt.Errorf("invalid reload_debounce %q: %w", settings.ReloadDebounce, err)}
+		}
+		opts.ReloadDebounce = interval
+	}
+	if !opts.isSet("sensitive_paths") && settings.SensitivePaths != nil {
+		opts.SensitivePaths = append([]string(nil), settings.SensitivePaths...)
 	}
 	if !opts.isSet("freeze_on_load") && settings.FreezeOnLoad != nil {
 		opts.FreezeOnLoad = *settings.FreezeOnLoad

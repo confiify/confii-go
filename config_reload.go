@@ -55,8 +55,13 @@ func WithIncremental(v bool) ReloadOption {
 // discarded and therefore requires no rollback of its private state.
 func (c *Config[T]) prepareReloadCandidate(ctx context.Context, opts ...ReloadOption) (sourceTransactionOutcome, error) {
 	ro := reloadOpts{incremental: true}
-	for _, o := range opts {
-		o(&ro)
+	for index, o := range opts {
+		if o == nil {
+			return sourceTransactionOutcome{}, NewInvalidError("Reload", "", fmt.Errorf("reload option %d is nil", index))
+		}
+		if err := applyReloadOption(o, &ro, index); err != nil {
+			return sourceTransactionOutcome{}, NewInvalidError("Reload", "", err)
+		}
 	}
 
 	// Select changed trackable sources. Sources that cannot
@@ -116,4 +121,14 @@ func (c *Config[T]) prepareReloadCandidate(ctx context.Context, opts ...ReloadOp
 		return sourceTransactionOutcome{}, nil
 	}
 	return sourceTransactionOutcome{publish: true}, nil
+}
+
+func applyReloadOption(option ReloadOption, settings *reloadOpts, index int) (err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("reload option %d panicked: %v", index, recovered)
+		}
+	}()
+	option(settings)
+	return nil
 }

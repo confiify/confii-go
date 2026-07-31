@@ -57,7 +57,7 @@ func TestClearCache_ResetsState(t *testing.T) {
 
 	cacheMu.Lock()
 	assert.Len(t, cache, 1, "cache must hold exactly one entry after Read(\".\")")
-	entry, ok := cache[absKey]
+	entry, ok := cache[cacheKeyValue{directory: absKey}]
 	assert.True(t, ok, "cache key must be filepath.Abs(\".\") ")
 	require.NotNil(t, entry.settings, "cache must hold the result pointer")
 	cacheMu.Unlock()
@@ -65,8 +65,9 @@ func TestClearCache_ResetsState(t *testing.T) {
 	second, err := Read(".")
 	require.NoError(t, err)
 	require.NotNil(t, second)
-	assert.Same(t, first, second,
-		"second Read must return the cached *Settings pointer, not a re-read")
+	assert.NotSame(t, first, second,
+		"cached reads must return caller-owned Settings copies")
+	assert.Equal(t, first, second)
 
 	ClearCache()
 	cacheMu.Lock()
@@ -182,6 +183,8 @@ func TestRead_JSONWithAllBooleanFields(t *testing.T) {
 		"use_env_expander":true,
 		"use_type_casting":false,
 		"dynamic_reloading":true,
+		"reload_debounce":"250ms",
+		"sensitive_paths":["database.password"],
 		"freeze_on_load":false,
 		"debug_mode":true
 	}`)
@@ -205,6 +208,8 @@ func TestRead_JSONWithAllBooleanFields(t *testing.T) {
 	assert.False(t, *settings.UseTypeCasting)
 	require.NotNil(t, settings.DynamicReloading)
 	assert.True(t, *settings.DynamicReloading)
+	assert.Equal(t, "250ms", settings.ReloadDebounce)
+	assert.Equal(t, []string{"database.password"}, settings.SensitivePaths)
 	require.NotNil(t, settings.FreezeOnLoad)
 	assert.False(t, *settings.FreezeOnLoad)
 	require.NotNil(t, settings.DebugMode)
@@ -270,7 +275,7 @@ func TestRead_NonCWDIsCachedByAbsPath(t *testing.T) {
 
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "confii.json"),
-		[]byte(`{"default_environment": "nocache"}`), 0644))
+		[]byte(`{"default_environment":"nocache","sensitive_paths":["database.password"]}`), 0644))
 
 	first, err := Read(dir)
 	require.NoError(t, err)
@@ -280,16 +285,23 @@ func TestRead_NonCWDIsCachedByAbsPath(t *testing.T) {
 	require.NoError(t, err)
 
 	cacheMu.Lock()
-	entry, ok := cache[absKey]
+	entry, ok := cache[cacheKeyValue{directory: absKey}]
 	assert.True(t, ok, "non-CWD Read must populate the cache keyed by abs path ")
-	assert.Same(t, first, entry.settings,
-		"cache must hold the same *Settings pointer Read returned")
+	assert.NotSame(t, first, entry.settings,
+		"Read must not expose the cache-owned Settings pointer")
+	assert.Equal(t, first, entry.settings)
 	cacheMu.Unlock()
 
 	second, err := Read(dir)
 	require.NoError(t, err)
-	assert.Same(t, first, second,
-		"second Read of the same dir must return the cached *Settings pointer")
+	assert.NotSame(t, first, second,
+		"second Read must return a detached copy of the cached Settings")
+	assert.Equal(t, first, second)
+	first.SensitivePaths[0] = "caller.changed"
+	third, err := Read(dir)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"database.password"}, third.SensitivePaths,
+		"caller mutation must not reach cached sensitive-path policy")
 }
 
 func TestRead_XDGConfigFallback(t *testing.T) {

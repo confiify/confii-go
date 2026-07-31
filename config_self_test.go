@@ -83,6 +83,30 @@ func TestEnvPrefix_ExplicitWithEnvPrefix_Wins(t *testing.T) {
 	}
 }
 
+func TestExplicitEnvironmentSelectsMatchingSelfConfigOverlay(t *testing.T) {
+	dir := chdirToSelfConfig(t, `
+default_environment: development
+env_switcher: APP_ENV
+sources:
+  - type: yaml
+    path: development.yaml
+`)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".confii.production.yaml"), []byte(`
+sources:
+  - type: yaml
+    path: production.yaml
+`), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "development.yaml"), []byte("selected: development\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "production.yaml"), []byte("selected: production\n"), 0o600))
+	t.Setenv("APP_ENV", "development")
+
+	cfg, err := confii.NewWithContext[any](context.Background(), confii.WithEnv("production"))
+	require.NoError(t, err)
+	value, err := cfg.Get("selected")
+	require.NoError(t, err)
+	assert.Equal(t, "production", value)
+}
+
 func TestLogLevel_ConstructsLogger(t *testing.T) {
 	chdirToSelfConfig(t, "log_level: debug\n")
 

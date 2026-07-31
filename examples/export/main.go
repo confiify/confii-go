@@ -20,26 +20,40 @@ func main() {
 	}
 
 	// Export to JSON (returns bytes)
-	jsonData, _ := cfg.Export("json")
+	jsonData, err := cfg.Export("json")
+	if err != nil {
+		log.Fatal(err)
+	}
 	fmt.Println("=== JSON ===")
 	fmt.Println(string(jsonData))
 
 	// Export to YAML
-	yamlData, _ := cfg.Export("yaml")
+	yamlData, err := cfg.Export("yaml")
+	if err != nil {
+		log.Fatal(err)
+	}
 	fmt.Println("=== YAML ===")
 	fmt.Println(string(yamlData))
 
 	// Export to TOML
-	tomlData, _ := cfg.Export("toml")
+	tomlData, err := cfg.Export("toml")
+	if err != nil {
+		log.Fatal(err)
+	}
 	fmt.Println("=== TOML ===")
 	fmt.Println(string(tomlData))
 
 	// Export to file
-	_, _ = cfg.Export("json", "/tmp/config-export.json")
+	if _, err := cfg.Export("json", "/tmp/config-export.json"); err != nil {
+		log.Fatal(err)
+	}
 	fmt.Println("Exported to /tmp/config-export.json")
 
 	// Generate documentation
-	markdown, _ := cfg.GenerateDocs("markdown")
+	markdown, err := cfg.GenerateDocs("markdown")
+	if err != nil {
+		log.Fatal(err)
+	}
 	fmt.Println("\n=== Generated Docs ===")
 	fmt.Println(string(markdown))
 }

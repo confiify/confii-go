@@ -292,11 +292,21 @@ fmt.Println(model.Cache.Driver)     // string
     Register hooks through constructor options; the hook plan cannot be mutated
     after construction. See [Hook System](hooks.md).
 
+    `TypedWithContext(ctx)` has the same shared-cache ownership as `Typed()`;
+    the context controls cancellation and deadlines, not whether the result is
+    copied. Use `TypedCopy()` or `TypedCopyWithContext(ctx)` when the caller
+    must own an independent typed value.
+
 !!! note "Typed fields are ordinary Go fields"
     After `Typed()` returns, expressions such as `model.Database.Host` do not
     execute hooks. The field contains the result of the hook pass performed
     before decoding. Per-access side effects require a Confii getter rather
     than direct struct-field access.
+
+    Mutating the pointer returned by `Typed()` changes that cached typed view
+    for callers that receive the same pointer, but never writes back to the
+    published map snapshot. Prefer treating it as read-only. Use `Set` for a
+    configuration mutation and `TypedCopy` for a caller-owned mutable model.
 
 ### Struct Tags
 

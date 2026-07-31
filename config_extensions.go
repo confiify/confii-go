@@ -25,7 +25,10 @@ func buildExporterRegistry(custom []Exporter) (map[string]Exporter, error) {
 				Err:  fmt.Errorf("exporter %d is nil", index),
 			}
 		}
-		format := exporter.Format()
+		format, err := exporterFormat(exporter)
+		if err != nil {
+			return nil, &ConfigError{Op: "New", Code: ConfigErrorCodeInvalid, Err: fmt.Errorf("exporter %d: %w", index, err)}
+		}
 		if format == "" || format != strings.TrimSpace(format) || format != strings.ToLower(format) {
 			return nil, &ConfigError{
 				Op:   "New",
@@ -39,6 +42,15 @@ func buildExporterRegistry(custom []Exporter) (map[string]Exporter, error) {
 		registry[format] = exporter
 	}
 	return registry, nil
+}
+
+func exporterFormat(exporter Exporter) (format string, err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("Format panicked: %v", recovered)
+		}
+	}()
+	return exporter.Format(), nil
 }
 
 func validateCustomValidators(validators []Validator) error {

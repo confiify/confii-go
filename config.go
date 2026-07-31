@@ -44,8 +44,11 @@ type Config[T any] struct {
 	unresolvedEnvConfig map[string]any
 	envConfig           map[string]any
 	mergedConfig        map[string]any
-	frozen              bool
-	env                 string
+	// sensitivePaths records paths derived from secret references independently
+	// of the resolved snapshot so diagnostics remain safe after materialization.
+	sensitivePaths map[string]struct{}
+	frozen         bool
+	env            string
 
 	// Collaborators.
 	loaders []Loader
@@ -66,13 +69,16 @@ type Config[T any] struct {
 
 	// Observability (nil until enabled).
 	observer         *observe.Metrics
+	metricsReader    MetricsReader
 	eventEmitter     *observe.EventEmitter
+	eventSubscriber  EventSubscriber
 	versionMgr       *observe.VersionManager
+	versionReader    VersionReader
 	watcher          *watch.Watcher
 	watchCancel      context.CancelFunc
 	closeOnce        sync.Once
 	closed           bool
-	managedResources []any
+	resourceRegistry *selfConfigResourceCollector
 
 	// Settings.
 	opts   options
@@ -107,13 +113,14 @@ type Config[T any] struct {
 	// stack transitions empty → non-empty, so a fully-drained stack
 	// returns the Config to its pre-Override state atomically. See
 	// [Config.Override] for the LIFO composability contract.
-	overrideStack       []*overrideFrame
-	overrideIDCounter   uint64
-	overrideBaseEnv     map[string]any
-	overrideBaseRawEnv  map[string]any
-	overrideBaseMerged  map[string]any
-	overrideBaseTracker sourcetrack.Snapshot
-	overrideBaseFrozen  bool
+	overrideStack         []*overrideFrame
+	overrideIDCounter     uint64
+	overrideBaseEnv       map[string]any
+	overrideBaseRawEnv    map[string]any
+	overrideBaseMerged    map[string]any
+	overrideBaseTracker   sourcetrack.Snapshot
+	overrideBaseSensitive map[string]struct{}
+	overrideBaseFrozen    bool
 }
 
 // Logger returns the logger resolved when the Config was constructed. The
@@ -167,8 +174,13 @@ func NewWithContext[T any](ctx context.Context, cfgOpts ...Option) (*Config[T], 
 		return nil, &ConfigError{Op: "New", Code: ConfigErrorCodeLoad, Err: errors.New("nil context")}
 	}
 	opts := defaultOptions()
-	for _, fn := range cfgOpts {
-		fn(&opts)
+	for index, fn := range cfgOpts {
+		if fn == nil {
+			return nil, NewInvalidError("New", "", fmt.Errorf("option %d is nil", index))
+		}
+		if err := applyConstructionOption(fn, &opts, index); err != nil {
+			return nil, err
+		}
 	}
 
 	// Apply project self-configuration before validating effective options.
@@ -184,52 +196,27 @@ func NewWithContext[T any](ctx context.Context, cfgOpts ...Option) (*Config[T], 
 		}
 		return nil, &ConfigError{Op: "New", Code: ConfigErrorCodeLoad, Err: fmt.Errorf("read self-config: %w", err)}
 	}
-	if opts.StartupTimeout < 0 {
-		return nil, &ConfigError{
-			Op:   "New",
-			Code: ConfigErrorCodeLoad,
-			Err:  errors.New("startup timeout must not be negative"),
-		}
-	}
-	if opts.SecretResolutionConcurrency < 1 {
-		return nil, &ConfigError{Op: "New", Code: ConfigErrorCodeLoad, Err: errors.New("secret resolution concurrency must be at least 1")}
-	}
-	if opts.OperationTimeout < 0 {
-		return nil, &ConfigError{Op: "New", Code: ConfigErrorCodeLoad, Err: errors.New("operation timeout must not be negative")}
+	if err := validateAndOwnOptions(&opts); err != nil {
+		return nil, err
 	}
 	if _, hasDeadline := ctx.Deadline(); !hasDeadline && opts.StartupTimeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, opts.StartupTimeout)
 		defer cancel()
 	}
-	resourceCollector := &selfConfigResourceCollector{}
+	resourceCollector := newSelfConfigResourceCollector()
 	ctx = context.WithValue(ctx, selfConfigResourceCollectorContextKey{}, resourceCollector)
 	constructed := false
 	defer func() {
 		if constructed {
 			return
 		}
-		for _, resource := range resourceCollector.snapshot() {
+		for _, resource := range resourceCollector.closeAndSnapshot() {
 			if closer, ok := resource.(interface{ Close() error }); ok {
 				_ = closer.Close()
 			}
 		}
 	}()
-
-	// A frozen configuration cannot service watcher-driven reloads, so reject
-	// the conflicting lifecycle options during construction.
-	if opts.FreezeOnLoad && opts.DynamicReloading {
-		return nil, &ConfigError{
-			Op:   "New",
-			Code: ConfigErrorCodeLoad,
-			Err: fmt.Errorf(
-				"WithFreezeOnLoad(true) and WithDynamicReloading(true) are mutually exclusive: "+
-					"a frozen Config refuses Reload, so the watcher would produce only "+
-					"%q errors on every file change",
-				"config is frozen",
-			),
-		}
-	}
 
 	// Resolve the active environment before building environment-dependent
 	// sources and secret providers.
@@ -259,17 +246,18 @@ func NewWithContext[T any](ctx context.Context, cfgOpts ...Option) (*Config[T], 
 	// One AdvancedMerger applies both the default strategy and per-path rules.
 	var m Merger = merge.NewAdvanced(opts.MergeStrategy, opts.MergeStrategyMap)
 
-	// Compile the configured JSON Schema before loading sources. The compiled
-	// validator is reused by reload and extension operations.
-	jsonSchema, err := resolveSchemaValidator(&opts)
-	if err != nil {
-		return nil, err
-	}
+	// Validate extension collaborators before schema or source I/O.
 	exporters, err := buildExporterRegistry(opts.Exporters)
 	if err != nil {
 		return nil, err
 	}
 	if err := validateCustomValidators(opts.Validators); err != nil {
+		return nil, err
+	}
+	// Compile the configured JSON Schema before loading sources. The compiled
+	// validator is reused by reload and extension operations.
+	jsonSchema, err := resolveSchemaValidator(&opts)
+	if err != nil {
 		return nil, err
 	}
 
@@ -281,18 +269,19 @@ func NewWithContext[T any](ctx context.Context, cfgOpts ...Option) (*Config[T], 
 	}
 
 	c := &Config[T]{
-		env:           opts.Env,
-		loaders:       opts.Loaders,
-		merger:        m,
-		hookProcessor: hook.NewProcessor(),
-		envHandler:    envhandler.New(opts.Logger),
-		sourceTracker: sourcetrack.NewTracker(opts.DebugMode),
-		fileTracker:   sourcetrack.NewFileTracker(),
-		composer:      compose.New(composerBase, compose.WithMerger(m)),
-		exporters:     exporters,
-		opts:          opts,
-		logger:        opts.Logger,
-		jsonSchema:    jsonSchema,
+		env:              opts.Env,
+		loaders:          opts.Loaders,
+		merger:           m,
+		hookProcessor:    hook.NewProcessor(),
+		envHandler:       envhandler.New(opts.Logger),
+		sourceTracker:    sourcetrack.NewTracker(opts.DebugMode),
+		fileTracker:      sourcetrack.NewFileTracker(),
+		composer:         compose.New(composerBase, compose.WithMerger(m)),
+		exporters:        exporters,
+		opts:             opts,
+		logger:           opts.Logger,
+		jsonSchema:       jsonSchema,
+		resourceRegistry: resourceCollector,
 	}
 
 	// Register transformation hooks in materialization order.
@@ -303,7 +292,16 @@ func NewWithContext[T any](ctx context.Context, cfgOpts ...Option) (*Config[T], 
 		c.hookProcessor.RegisterGlobalHook(hook.NewTypeCastHook())
 	}
 	for _, setup := range opts.hookSetups {
-		setup(c.hookProcessor)
+		switch setup.kind {
+		case hookSetupKey:
+			c.hookProcessor.RegisterKeyHook(setup.key, setup.hook)
+		case hookSetupValue:
+			c.hookProcessor.RegisterValueHook(setup.value, setup.hook)
+		case hookSetupCondition:
+			c.hookProcessor.RegisterConditionHook(setup.condition, setup.hook)
+		case hookSetupGlobal:
+			c.hookProcessor.RegisterGlobalHook(setup.hook)
+		}
 	}
 	// Secret resolution is the final transformation step. Custom hooks may
 	// normalize or synthesize a reference, but no hook observes resolved secret
@@ -327,8 +325,6 @@ func NewWithContext[T any](ctx context.Context, cfgOpts ...Option) (*Config[T], 
 			Err:  fmt.Errorf("materialize effective configuration: %w", err),
 		}
 	}
-	c.managedResources = resourceCollector.snapshot()
-
 	// Validate the materialized snapshot before publication.
 	if err := c.runValidateOnLoad(); err != nil {
 		return nil, err
@@ -340,7 +336,9 @@ func NewWithContext[T any](ctx context.Context, cfgOpts ...Option) (*Config[T], 
 	}
 
 	if opts.DynamicReloading {
-		c.startWatching()
+		if err := c.startWatching(); err != nil {
+			return nil, &ConfigError{Op: "New", Code: ConfigErrorCodeLoad, Err: fmt.Errorf("start dynamic reloading: %w", err)}
+		}
 	}
 
 	constructed = true

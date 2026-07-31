@@ -6,6 +6,9 @@ merge:
   paths: {}
 use_env_expander: true
 validate_on_load: false
+dynamic_reloading: false
+reload_debounce: 150ms
+sensitive_paths: []
 environment_strategy: named_files
 sources:
   - type: environment_files

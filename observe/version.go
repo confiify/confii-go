@@ -15,13 +15,14 @@ import (
 	"time"
 
 	"github.com/confiify/confii-go/v2/diff"
+	"github.com/confiify/confii-go/v2/internal/dictutil"
 	"github.com/google/renameio/v2/maybe"
 	"github.com/oklog/ulid/v2"
 )
 
 // Version represents a captured configuration snapshot. VersionManager stores
-// an independent copy of Config; callers must treat values returned by manager
-// methods as read-only.
+// an independent copy of Config and returns detached records from public
+// methods, so caller mutation cannot corrupt retained history.
 //
 // Timestamp records when the snapshot was created. VersionID is a monotonic
 // ULID and provides deterministic ordering when multiple snapshots share the
@@ -36,6 +37,9 @@ type Version struct {
 	// Metadata is caller-supplied descriptive data; it must be JSON-serializable
 	// when disk persistence is enabled.
 	Metadata map[string]any `json:"metadata,omitempty"`
+	// SensitivePaths preserves redaction metadata without storing secret
+	// references or provider coordinates in the version record.
+	SensitivePaths []string `json:"sensitive_paths,omitempty"`
 }
 
 // VersionManager manages configuration version snapshots.
@@ -50,6 +54,17 @@ type VersionManager struct {
 	versions      map[string]*Version
 	lastTimestamp time.Time
 	entropy       io.Reader
+}
+
+func cloneVersion(version *Version) *Version {
+	if version == nil {
+		return nil
+	}
+	clone := *version
+	clone.Config = dictutil.DeepCopy(version.Config)
+	clone.Metadata = dictutil.DeepCopy(version.Metadata)
+	clone.SensitivePaths = append([]string(nil), version.SensitivePaths...)
+	return &clone
 }
 
 // NewVersionManager creates a new version manager.
@@ -89,6 +104,13 @@ func (m *VersionManager) Reconfigure(storagePath string, maxVersions int) {
 //
 // Serialization failures are returned and no partial snapshot is persisted.
 func (m *VersionManager) SaveVersion(config map[string]any, metadata map[string]any) (*Version, error) {
+	return m.SaveVersionWithSensitivePaths(config, metadata, nil)
+}
+
+// SaveVersionWithSensitivePaths captures a snapshot and the paths that must be
+// redacted by diagnostics after the snapshot is restored. Paths are copied,
+// sorted, and persisted with the version; they contain no secret values.
+func (m *VersionManager) SaveVersionWithSensitivePaths(config map[string]any, metadata map[string]any, sensitivePaths []string) (*Version, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -125,11 +147,13 @@ func (m *VersionManager) SaveVersion(config map[string]any, metadata map[string]
 	}
 
 	v := &Version{
-		VersionID: versionID,
-		Config:    configCopy,
-		Timestamp: now,
-		Metadata:  metadataCopy,
+		VersionID:      versionID,
+		Config:         configCopy,
+		Timestamp:      now,
+		Metadata:       metadataCopy,
+		SensitivePaths: append([]string(nil), sensitivePaths...),
 	}
+	sort.Strings(v.SensitivePaths)
 
 	// Persist to disk only when an explicit storage path was supplied.
 	if m.storagePath != "" {
@@ -149,17 +173,18 @@ func (m *VersionManager) SaveVersion(config map[string]any, metadata map[string]
 	m.versions[versionID] = v
 	m.evict()
 
-	return v, nil
+	return cloneVersion(v), nil
 }
 
 // GetVersion retrieves id from memory or configured disk storage. It returns
 // nil for an unknown or invalid ID, unreadable storage, or malformed record.
-// The returned record is manager-owned and must be treated as read-only.
+// The returned record is a detached copy and may be modified by the caller.
 func (m *VersionManager) GetVersion(id string) *Version {
 	m.mu.RLock()
 	if v, ok := m.versions[id]; ok {
+		result := cloneVersion(v)
 		m.mu.RUnlock()
-		return v
+		return result
 	}
 	m.mu.RUnlock()
 
@@ -190,20 +215,20 @@ func (m *VersionManager) GetVersion(id string) *Version {
 	if err := json.Unmarshal(data, &v); err != nil {
 		return nil
 	}
-	return &v
+	return cloneVersion(&v)
 }
 
 // ListVersions returns all known versions sorted by timestamp (newest first).
 //
-// The returned slice may be reordered without affecting the manager, but its
-// Version elements are manager-owned and must be treated as read-only. Invalid
-// or unreadable disk records are skipped.
+// The returned slice and Version elements are detached from manager state and
+// may be modified by the caller. Invalid or unreadable disk records are
+// skipped.
 func (m *VersionManager) ListVersions() []*Version {
 	m.mu.Lock()
 	m.scanDiskLocked()
 	versions := make([]*Version, 0, len(m.versions))
 	for _, v := range m.versions {
-		versions = append(versions, v)
+		versions = append(versions, cloneVersion(v))
 	}
 	m.mu.Unlock()
 
@@ -217,7 +242,7 @@ func (m *VersionManager) ListVersions() []*Version {
 }
 
 // LatestVersion returns the most recent known version, or nil when none exists.
-// The returned record is manager-owned and must be treated as read-only.
+// The returned record is a detached copy and may be modified by the caller.
 func (m *VersionManager) LatestVersion() *Version {
 	versions := m.ListVersions()
 	if len(versions) == 0 {
@@ -238,7 +263,8 @@ func (m *VersionManager) DiffVersions(id1, id2 string) ([]diff.ConfigDiff, error
 	if v2 == nil {
 		return nil, fmt.Errorf("version %s not found", id2)
 	}
-	return diff.Diff(v1.Config, v2.Config), nil
+	paths := append(append([]string(nil), v1.SensitivePaths...), v2.SensitivePaths...)
+	return diff.Redact(diff.Diff(v1.Config, v2.Config), paths, "[REDACTED: secret-backed value]"), nil
 }
 
 // scanDiskLocked loads any version files present on disk that are not

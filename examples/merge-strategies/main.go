@@ -30,10 +30,10 @@ func main() {
 	}
 
 	// database section is fully replaced by overlay
-	host, _ := cfg.Get("database.host")
+	host := cfg.MustGet("database.host")
 	fmt.Println("Host:", host) // prod-db.example.com
 
 	// features list is appended
-	features, _ := cfg.Get("features")
+	features := cfg.MustGet("features")
 	fmt.Println("Features:", features) // [auth logging monitoring tracing]
 }

@@ -49,8 +49,8 @@ func TestNew_FreezeOnLoadAndDynamicReloading_RejectsWithTypedError(t *testing.T)
 
 	var ce *ConfigError
 	require.True(t, errors.As(err, &ce), "expected *ConfigError, got %T", err)
-	assert.True(t, errors.Is(err, ErrConfigLoad),
-		"conflict error must wrap ErrConfigLoad")
+	assert.True(t, errors.Is(err, ErrConfigInvalid),
+		"conflict error must wrap ErrConfigInvalid")
 	assert.Contains(t, err.Error(), "WithFreezeOnLoad")
 	assert.Contains(t, err.Error(), "WithDynamicReloading")
 	assert.Contains(t, err.Error(), "mutually exclusive")

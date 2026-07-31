@@ -37,14 +37,14 @@ func TestConfig_LoadAndAccessFailureBranches(t *testing.T) {
 	loadErr := errors.New("load failed")
 	_, err := NewWithContext[any](context.Background(),
 		WithLoaders(&refactorCoverageLoader{source: "broken", err: loadErr}),
-		WithOnError(ErrorPolicy("invalid")),
+		WithOnError(ErrorPolicyRaise),
 	)
 	require.ErrorIs(t, err, loadErr)
 	_, err = NewWithContext[any](context.Background(),
 		WithLoaders(&refactorCoverageLoader{source: "compose.yaml", data: map[string]any{"_include": "missing.yaml"}}),
 		WithOnError(ErrorPolicy("invalid")),
 	)
-	require.Error(t, err)
+	require.ErrorIs(t, err, ErrConfigInvalid)
 
 	t.Setenv("REFACTOR_MISSING", "value")
 	cfg := newTestConfig(t, map[string]any{
@@ -403,7 +403,7 @@ func TestFileAutoLoader_ErrorAndFormatBranches(t *testing.T) {
 func TestConfig_WatchAndTypedCacheBranches(t *testing.T) {
 	nonFile := newTestConfig(t, map[string]any{})
 	nonFile.loaders = []Loader{&refactorCoverageLoader{source: "environment:APP"}}
-	nonFile.startWatching()
+	require.NoError(t, nonFile.startWatching())
 	assert.Nil(t, nonFile.watcher)
 
 	type typedModel struct {
@@ -429,4 +429,14 @@ func TestConfig_WatchAndTypedCacheBranches(t *testing.T) {
 	cached, err := cfg.Typed()
 	require.NoError(t, err)
 	assert.Same(t, model, cached)
+	contextView, err := cfg.TypedWithContext(context.Background())
+	require.NoError(t, err)
+	assert.Same(t, cached, contextView, "context propagation must not change typed ownership semantics")
+	detached, err := cfg.TypedCopy()
+	require.NoError(t, err)
+	assert.NotSame(t, cached, detached)
+	detachedWithContext, err := cfg.TypedCopyWithContext(context.Background())
+	require.NoError(t, err)
+	assert.NotSame(t, detached, detachedWithContext)
+	assert.Equal(t, detached, detachedWithContext)
 }

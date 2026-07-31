@@ -19,6 +19,8 @@ type runtimeMutationCandidate struct {
 	unresolvedEnvConfig map[string]any
 	mergedConfig        map[string]any
 	sourceTracker       *sourcetrack.Tracker
+	sensitivePaths      map[string]struct{}
+	declaredSensitive   []string
 }
 
 // snapshotRuntimeMutationCandidate must be called while c.mu is read-locked.
@@ -32,6 +34,8 @@ func (c *Config[T]) snapshotRuntimeMutationCandidate() *runtimeMutationCandidate
 		raw,
 		c.mergedConfig,
 		c.sourceTracker.Snapshot(),
+		c.sensitivePaths,
+		c.opts.SensitivePaths,
 		c.opts.DebugMode,
 	)
 }
@@ -41,6 +45,8 @@ func newRuntimeMutationCandidate(
 	unresolvedEnvConfig map[string]any,
 	mergedConfig map[string]any,
 	trackerSnapshot sourcetrack.Snapshot,
+	sensitivePaths map[string]struct{},
+	declaredSensitive []string,
 	debugMode bool,
 ) *runtimeMutationCandidate {
 	tracker := sourcetrack.NewTracker(debugMode)
@@ -50,6 +56,8 @@ func newRuntimeMutationCandidate(
 		unresolvedEnvConfig: dictutil.DeepCopy(unresolvedEnvConfig),
 		mergedConfig:        dictutil.DeepCopy(mergedConfig),
 		sourceTracker:       tracker,
+		sensitivePaths:      cloneSensitivePaths(sensitivePaths),
+		declaredSensitive:   append([]string(nil), declaredSensitive...),
 	}
 }
 
@@ -72,6 +80,7 @@ func (candidate *runtimeMutationCandidate) set(
 	if err := dictutil.SetNested(candidate.mergedConfig, key, dictutil.DeepCopyValue(rawValue)); err != nil {
 		return err
 	}
+	candidate.sensitivePaths = sensitivePathsForConfig(candidate.unresolvedEnvConfig, candidate.declaredSensitive)
 
 	candidate.sourceTracker.TrackValue(key, rawValue, source, source, environment)
 	return nil
@@ -84,6 +93,7 @@ func (c *Config[T]) publishRuntimeMutationCandidate(candidate *runtimeMutationCa
 	c.unresolvedEnvConfig = candidate.unresolvedEnvConfig
 	c.mergedConfig = candidate.mergedConfig
 	c.sourceTracker.Restore(candidate.sourceTracker.Snapshot())
+	c.sensitivePaths = candidate.sensitivePaths
 	c.validatedModel = nil
 	c.revision++
 }

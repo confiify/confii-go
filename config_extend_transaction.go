@@ -27,7 +27,7 @@ func (c *Config[T]) ExtendWithContext(ctx context.Context, l Loader) error {
 	if ctx == nil {
 		return &ConfigError{Op: "Extend", Code: ConfigErrorCodeInvalid, Err: errors.New("nil context")}
 	}
-	if l == nil {
+	if isNilExtension(l) {
 		return &ConfigError{Op: "Extend", Code: ConfigErrorCodeInvalid, Err: errors.New("nil loader")}
 	}
 	return c.runSourceTransaction(ctx, extendTransaction, func(ctx context.Context, candidate *Config[T]) (sourceTransactionOutcome, error) {

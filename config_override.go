@@ -162,6 +162,7 @@ func (c *Config[T]) OverrideWithContext(ctx context.Context, overrides map[strin
 			c.overrideBaseRawEnv = dictutil.DeepCopy(rawBase)
 			c.overrideBaseMerged = dictutil.DeepCopy(c.mergedConfig)
 			c.overrideBaseTracker = c.sourceTracker.Snapshot()
+			c.overrideBaseSensitive = cloneSensitivePaths(c.sensitivePaths)
 			c.overrideBaseFrozen = c.frozen
 		}
 		c.overrideIDCounter++
@@ -216,11 +217,13 @@ func (c *Config[T]) makeOverrideRestore(frame *overrideFrame) func() {
 			c.unresolvedEnvConfig = c.overrideBaseRawEnv
 			c.mergedConfig = c.overrideBaseMerged
 			c.sourceTracker.Restore(c.overrideBaseTracker)
+			c.sensitivePaths = cloneSensitivePaths(c.overrideBaseSensitive)
 			c.frozen = c.overrideBaseFrozen
 			c.overrideBaseEnv = nil
 			c.overrideBaseRawEnv = nil
 			c.overrideBaseMerged = nil
 			c.overrideBaseTracker = sourcetrack.Snapshot{}
+			c.overrideBaseSensitive = nil
 		} else {
 			// Surviving frames are replayed from a fresh copy of the base in
 			// push order. Replay remains best-effort because Set or Reload may
@@ -233,6 +236,7 @@ func (c *Config[T]) makeOverrideRestore(frame *overrideFrame) func() {
 			c.unresolvedEnvConfig = dictutil.DeepCopy(rawBase)
 			c.mergedConfig = dictutil.DeepCopy(c.overrideBaseMerged)
 			c.sourceTracker.Restore(c.overrideBaseTracker)
+			c.sensitivePaths = cloneSensitivePaths(c.overrideBaseSensitive)
 			for _, f := range c.overrideStack {
 				keys := make([]string, 0, len(f.payload))
 				for key := range f.payload {
@@ -281,6 +285,7 @@ func (c *Config[T]) makeOverrideRestore(frame *overrideFrame) func() {
 					c.sourceTracker.TrackValue(k, v, "override", "override", c.env)
 				}
 			}
+			c.sensitivePaths = sensitivePathsForConfig(c.unresolvedEnvConfig, c.opts.SensitivePaths)
 			c.frozen = false
 		}
 		c.validatedModel = nil

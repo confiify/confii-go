@@ -3,7 +3,7 @@
 Confii provides built-in observability through two systems: **metrics collection** for tracking access patterns and reload statistics, and **event emission** for reacting to configuration changes in real-time.
 
 For trace and request correlation, `OnChangeWithContext` and
-`EventEmitter.OnWithContext` receive the originating operation context. See
+`EventSubscriber.OnWithContext` receive the originating operation context. See
 [Context, cancellation, and operation lifecycles](context.md).
 
 ---
@@ -16,23 +16,11 @@ For trace and request correlation, `OnChangeWithContext` and
 metrics := cfg.EnableObservability()
 ```
 
-`EnableObservability` returns an `*observe.Metrics` instance. Once enabled, Confii automatically records successful `Get`/`GetWithContext` accesses, reloads, extensions, mutations, failures, and change events. Failed key lookups are not counted as accesses.
-
-### Recording Events
-
-```go
-// Optional: record a synthetic/non-Config access with its duration
-metrics.RecordAccess("database.host", 50*time.Microsecond)
-
-// Record a reload event (automatically called during cfg.Reload)
-metrics.RecordReload(120 * time.Millisecond)
-
-// Record a change event (automatically called during cfg.Reload)
-metrics.RecordChange()
-```
-
-!!! note "Automatic recording"
-    Config operations record their own metrics automatically. Call `RecordAccess` directly only for a synthetic access that does not pass through `cfg.Get` or `cfg.GetWithContext`.
+`EnableObservability` returns a `confii.MetricsReader` view. Once enabled,
+Confii automatically records successful `Get`/`GetWithContext` accesses,
+reloads, extensions, mutations, failures, and change events. Failed key lookups
+are not counted as accesses. The view exposes detached statistics without
+granting mutation access to Confii's collector.
 
 ### Reading Statistics
 
@@ -82,9 +70,10 @@ map[string]any{
 ### Metrics Control
 
 ```go
-metrics.Enable()   // start collecting (enabled by default)
-metrics.Disable()  // pause collection (retains existing data)
-metrics.Reset()    // clear all collected metrics
+metrics := cfg.EnableObservability() // starts or resumes collection
+cfg.DisableObservability()           // pause collection; retain existing data
+cfg.ResetMetrics()                   // clear retained data
+cfg.EnableObservability()            // resume collection
 ```
 
 ---
@@ -97,7 +86,8 @@ metrics.Reset()    // clear all collected metrics
 emitter := cfg.EnableEvents()
 ```
 
-`EnableEvents` returns an `*observe.EventEmitter` that dispatches named events to registered listeners.
+`EnableEvents` returns a `confii.EventSubscriber`. It can register and remove
+listeners but cannot emit fabricated Config lifecycle events.
 
 ### Event Types
 
@@ -117,7 +107,7 @@ The maps supplied to `change` are detached snapshots and cannot mutate the live
 Config. Superseded optimistic transaction attempts emit nothing; one committed
 operation produces one operation event and one `change` event.
 
-### On / Off / Emit Pattern
+### On / Off Pattern
 
 **Register a listener:**
 
@@ -142,11 +132,9 @@ emitter.On("change", func(args ...any) {
 emitter.Off("reload") // removes the most recently registered reload listener
 ```
 
-**Emit an event manually:**
-
-```go
-emitter.Emit("custom-event", "arg1", "arg2")
-```
+For independent application events, construct a separate
+`observe.NewEventEmitter`; it is intentionally not the Config-owned lifecycle
+emitter.
 
 !!! tip "Chaining"
     `On` returns the emitter and supports chained registrations:

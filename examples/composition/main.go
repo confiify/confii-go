@@ -21,18 +21,18 @@ func main() {
 	}
 
 	// Values from _defaults
-	timeout, _ := cfg.Get("timeout")
+	timeout := cfg.MustGet("timeout")
 	fmt.Println("Timeout:", timeout) // 30
 
 	// Values from _include: shared/logging.yaml
-	logLevel, _ := cfg.Get("logging.level")
+	logLevel := cfg.MustGet("logging.level")
 	fmt.Println("Log level:", logLevel) // info
 
 	// Values from _include: shared/database.yaml
-	dbHost, _ := cfg.Get("database.host")
+	dbHost := cfg.MustGet("database.host")
 	fmt.Println("DB host:", dbHost) // localhost
 
 	// Values from the main file
-	appName, _ := cfg.Get("app.name")
+	appName := cfg.MustGet("app.name")
 	fmt.Println("App:", appName) // my-service
 }

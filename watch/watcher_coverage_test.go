@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -28,6 +29,102 @@ func reloadSignal(buf int) (chan struct{}, *int64, func() error) {
 		}
 		return nil
 	}
+}
+
+func TestWatcher_ReplaceFilesUpdatesActiveSet(t *testing.T) {
+	dir := t.TempDir()
+	a := filepath.Join(dir, "a.yaml")
+	b := filepath.Join(dir, "b.yaml")
+	require.NoError(t, os.WriteFile(a, []byte("x: 1"), 0644))
+	require.NoError(t, os.WriteFile(b, []byte("y: 2"), 0644))
+
+	w, err := New([]string{a}, func() error { return nil }, nil)
+	require.NoError(t, err)
+	defer w.Stop()
+	require.Equal(t, []string{a}, w.Files(),
+		"a freshly constructed watcher reports its initial trigger file")
+
+	require.NoError(t, w.ReplaceFiles([]string{b}))
+	require.Equal(t, []string{b}, w.Files(),
+		"ReplaceFiles must atomically update the active trigger set reported by Files")
+}
+
+func TestWatcher_DebounceCoalescesBurstAtTrailingEdge(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "config.yaml")
+	require.NoError(t, os.WriteFile(file, []byte("value: 1"), 0o600))
+	var reloads atomic.Int64
+	reloaded := make(chan struct{}, 1)
+	w, err := New([]string{file}, func() error {
+		reloads.Add(1)
+		reloaded <- struct{}{}
+		return nil
+	}, nil, WithDebounce(80*time.Millisecond))
+	require.NoError(t, err)
+	defer w.Stop()
+
+	for index := range 5 {
+		require.NoError(t, os.WriteFile(file, []byte(fmt.Sprintf("value: %d", index+2)), 0o600))
+		time.Sleep(10 * time.Millisecond)
+	}
+	select {
+	case <-reloaded:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for debounced reload")
+	}
+	time.Sleep(120 * time.Millisecond)
+	assert.Equal(t, int64(1), reloads.Load(), "one burst must publish one reload")
+}
+
+func TestWatcher_ZeroDebounceReloadsImmediatelyAndStopCancelsPending(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "config.yaml")
+	require.NoError(t, os.WriteFile(file, []byte("value: 1"), 0o600))
+
+	immediate := make(chan struct{}, 1)
+	w, err := New([]string{file}, func() error {
+		immediate <- struct{}{}
+		return nil
+	}, nil, WithDebounce(0))
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(file, []byte("value: 2"), 0o600))
+	select {
+	case <-immediate:
+	case <-time.After(time.Second):
+		t.Fatal("zero debounce did not reload immediately")
+	}
+	w.Stop()
+
+	var delayed atomic.Int64
+	logger, logs := captureLogger()
+	w, err = New([]string{file}, func() error {
+		delayed.Add(1)
+		return nil
+	}, logger, WithDebounce(200*time.Millisecond))
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(file, []byte("value: 3"), 0o600))
+	deadline := time.Now().Add(time.Second)
+	for !strings.Contains(logs.String(), "config file changed") && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	require.Contains(t, logs.String(), "config file changed", "pending reload must be scheduled before Stop")
+	w.Stop()
+	time.Sleep(250 * time.Millisecond)
+	assert.Zero(t, delayed.Load(), "Stop must cancel a pending trailing-edge reload")
+}
+
+func TestWatcher_RejectsInvalidOptions(t *testing.T) {
+	watcher, err := New(nil, nil, nil, WithDebounce(-time.Millisecond))
+	require.Error(t, err)
+	assert.Nil(t, watcher)
+
+	watcher, err = New(nil, nil, nil, nil)
+	require.Error(t, err)
+	assert.Nil(t, watcher)
+
+	watcher, err = New(nil, nil, nil, func(*options) { panic("boom") })
+	require.Error(t, err)
+	assert.Nil(t, watcher)
 }
 
 func TestNew_ValidFiles(t *testing.T) {

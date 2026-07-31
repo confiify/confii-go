@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/confiify/confii-go/v2/selfconfig"
 	"github.com/stretchr/testify/assert"
@@ -249,6 +250,18 @@ func TestBuilder_EnableDisableDynamicReloading(t *testing.T) {
 	defer cfg.StopWatching()
 
 	assert.Nil(t, cfg.watcher)
+}
+
+func TestBuilder_ReloadDebounceAndSensitivePaths(t *testing.T) {
+	cfg, err := NewBuilder[any]().
+		AddLoader(&stubLoader{source: "s", data: map[string]any{"credentials": map[string]any{"token": "plain"}}}).
+		WithReloadDebounce(25 * time.Millisecond).
+		WithSensitivePaths("credentials.token").
+		BuildWithContext(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, 25*time.Millisecond, cfg.opts.ReloadDebounce)
+	assert.Equal(t, []string{"credentials.token"}, cfg.opts.SensitivePaths)
+	assert.Equal(t, redactedSecretValue, cfg.Explain("credentials.token")["current_value"])
 }
 
 func TestBuilder_EnableDisableEnvExpander(t *testing.T) {

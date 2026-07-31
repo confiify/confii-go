@@ -69,8 +69,13 @@ func (c *Config[T]) SetWithContext(ctx context.Context, keyPath string, value an
 	}
 
 	setOptions := setOpts{allowOverride: true}
-	for _, option := range opts {
-		option(&setOptions)
+	for index, option := range opts {
+		if option == nil {
+			return NewInvalidError("Set", keyPath, fmt.Errorf("set option %d is nil", index))
+		}
+		if err := applySetOption(option, &setOptions, index); err != nil {
+			return NewInvalidError("Set", keyPath, err)
+		}
 	}
 
 	// Materialization is independent of the current snapshot and therefore runs
@@ -149,6 +154,16 @@ func (c *Config[T]) SetWithContext(ctx context.Context, keyPath string, value an
 		}, "set", keyPath, dictutil.DeepCopyValue(effectiveStored))
 		return nil
 	}
+}
+
+func applySetOption(option SetOption, settings *setOpts, index int) (err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("set option %d panicked: %v", index, recovered)
+		}
+	}()
+	option(settings)
+	return nil
 }
 
 // OnChange registers fn to observe committed configuration changes. A nil fn

@@ -1367,17 +1367,13 @@ func TestConfig_LoadWithComposeError(t *testing.T) {
 }
 
 func TestConfig_StartWatching_NoFiles(t *testing.T) {
-
 	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(&memLoader{source: "/nonexistent_dir_test_confii/no_such_file.yaml", data: map[string]any{"k": "v"}}),
 		confii.WithDynamicReloading(true),
 	)
-	require.NoError(t, err)
-	defer cfg.StopWatching()
-
-	val, err := cfg.Get("k")
-	require.NoError(t, err)
-	assert.Equal(t, "v", val)
+	require.Error(t, err)
+	require.Nil(t, cfg)
+	assert.ErrorIs(t, err, confii.ErrConfigLoad)
 }
 
 type memLoader struct {

@@ -85,6 +85,7 @@ type options struct {
 	EnvSwitcher                         string
 	Loaders                             []Loader
 	DynamicReloading                    bool
+	ReloadDebounce                      time.Duration
 	UseEnvExpander                      bool
 	UseTypeCasting                      bool
 	MergeStrategy                       MergeStrategy
@@ -114,6 +115,9 @@ type options struct {
 	// OperationTimeout bounds context-free runtime convenience methods and
 	// watcher-driven reloads. Explicit *WithContext method deadlines always win.
 	OperationTimeout time.Duration
+	// SensitivePaths marks application-defined paths whose values must be
+	// redacted even when they do not originate from a Confii secret reference.
+	SensitivePaths []string
 
 	// selfConfigSources holds declarative `.confii.*` sources until the
 	// active environment has been resolved. Most source types do not depend
@@ -134,9 +138,9 @@ type options struct {
 	// SecretHook resolves secret placeholders while a configuration snapshot is
 	// materialized. An explicit hook takes precedence over self-configuration.
 	SecretHook hook.Func
-	// hookSetups register construction-time transformation hooks before the
+	// hookSetups describe construction-time transformation hooks before the
 	// first configuration snapshot is materialized.
-	hookSetups []func(*hook.Processor)
+	hookSetups []hookSetup
 
 	// Tracks which fields were explicitly set by user options.
 	// Used to implement priority: explicit > self-config > built-in default.
@@ -155,6 +159,23 @@ type ManagedSecretResolver interface {
 	ClearCache()
 }
 
+type hookSetupKind uint8
+
+const (
+	hookSetupKey hookSetupKind = iota
+	hookSetupValue
+	hookSetupCondition
+	hookSetupGlobal
+)
+
+type hookSetup struct {
+	kind      hookSetupKind
+	key       string
+	value     any
+	condition hook.Condition
+	hook      hook.Func
+}
+
 func defaultOptions() options {
 	return options{
 		Env:                         "",
@@ -169,6 +190,7 @@ func defaultOptions() options {
 		StartupTimeout:              60 * time.Second,
 		SecretResolutionConcurrency: 4,
 		OperationTimeout:            30 * time.Second,
+		ReloadDebounce:              150 * time.Millisecond,
 		explicitlySet:               make(map[string]bool),
 	}
 }
@@ -304,6 +326,30 @@ func WithLoaders(loaders ...Loader) Option {
 // freeze it for safety and rely on process restarts for changes.
 func WithDynamicReloading(v bool) Option {
 	return func(o *options) { o.DynamicReloading = v; o.explicitlySet["dynamic_reloading"] = true }
+}
+
+// WithReloadDebounce sets the trailing-edge interval used to coalesce bursts
+// of filesystem events before a watcher-driven reload. The default is 150ms.
+// Zero reloads immediately; negative values are rejected by [NewWithContext].
+// Explicit [Config.Reload] calls are never delayed.
+func WithReloadDebounce(interval time.Duration) Option {
+	return func(o *options) {
+		o.ReloadDebounce = interval
+		o.explicitlySet["reload_debounce"] = true
+	}
+}
+
+// WithSensitivePaths marks dot-separated configuration paths as sensitive in
+// every published snapshot. Explicit paths are combined with paths discovered
+// from secret references and are redacted by diffs, version comparisons,
+// source inspection, generated documentation, and schema examples. Marking a
+// parent path also protects all descendants. Paths are validated and copied
+// during construction.
+func WithSensitivePaths(paths ...string) Option {
+	return func(o *options) {
+		o.SensitivePaths = paths
+		o.explicitlySet["sensitive_paths"] = true
+	}
 }
 
 // WithEnvExpander controls ${VAR} expansion during snapshot materialization.
@@ -541,7 +587,7 @@ func WithSecretHook(h hook.Func) Option {
 //	)
 func WithKeyHook(key string, h hook.Func) Option {
 	return func(o *options) {
-		o.hookSetups = append(o.hookSetups, func(processor *hook.Processor) { processor.RegisterKeyHook(key, h) })
+		o.hookSetups = append(o.hookSetups, hookSetup{kind: hookSetupKey, key: key, hook: h})
 	}
 }
 
@@ -550,7 +596,7 @@ func WithKeyHook(key string, h hook.Func) Option {
 // in matching, and maps and slices are supported.
 func WithValueHook(value any, h hook.Func) Option {
 	return func(o *options) {
-		o.hookSetups = append(o.hookSetups, func(processor *hook.Processor) { processor.RegisterValueHook(value, h) })
+		o.hookSetups = append(o.hookSetups, hookSetup{kind: hookSetupValue, value: value, hook: h})
 	}
 }
 
@@ -559,7 +605,7 @@ func WithValueHook(value any, h hook.Func) Option {
 // while an error rejects the candidate snapshot.
 func WithConditionHook(condition hook.Condition, h hook.Func) Option {
 	return func(o *options) {
-		o.hookSetups = append(o.hookSetups, func(processor *hook.Processor) { processor.RegisterConditionHook(condition, h) })
+		o.hookSetups = append(o.hookSetups, hookSetup{kind: hookSetupCondition, condition: condition, hook: h})
 	}
 }
 
@@ -567,7 +613,7 @@ func WithConditionHook(condition hook.Condition, h hook.Func) Option {
 // run after key, value, and condition hooks in registration order.
 func WithGlobalHook(h hook.Func) Option {
 	return func(o *options) {
-		o.hookSetups = append(o.hookSetups, func(processor *hook.Processor) { processor.RegisterGlobalHook(h) })
+		o.hookSetups = append(o.hookSetups, hookSetup{kind: hookSetupGlobal, hook: h})
 	}
 }
 
@@ -586,7 +632,6 @@ func WithGlobalHook(h hook.Func) Option {
 func WithSecretResolver(resolver ManagedSecretResolver) Option {
 	return func(o *options) {
 		o.SecretResolver = resolver
-		o.SecretHook = resolver.Hook()
 		o.explicitlySet["secret_hook"] = true
 	}
 }

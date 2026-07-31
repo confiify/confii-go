@@ -53,7 +53,7 @@ type Metrics struct {
 	changeCount           int
 	lastChange            time.Time
 	maxDurations          int
-	// enabled gates RecordAccess and is read/written atomically.
+	// enabled gates every recording method and is read/written atomically.
 	// Use enabled.Load() / enabled.Store(...) — never bare reads or
 	// writes — so the race detector stays quiet under concurrent
 	// Enable/Disable + RecordAccess traffic.
@@ -96,6 +96,9 @@ func (m *Metrics) RecordAccess(key string, duration time.Duration) {
 // RecordReload records one successfully committed reload and its duration.
 // Use [Metrics.RecordReloadFailed] for rejected candidates.
 func (m *Metrics) RecordReload(duration time.Duration) {
+	if !m.enabled.Load() {
+		return
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.reloadCount++
@@ -115,6 +118,9 @@ func (m *Metrics) RecordReload(duration time.Duration) {
 // [Metrics.Statistics] see only successful reloads in reload_count and
 // rejected candidates in reload_failed_count.
 func (m *Metrics) RecordReloadFailed(duration time.Duration) {
+	if !m.enabled.Load() {
+		return
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.reloadFailedCount++
@@ -129,6 +135,9 @@ func (m *Metrics) RecordReloadFailed(duration time.Duration) {
 // extensions are recorded by [Metrics.RecordExtendFailed]. Duration is the
 // wall-clock time from the start of Extend through publication.
 func (m *Metrics) RecordExtend(duration time.Duration) {
+	if !m.enabled.Load() {
+		return
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.extendCount++
@@ -145,6 +154,9 @@ func (m *Metrics) RecordExtend(duration time.Duration) {
 // reports committed extensions in extend_count and rejected candidates in
 // extend_failed_count.
 func (m *Metrics) RecordExtendFailed(duration time.Duration) {
+	if !m.enabled.Load() {
+		return
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.extendFailedCount++
@@ -154,6 +166,9 @@ func (m *Metrics) RecordExtendFailed(duration time.Duration) {
 
 // RecordChange records a configuration change.
 func (m *Metrics) RecordChange() {
+	if !m.enabled.Load() {
+		return
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.changeCount++
@@ -168,6 +183,9 @@ func (m *Metrics) RecordChange() {
 // path-traversal error before mutating live state are reported via
 // [Metrics.RecordSetFailed].
 func (m *Metrics) RecordSet() {
+	if !m.enabled.Load() {
+		return
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.setCount++
@@ -180,6 +198,9 @@ func (m *Metrics) RecordSet() {
 // reports committed Set calls in set_count and rejected ones in
 // set_failed_count.
 func (m *Metrics) RecordSetFailed() {
+	if !m.enabled.Load() {
+		return
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.setFailedCount++
@@ -191,6 +212,9 @@ func (m *Metrics) RecordSetFailed() {
 // configuration. Failed Override calls (path errors during
 // SetNested) are reported via [Metrics.RecordOverrideFailed].
 func (m *Metrics) RecordOverride() {
+	if !m.enabled.Load() {
+		return
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.overrideCount++
@@ -203,6 +227,9 @@ func (m *Metrics) RecordOverride() {
 // [Metrics.Statistics] reports committed Overrides in override_count
 // and rejected ones in override_failed_count.
 func (m *Metrics) RecordOverrideFailed() {
+	if !m.enabled.Load() {
+		return
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.overrideFailedCount++
@@ -214,6 +241,9 @@ func (m *Metrics) RecordOverrideFailed() {
 // override / override_restored counters lets observers detect
 // Override leaks where a restore was never invoked.
 func (m *Metrics) RecordOverrideRestored() {
+	if !m.enabled.Load() {
+		return
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.overrideRestoredCount++

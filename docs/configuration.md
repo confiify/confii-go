@@ -62,11 +62,14 @@ uses the visible family (`confii.*`) only when no hidden base exists. A hidden
 and visible base together, or two formats in one family, are ambiguous and fail
 startup.
 
-After reading the base, Confii selects an environment from `env_switcher` or
-`default_environment` and overlays the matching same-family, same-format file,
-for example `.confii.production.yaml`. A mismatched family or format fails
-clearly. If no project file exists, the same discovery is attempted under
-`~/.config/confii/`.
+After reading the base, Confii selects an environment from an explicit
+`WithEnv`, then `env_switcher`, then `default_environment`, and overlays the
+matching same-family, same-format file, for example
+`.confii.production.yaml`. An explicit empty `WithEnv("")` disables the
+environment-specific self-config overlay. Overlay cache entries are scoped by
+the selected environment and returned settings are detached copies. A
+mismatched family or format fails clearly. If no project file exists, the same
+discovery is attempted under `~/.config/confii/`.
 
 === "YAML"
 
@@ -99,6 +102,11 @@ clearly. If no project file exists, the same discovery is attempted under
     strict_validation: true
     schema_path: schema.json
 
+    # Lifecycle and diagnostics
+    dynamic_reloading: false
+    reload_debounce: 150ms
+    sensitive_paths: [database.password]
+
     # Error handling
     on_error: raise                # raise | warn | ignore
     ```
@@ -116,6 +124,8 @@ clearly. If no project file exists, the same discovery is attempted under
       "validate_on_load": false,
       "strict_validation": true,
       "dynamic_reloading": false,
+      "reload_debounce": "150ms",
+      "sensitive_paths": ["database.password"],
       "freeze_on_load": false,
       "debug_mode": false,
       "on_error": "raise",
@@ -143,6 +153,8 @@ clearly. If no project file exists, the same discovery is attempted under
     validate_on_load = false
     strict_validation = false
     dynamic_reloading = false
+    reload_debounce = "150ms"
+    sensitive_paths = ["database.password"]
     freeze_on_load = false
     debug_mode = false
     on_error = "raise"
@@ -172,11 +184,13 @@ decision.
 | `merge.paths` | `map[string]string` | `{}` | Per-dotted-path strategy overrides |
 | `use_env_expander` | `bool` | `true` | Enable `${VAR}` expansion in string values |
 | `use_type_casting` | `bool` | `true` | Auto-convert strings to bool/int/float |
-| `sysenv_fallback` | `bool` | `false` | Fall back to OS env vars on missing keys |
+| `sysenv_fallback` | `bool` | `false` | Opt into dynamic OS-env lookup for missing scalar `Get`/`Has` paths; values are not added to the published snapshot |
 | `validate_on_load` | `bool` | `false` | Validate struct tags after loading |
 | `strict_validation` | `bool` | `true` | Treat validation failures as errors when validation is enabled |
 | `schema_path` | `string` | `""` | Path to a JSON Schema file for validation |
 | `dynamic_reloading` | `bool` | `false` | Enable fsnotify file watching |
+| `reload_debounce` | Go duration string | `"150ms"` | Coalesce filesystem event bursts before watcher-driven reload; `"0s"` reloads immediately |
+| `sensitive_paths` | `[]string` | `[]` | Additional dot-separated paths to redact; parent paths protect every descendant |
 | `freeze_on_load` | `bool` | `false` | Make config immutable after load |
 | `startup.timeout` | Go duration string | `"60s"` | Overall initialization fallback when the caller context has no deadline; `"0s"` disables it |
 | `runtime.timeout` | Go duration string | `"30s"` | Fallback for context-free runtime APIs and watcher-driven reloads; `"0s"` disables it |
@@ -393,6 +407,8 @@ Confii never replaces or extends an existing context deadline. If
 | `WithSchemaPath(path)` | Set the path to a JSON Schema file for validation. | none |
 | `WithFreezeOnLoad(bool)` | Make the config immutable after initialization. `Set()` returns `ErrConfigFrozen`. | `false` |
 | `WithDynamicReloading(bool)` | Enable fsnotify file watching for automatic reload on change. | `false` |
+| `WithReloadDebounce(duration)` | Coalesce filesystem event bursts before automatic reload. | `150ms` |
+| `WithSensitivePaths(paths...)` | Mark application-defined paths for redaction throughout the snapshot lifecycle. | none |
 | `WithDebugMode(bool)` | Enable full source tracking, override history, and debug reports. | `false` |
 | `WithOnError(policy)` | Set the error handling policy for loader failures. | `ErrorPolicyRaise` |
 | `WithLogger(logger)` | Set a custom `*slog.Logger` for Confii's internal logging. | `slog.Default()` |

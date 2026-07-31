@@ -136,11 +136,11 @@ func TestNewWithContextRejectsInvalidContextAndTimeout(t *testing.T) {
 
 	_, err = New[any](WithStartupTimeout(-time.Second))
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, ErrConfigLoad))
+	assert.True(t, errors.Is(err, ErrConfigInvalid))
 
 	_, err = New[any](WithOperationTimeout(-time.Second))
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, ErrConfigLoad))
+	assert.True(t, errors.Is(err, ErrConfigInvalid))
 }
 
 func TestImplicitRuntimeAPIsUseOperationTimeout(t *testing.T) {

@@ -231,6 +231,40 @@ runtime:
 	assert.Equal(t, "development", settings.DefaultEnvironment)
 }
 
+func TestReadWithOptionsExplicitEnvironmentControlsOverlayAndCache(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".confii.yaml"), []byte(`
+default_environment: development
+env_switcher: APP_ENV
+log_level: info
+`), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".confii.development.yaml"), []byte("log_level: debug\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".confii.production.yaml"), []byte("log_level: error\n"), 0o600))
+	t.Setenv("APP_ENV", "development")
+	ClearCache()
+	t.Cleanup(ClearCache)
+
+	production, err := ReadWithOptions(dir, WithEnvironment("production"))
+	require.NoError(t, err)
+	assert.Equal(t, "error", production.LogLevel)
+
+	development, err := Read(dir)
+	require.NoError(t, err)
+	assert.Equal(t, "debug", development.LogLevel)
+
+	production.LogLevel = "mutated"
+	again, err := ReadWithOptions(dir, WithEnvironment("production"))
+	require.NoError(t, err)
+	assert.Equal(t, "error", again.LogLevel)
+	assert.NotSame(t, production, again)
+}
+
+func TestReadWithOptionsRejectsPanickingOption(t *testing.T) {
+	_, err := ReadWithOptions(t.TempDir(), func(*readOptions) { panic("read option panic") })
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "read option 0 panicked")
+}
+
 func TestReadEnvironmentOverlayMustMatchBaseConvention(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".confii.yaml"), []byte("default_environment: production\n"), 0o600))
@@ -407,7 +441,7 @@ func TestReadReportsSelfConfigInspectionFailure(t *testing.T) {
 }
 
 func TestReadFirstFromDirReportsNotFound(t *testing.T) {
-	settings, found, err := readFirstFromDir(t.TempDir())
+	settings, found, err := readFirstFromDir(t.TempDir(), readOptions{})
 	require.NoError(t, err)
 	assert.False(t, found)
 	assert.Nil(t, settings)

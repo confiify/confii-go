@@ -37,15 +37,10 @@ func NewDiffCmd() *cobra.Command {
 				return fmt.Errorf("config2: %w", err)
 			}
 
-			left, err := cfg1.ToDictWithContext(c.Context())
+			diffs, err := cfg1.DiffWithContext(c.Context(), cfg2)
 			if err != nil {
-				return fmt.Errorf("config1 snapshot: %w", err)
+				return fmt.Errorf("compare configurations: %w", err)
 			}
-			right, err := cfg2.ToDictWithContext(c.Context())
-			if err != nil {
-				return fmt.Errorf("config2 snapshot: %w", err)
-			}
-			diffs := diff.Diff(left, right)
 
 			if len(diffs) == 0 {
 				fmt.Println("No differences found.")
@@ -54,7 +49,10 @@ func NewDiffCmd() *cobra.Command {
 
 			switch format {
 			case "json":
-				s, _ := diff.ToJSON(diffs)
+				s, err := diff.ToJSON(diffs)
+				if err != nil {
+					return fmt.Errorf("encode diff: %w", err)
+				}
 				fmt.Println(s)
 			default:
 				for _, d := range diffs {

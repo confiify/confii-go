@@ -6,6 +6,7 @@ package confii
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/confiify/confii-go/v2/compose"
@@ -109,6 +110,14 @@ func (c *Config[T]) sourceTransactionAttempt(
 		c.mu.Unlock()
 		return errConfigRevisionConflict
 	}
+	if c.watcher != nil {
+		if err := c.watcher.ReplaceFiles(candidate.watchedFiles()); err != nil {
+			c.mu.Unlock()
+			watchErr := &ConfigError{Op: operation.name, Code: ConfigErrorCodeLoad, Err: fmt.Errorf("update dynamic watcher: %w", err)}
+			c.recordSourceTransactionFailure(ctx, operation, watchErr, time.Since(started))
+			return watchErr
+		}
+	}
 
 	c.publishSourceCandidate(candidate)
 	change := c.captureCommittedChange(oldEnv, newEnv)
@@ -131,6 +140,7 @@ func (c *Config[T]) publishSourceCandidate(candidate *Config[T]) {
 	c.unresolvedEnvConfig = copyMap(candidate.unresolvedEnvConfig)
 	c.envConfig = copyMap(candidate.envConfig)
 	c.mergedConfig = copyMap(candidate.mergedConfig)
+	c.sensitivePaths = cloneSensitivePaths(candidate.sensitivePaths)
 	c.loaders = append([]Loader(nil), candidate.loaders...)
 	c.loaderLayers = copyLoaderLayers(candidate.loaderLayers)
 	c.loaderDependencies = copyLoaderDependencies(candidate.loaderDependencies)
@@ -192,6 +202,7 @@ func (c *Config[T]) snapshotSourceCandidate() *Config[T] {
 		unresolvedEnvConfig: copyMap(c.unresolvedEnvConfig),
 		envConfig:           copyMap(c.envConfig),
 		mergedConfig:        copyMap(c.mergedConfig),
+		sensitivePaths:      cloneSensitivePaths(c.sensitivePaths),
 		env:                 c.env,
 		loaders:             append([]Loader(nil), c.loaders...),
 		loaderLayers:        copyLoaderLayers(c.loaderLayers),
@@ -207,5 +218,6 @@ func (c *Config[T]) snapshotSourceCandidate() *Config[T] {
 		logger:              c.logger,
 		sourcePlan:          cloneSourcePlan(c.sourcePlan),
 		jsonSchema:          c.jsonSchema,
+		resourceRegistry:    c.resourceRegistry,
 	}
 }

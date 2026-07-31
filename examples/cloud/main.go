@@ -38,9 +38,12 @@ func main() {
 	// ========================================
 
 	// AWS S3 (this file: -tags aws)
-	s3Loader, _ := cloud.NewS3("s3://my-bucket/config.yaml",
+	s3Loader, err := cloud.NewS3("s3://my-bucket/config.yaml",
 		cloud.WithS3Region("us-west-2"),
 	)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	// AWS SSM Parameter Store (this file: -tags aws)
 	ssmLoader := cloud.NewSSM("/myapp/production/")
@@ -57,9 +60,12 @@ func main() {
 	// ========================================
 
 	// AWS Secrets Manager (this file: -tags aws)
-	awsStore, _ := secretcloud.NewAWSSecretsManager(ctx,
+	awsStore, err := secretcloud.NewAWSSecretsManager(ctx,
 		secretcloud.WithAWSRegion("us-east-1"),
 	)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	// Multi-store fallback chain — extend with stores from other providers
 	// by adding their build tags (e.g. `-tags "aws,vault"`).
@@ -76,6 +82,9 @@ func main() {
 	}
 
 	// Already resolved during New; this is an in-memory read.
-	val, _ := cfg.Get("some.key")
+	val, err := cfg.Get("some.key")
+	if err != nil {
+		log.Fatal(err)
+	}
 	fmt.Println(val)
 }

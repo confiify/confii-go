@@ -5,6 +5,7 @@ package confii
 
 import (
 	"context"
+	"time"
 
 	"github.com/confiify/confii-go/v2/hook"
 )
@@ -67,6 +68,20 @@ func (b *Builder[T]) EnableDynamicReloading() *Builder[T] {
 // DisableDynamicReloading disables watcher-driven reloads.
 func (b *Builder[T]) DisableDynamicReloading() *Builder[T] {
 	b.opts = append(b.opts, WithDynamicReloading(false))
+	return b
+}
+
+// WithReloadDebounce coalesces bursts of filesystem events before automatic
+// reload. It has no effect on explicit Reload calls.
+func (b *Builder[T]) WithReloadDebounce(interval time.Duration) *Builder[T] {
+	b.opts = append(b.opts, WithReloadDebounce(interval))
+	return b
+}
+
+// WithSensitivePaths marks application-defined configuration paths for
+// redaction throughout the snapshot lifecycle.
+func (b *Builder[T]) WithSensitivePaths(paths ...string) *Builder[T] {
+	b.opts = append(b.opts, WithSensitivePaths(paths...))
 	return b
 }
 

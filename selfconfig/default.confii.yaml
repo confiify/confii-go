@@ -81,7 +81,20 @@ schema_path: ""
 # Runtime lifecycle. dynamic_reloading and freeze_on_load are intentionally
 # mutually exclusive.
 dynamic_reloading: false
+# Trailing-edge delay used to collapse editor write bursts into one automatic
+# reload. Set 0s for immediate watcher-driven reloads. Explicit Reload calls
+# are never delayed.
+reload_debounce: 150ms
 freeze_on_load: false
+
+# Additional dot-separated paths that must be redacted even when their values
+# come from custom loaders or hooks instead of ${secret...} references. A
+# parent path protects all descendants.
+sensitive_paths: []
+# Example:
+# sensitive_paths:
+#   - database.password
+#   - integrations.payment.api_key
 
 # Overall ceiling for startup source loading, secret materialization, hooks,
 # and validation when the caller does not provide a context deadline. Use 0s

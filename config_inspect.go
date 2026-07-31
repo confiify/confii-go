@@ -48,7 +48,7 @@ func (c *Config[T]) Explain(keyPath string) map[string]any {
 		"environment":    c.env,
 		"override_count": info.OverrideCount,
 	}
-	secretBacked := c.secretBackedPathLocked(keyPath)
+	secretBacked := c.sensitivePathLocked(keyPath)
 	if secretBacked {
 		result["value"] = redactedSecretValue
 	}
@@ -98,7 +98,7 @@ func (c *Config[T]) Schema(keyPath string) map[string]any {
 	}
 
 	result["exists"] = true
-	if c.secretBackedPathLocked(keyPath) {
+	if c.sensitivePathLocked(keyPath) {
 		result["value"] = redactedSecretValue
 	} else {
 		result["value"] = dictutil.DeepCopyValue(val)
@@ -189,17 +189,14 @@ func (c *Config[T]) SecretReferenceKeys() []string {
 	return keys
 }
 
-func (c *Config[T]) secretBackedPathLocked(keyPath string) bool {
-	if c.unresolvedEnvConfig == nil {
-		return false
+func (c *Config[T]) sensitivePathLocked(keyPath string) bool {
+	if pathIsSensitive(keyPath, c.sensitivePaths) {
+		return true
 	}
-	value, ok := dictutil.GetNested(c.unresolvedEnvConfig, keyPath)
-	if !ok {
-		return false
+	if c.unresolvedEnvConfig != nil {
+		return pathIsSensitive(keyPath, sensitivePathsForConfig(c.unresolvedEnvConfig, c.opts.SensitivePaths))
 	}
-	found := make(map[string]struct{})
-	collectSecretReferenceKeys(keyPath, value, found)
-	return len(found) > 0
+	return false
 }
 
 // SecretReferenceProviders returns the provider aliases selected by raw
@@ -286,9 +283,20 @@ func collectSecretReferenceProviders(value any, defaultProvider string, found ma
 }
 
 // GetSourceInfo returns an independent copy of the source metadata for keyPath,
-// or nil when the key has not been tracked.
+// or nil when the key has not been tracked. Secret-backed current and
+// historical values are redacted.
 func (c *Config[T]) GetSourceInfo(keyPath string) *sourcetrack.SourceInfo {
-	return c.sourceTracker.GetSourceInfo(keyPath)
+	c.mu.RLock()
+	secretBacked := c.sensitivePathLocked(keyPath)
+	info := c.sourceTracker.GetSourceInfo(keyPath)
+	c.mu.RUnlock()
+	if info != nil && secretBacked {
+		info.Value = redactedSecretValue
+		for index := range info.History {
+			info.History[index].Value = redactedSecretValue
+		}
+	}
+	return info
 }
 
 // GetOverrideHistory returns the earlier values and sources recorded for
@@ -296,14 +304,41 @@ func (c *Config[T]) GetSourceInfo(keyPath string) *sourcetrack.SourceInfo {
 // history requires [WithDebugMode](true); returned entries are independent
 // copies.
 func (c *Config[T]) GetOverrideHistory(keyPath string) []sourcetrack.OverrideEntry {
-	return c.sourceTracker.GetOverrideHistory(keyPath)
+	c.mu.RLock()
+	secretBacked := c.sensitivePathLocked(keyPath)
+	history := c.sourceTracker.GetOverrideHistory(keyPath)
+	c.mu.RUnlock()
+	if secretBacked {
+		for index := range history {
+			history[index].Value = redactedSecretValue
+		}
+	}
+	return history
 }
 
 // GetConflicts returns independently copied source records for keys whose
 // values were written more than once. An empty map means no overrides were
 // observed.
 func (c *Config[T]) GetConflicts() map[string]*sourcetrack.SourceInfo {
-	return c.sourceTracker.GetConflicts()
+	c.mu.RLock()
+	conflicts := c.sourceTracker.GetConflicts()
+	paths := cloneSensitivePaths(c.sensitivePaths)
+	if c.unresolvedEnvConfig != nil {
+		for path := range sensitivePathsForConfig(c.unresolvedEnvConfig, c.opts.SensitivePaths) {
+			paths[path] = struct{}{}
+		}
+	}
+	c.mu.RUnlock()
+	for key, info := range conflicts {
+		if info == nil || !pathIsSensitive(key, paths) {
+			continue
+		}
+		info.Value = redactedSecretValue
+		for index := range info.History {
+			info.History[index].Value = redactedSecretValue
+		}
+	}
+	return conflicts
 }
 
 // GetSourceStatistics returns total_keys, total_overrides, and counts grouped
@@ -344,11 +379,18 @@ func (c *Config[T]) ExportDebugReport(outputPath string) error {
 	return nil
 }
 
-// SourceTracker returns the Config's concurrency-safe source tracker. Callers
-// may use its read methods for advanced inspection; mutating methods affect
-// subsequent introspection and should normally be left to Config.
+// SourceTracker returns a detached, redacted copy of the source tracker.
+// Callers may inspect or mutate the returned tracker without changing Config.
+// Values and histories for secret-backed paths are replaced with the standard
+// redaction marker. Use PrintDebugInfo or ExportDebugReport only when an
+// explicitly sensitive operational report is required.
 func (c *Config[T]) SourceTracker() *sourcetrack.Tracker {
-	return c.sourceTracker
+	c.mu.RLock()
+	tracker := c.sourceTracker.Clone()
+	paths := sensitivePathList(c.sensitivePaths)
+	c.mu.RUnlock()
+	tracker.RedactValues(paths, redactedSecretValue)
+	return tracker
 }
 
 // GenerateDocs renders the current key inventory as "markdown" or "json".

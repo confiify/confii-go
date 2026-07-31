@@ -414,8 +414,10 @@ cfg, err := confii.NewBuilder[AppConfig]().
 | `WithSchema(schema)` / `WithSchemaPath(path)` | JSON Schema for validation | none |
 | `WithEnvExpander(bool)` | Enable `${VAR}` expansion in values | `true` |
 | `WithTypeCasting(bool)` | Auto-convert strings to bool/int/float | `true` |
-| `WithSysenvFallback(bool)` | Fall back to OS env vars on missing keys | `false` |
+| `WithSysenvFallback(bool)` | Dynamically consult OS env vars for missing `Get`/`Has` paths without changing the published snapshot | `false` |
 | `WithDynamicReloading(bool)` | Enable fsnotify file watching | `false` |
+| `WithReloadDebounce(duration)` | Coalesce filesystem event bursts before automatic reload | `150ms` |
+| `WithSensitivePaths(paths...)` | Redact application-defined paths in diagnostics and version comparisons | none |
 | `WithFreezeOnLoad(bool)` | Make config immutable after load | `false` |
 | `WithDebugMode(bool)` | Enable full source tracking | `false` |
 | `WithOnError(policy)` | `ErrorPolicyRaise`, `Warn`, or `Ignore` | `Raise` |
@@ -768,8 +770,9 @@ File watching via fsnotify. Config automatically reloads when source files chang
 cfg, _ := confii.NewWithContext[any](ctx,
     confii.WithLoaders(loader.NewYAML("config.yaml")),
     confii.WithDynamicReloading(true),
+    confii.WithReloadDebounce(150*time.Millisecond),
 )
-// Config auto-reloads when files change
+// Config auto-reloads once after a burst of file changes
 
 cfg.OnChange(func(key string, old, new any) { /* react */ })
 cfg.StopWatching() // stop when done
@@ -784,13 +787,13 @@ cfg.StopWatching() // stop when done
 Track access patterns, react to events:
 
 ```go
-cfg.EnableObservability()
-emitter := cfg.EnableEvents()
+metrics := cfg.EnableObservability() // read-only metrics view
+events := cfg.EnableEvents()         // subscription-only event view
 
-emitter.On("reload", func(args ...any) { log.Println("reloaded") })
-emitter.On("change", func(args ...any) { log.Println("changed") })
+events.On("reload", func(args ...any) { log.Println("reloaded") })
+events.On("change", func(args ...any) { log.Println("changed") })
 
-stats := cfg.GetMetrics()
+stats := metrics.Statistics()
 // total_keys, accessed_keys, access_rate, reload_count, change_count, top_accessed_keys
 ```
 
@@ -847,14 +850,14 @@ jsonStr, _ := diff.ToJSON(diffs)            // serialize for reporting
 Snapshot config state, compare versions over time, and rollback:
 
 ```go
-vm := cfg.EnableVersioning("/tmp/config-versions", 100)
+versions := cfg.EnableVersioning("/tmp/config-versions", 100) // read-only history
 
 v1, _ := cfg.SaveVersion(map[string]any{"author": "deploy-bot", "env": "prod"})
 // ... config changes ...
 v2, _ := cfg.SaveVersion(nil)
 
-diffs, _ := vm.DiffVersions(v1.VersionID, v2.VersionID)
-versions := vm.ListVersions()   // all snapshots, newest first
+diffs, _ := versions.DiffVersions(v1.VersionID, v2.VersionID)
+history := versions.ListVersions() // all snapshots, newest first
 cfg.RollbackToVersion(v1.VersionID)
 ```
 

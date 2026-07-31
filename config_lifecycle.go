@@ -6,7 +6,7 @@ package confii
 import (
 	"context"
 	"errors"
-	"log/slog"
+	"sort"
 
 	"github.com/confiify/confii-go/v2/internal/sourcekind"
 	"github.com/confiify/confii-go/v2/watch"
@@ -69,13 +69,16 @@ func (c *Config[T]) Close() error {
 			c.watcher.Stop()
 			c.watcher = nil
 		}
-		resources := make([]any, 0, len(c.loaders)+len(c.managedResources)+1)
+		resources := make([]any, 0, len(c.loaders)+1)
 		for _, loader := range c.loaders {
 			resources = append(resources, loader)
 		}
 		resources = append(resources, c.opts.SecretResolver)
-		resources = append(resources, c.managedResources...)
+		registry := c.resourceRegistry
 		c.mu.Unlock()
+		if registry != nil {
+			resources = append(resources, registry.closeAndSnapshot()...)
+		}
 		for _, resource := range resources {
 			if closer, ok := resource.(interface{ Close() error }); ok {
 				closeErr = errors.Join(closeErr, closer.Close())
@@ -85,26 +88,19 @@ func (c *Config[T]) Close() error {
 	return closeErr
 }
 
-func (c *Config[T]) startWatching() {
+func (c *Config[T]) startWatching() error {
 	// Filter non-file loader sources before handing them to the watch package.
 	// The canonical predicate lives in internal/sourcekind, so loaders
 	// like envPrefixAutoLoader ("environment:APP"), HTTPLoader
 	// ("http(s)://..."), and cloud-store loaders ("s3://", "ssm:",
 	// "gs://", "azure://", "ibmcos://", "git:", "consul://", "vault:")
 	// never reach watch.New on the happy path.
-	var files []string
-	for _, l := range c.loaders {
-		src := l.Source()
-		if isNonFileLoaderSource(src) {
-			continue
-		}
-		files = append(files, src)
-	}
+	files := c.watchedFiles()
 	if len(files) == 0 {
 		// All loader sources are non-file (e.g. env-only configs).
 		// Skip watcher construction entirely so we don't hold an
 		// fsnotify handle for nothing.
-		return
+		return nil
 	}
 	watchCtx, cancel := context.WithCancel(context.Background())
 	w, err := watch.NewWithContext(watchCtx, files, func(ctx context.Context) error {
@@ -114,14 +110,39 @@ func (c *Config[T]) startWatching() {
 			return c.ReloadWithContext(operationCtx)
 		}
 		return c.ReloadWithContext(ctx)
-	}, c.logger)
+	}, c.logger, watch.WithDebounce(c.opts.ReloadDebounce))
 	if err != nil {
 		cancel()
-		c.logger.Warn("failed to start file watcher", slog.String("error", err.Error()))
-		return
+		return err
 	}
 	c.watchCancel = cancel
 	c.watcher = w
+	return nil
+}
+
+func (c *Config[T]) watchedFiles() []string {
+	seen := make(map[string]struct{})
+	files := make([]string, 0, len(c.loaders))
+	add := func(path string) {
+		if path == "" || isNonFileLoaderSource(path) {
+			return
+		}
+		if _, exists := seen[path]; exists {
+			return
+		}
+		seen[path] = struct{}{}
+		files = append(files, path)
+	}
+	for _, loader := range c.loaders {
+		add(loader.Source())
+	}
+	for _, dependencies := range c.loaderDependencies {
+		for _, dependency := range dependencies {
+			add(dependency)
+		}
+	}
+	sort.Strings(files)
+	return files
 }
 
 // isNonFileLoaderSource reports whether a Loader.Source identifier is one

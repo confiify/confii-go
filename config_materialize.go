@@ -26,6 +26,7 @@ func (c *Config[T]) materializeEffectiveConfig(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	ctx = c.withManagedResourceContext(ctx)
 	raw := dictutil.DeepCopy(c.envConfig)
 	resolved, err := c.applySecretHookRecursive(withSecretResolutionSession(ctx), "", raw)
 	if err != nil {
@@ -33,6 +34,7 @@ func (c *Config[T]) materializeEffectiveConfig(ctx context.Context) error {
 	}
 	c.unresolvedEnvConfig = raw
 	c.envConfig = resolved
+	c.sensitivePaths = sensitivePathsForConfig(raw, c.opts.SensitivePaths)
 	c.validatedModel = nil
 	c.revision++
 	return nil
@@ -45,7 +47,7 @@ func (c *Config[T]) materializeEffectiveValue(ctx context.Context, keyPath strin
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	ctx = withSecretResolutionSession(ctx)
+	ctx = withSecretResolutionSession(c.withManagedResourceContext(ctx))
 	switch typed := dictutil.DeepCopyValue(value).(type) {
 	case map[string]any:
 		return c.applySecretHookRecursive(ctx, keyPath, typed)
@@ -268,7 +270,7 @@ func (c *Config[T]) refreshSecretsAttempt(ctx context.Context, started time.Time
 	before := dictutil.DeepCopy(c.envConfig)
 	c.mu.RUnlock()
 
-	resolved, err := c.applySecretHookRecursive(withSecretResolutionSession(ctx), "", dictutil.DeepCopy(raw))
+	resolved, err := c.applySecretHookRecursive(withSecretResolutionSession(c.withManagedResourceContext(ctx)), "", dictutil.DeepCopy(raw))
 	if err != nil {
 		return &ConfigError{
 			Op:   "RefreshSecrets",
@@ -298,6 +300,7 @@ func (c *Config[T]) refreshSecretsAttempt(ctx context.Context, started time.Time
 		return errConfigRevisionConflict
 	}
 	c.envConfig = resolved
+	c.sensitivePaths = sensitivePathsForConfig(raw, c.opts.SensitivePaths)
 	c.validatedModel = nil
 	c.revision++
 	change := c.captureCommittedChange(before, resolved)

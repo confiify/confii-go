@@ -4,13 +4,43 @@
 package confii
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/confiify/confii-go/v2/selfconfig"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestSelfConfigAppliesReloadDebounceAndSensitivePaths(t *testing.T) {
+	directory := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(directory, ".confii.yaml"), []byte(`
+reload_debounce: 275ms
+sensitive_paths:
+  - credentials.token
+  - database.password
+`), 0o600))
+	selfconfig.ClearCache()
+	options := defaultOptions()
+	options.WorkingDir = directory
+	require.NoError(t, applySelfConfig(&options))
+	assert.Equal(t, 275*time.Millisecond, options.ReloadDebounce)
+	assert.Equal(t, []string{"credentials.token", "database.password"}, options.SensitivePaths)
+}
+
+func TestSelfConfigRejectsInvalidReloadDebounce(t *testing.T) {
+	directory := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(directory, ".confii.yaml"), []byte("reload_debounce: immediate\n"), 0o600))
+	selfconfig.ClearCache()
+	options := defaultOptions()
+	options.WorkingDir = directory
+	err := applySelfConfig(&options)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrConfigLoad)
+}
 
 func TestSelfConfigAccountsForEveryStartupOption(t *testing.T) {
 	declarative := map[string][]string{
@@ -18,6 +48,7 @@ func TestSelfConfigAccountsForEveryStartupOption(t *testing.T) {
 		"EnvSwitcher":                 {"EnvSwitcher"},
 		"Loaders":                     {"Sources"},
 		"DynamicReloading":            {"DynamicReloading"},
+		"ReloadDebounce":              {"ReloadDebounce"},
 		"UseEnvExpander":              {"UseEnvExpander"},
 		"UseTypeCasting":              {"UseTypeCasting"},
 		"MergeStrategy":               {"Merge"},
@@ -35,6 +66,7 @@ func TestSelfConfigAccountsForEveryStartupOption(t *testing.T) {
 		"StartupTimeout":              {"Startup"},
 		"OperationTimeout":            {"Runtime"},
 		"SecretResolutionConcurrency": {"SecretResolutionConcurrency"},
+		"SensitivePaths":              {"SensitivePaths"},
 	}
 	intentionalCodeOnly := map[string]string{
 		"WorkingDir":     "selects the directory in which self-config is discovered",

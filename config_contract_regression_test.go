@@ -262,7 +262,7 @@ func (s *constructionCloseableStore) Close() error { s.closed.Add(1); return nil
 
 func TestConstructorRejectsConcurrencyAndClosesProviderOnFailure(t *testing.T) {
 	_, err := New[any](WithSecretResolutionConcurrency(0), WithLoaders())
-	require.ErrorIs(t, err, ErrConfigLoad)
+	require.ErrorIs(t, err, ErrConfigInvalid)
 
 	store := &constructionCloseableStore{}
 	providerType := "construction-cleanup-test"

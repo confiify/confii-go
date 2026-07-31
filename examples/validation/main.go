@@ -32,7 +32,10 @@ func main() {
 		log.Fatal("Struct validation failed:", err)
 	}
 
-	model, _ := cfg.Typed()
+	model, err := cfg.Typed()
+	if err != nil {
+		log.Fatal("Typed decoding failed:", err)
+	}
 	fmt.Printf("Valid config: %s:%d/%s (max %d conns)\n",
 		model.Host, model.Port, model.Name, model.MaxConnections)
 
