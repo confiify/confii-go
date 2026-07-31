@@ -55,24 +55,38 @@ func TestWatcher_DebounceCoalescesBurstAtTrailingEdge(t *testing.T) {
 	require.NoError(t, os.WriteFile(file, []byte("value: 1"), 0o600))
 	var reloads atomic.Int64
 	reloaded := make(chan struct{}, 1)
+	logger, logs := captureLogger()
+	const debounce = time.Second
 	w, err := New([]string{file}, func() error {
 		reloads.Add(1)
 		reloaded <- struct{}{}
 		return nil
-	}, nil, WithDebounce(80*time.Millisecond))
+	}, logger, WithDebounce(debounce))
 	require.NoError(t, err)
 	defer w.Stop()
 
 	for index := range 5 {
 		require.NoError(t, os.WriteFile(file, []byte(fmt.Sprintf("value: %d", index+2)), 0o600))
+	}
+
+	// Wait until the watcher has observed multiple events from the burst. This
+	// proves that the assertion exercises coalescing without making the burst
+	// duration depend on filesystem speed or race-detector scheduling.
+	deadline := time.Now().Add(2 * time.Second)
+	observedEvents := 0
+	for observedEvents < 2 && time.Now().Before(deadline) {
+		observedEvents = strings.Count(logs.String(), "config file changed, scheduling reload")
 		time.Sleep(10 * time.Millisecond)
 	}
+	require.GreaterOrEqual(t, observedEvents, 2, "test burst must produce multiple watcher events")
+	assert.Zero(t, reloads.Load(), "trailing-edge debounce must not fire while the burst is being observed")
+
 	select {
 	case <-reloaded:
-	case <-time.After(time.Second):
+	case <-time.After(2 * debounce):
 		t.Fatal("timed out waiting for debounced reload")
 	}
-	time.Sleep(120 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 	assert.Equal(t, int64(1), reloads.Load(), "one burst must publish one reload")
 }
 
