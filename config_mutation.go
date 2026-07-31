@@ -66,9 +66,15 @@ func (c *Config[T]) SetWithContext(ctx context.Context, keyPath string, value an
 	if frozen {
 		return NewFrozenError("Set")
 	}
-	// Resolve a private candidate before taking the Config lock. Hooks may
-	// perform remote I/O or re-enter Config, and a successful Set must preserve
-	// the invariant that all live reads observe an already-materialized value.
+
+	setOptions := setOpts{allowOverride: true}
+	for _, option := range opts {
+		option(&setOptions)
+	}
+
+	// Materialization is independent of the current snapshot and therefore runs
+	// once before the optimistic transaction. Hooks and providers may perform
+	// remote I/O or read the Config without blocking live readers.
 	rawStored := dictutil.DeepCopyValue(value)
 	effectiveStored, materializeErr := c.materializeEffectiveValue(ctx, keyPath, rawStored)
 	if materializeErr != nil {
@@ -77,160 +83,80 @@ func (c *Config[T]) SetWithContext(ctx context.Context, keyPath string, value an
 			Err: fmt.Errorf("%w: materialize %q: %w", ErrConfigLoad, keyPath, materializeErr),
 		}
 	}
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	c.mu.Lock()
-	if err := ctx.Err(); err != nil {
-		c.mu.Unlock()
-		return err
-	}
-	// Use a manual unlock flag because callbacks must run after the lock is
-	// released and may safely call back into Config.
-	// Failure paths fall through the deferred fallback; the success
-	// path manually unlocks before invoking change callbacks so
-	// callbacks may call back into the Config without deadlocking.
-	unlocked := false
-	defer func() {
-		if !unlocked {
+	for {
+		c.mu.RLock()
+		if c.closed {
+			c.mu.RUnlock()
+			return NewClosedError("Set")
+		}
+		if c.frozen {
+			c.mu.RUnlock()
+			return NewFrozenError("Set")
+		}
+		baseRevision := c.revision
+		oldEnv := copyMap(c.envConfig)
+		candidate := c.snapshotRuntimeMutationCandidate()
+		if !setOptions.allowOverride && dictutil.HasNested(candidate.envConfig, keyPath) {
+			c.mu.RUnlock()
+			return fmt.Errorf("key %q already exists (override=false)", keyPath)
+		}
+		if err := candidate.set(keyPath, rawStored, effectiveStored, "runtime", c.env); err != nil {
+			c.mu.RUnlock()
+			c.recordSetFailure(ctx, keyPath, err)
+			return NewInvalidError("Set", keyPath, err)
+		}
+		c.mu.RUnlock()
+
+		if err := c.validateMaterializedCandidate(candidate.envConfig); err != nil {
+			conflict, conflictErr := c.runtimeMutationConflict(ctx, "Set", baseRevision)
+			if conflictErr != nil {
+				return conflictErr
+			}
+			if conflict {
+				continue
+			}
+			c.recordSetFailure(ctx, keyPath, err)
+			return err
+		}
+
+		newEnv := copyMap(candidate.envConfig)
+		c.mu.Lock()
+		if err := ctx.Err(); err != nil {
 			c.mu.Unlock()
+			return err
 		}
-	}()
-
-	if c.frozen {
-		return NewFrozenError("Set")
-	}
-	if c.closed {
-		return NewClosedError("Set")
-	}
-
-	so := setOpts{allowOverride: true}
-	for _, o := range opts {
-		o(&so)
-	}
-
-	if !so.allowOverride && dictutil.HasNested(c.envConfig, keyPath) {
-		return fmt.Errorf("key %q already exists (override=false)", keyPath)
-	}
-
-	// Defensively deep-copy any map/slice value so
-	// later caller mutation does not alias into Config state. Scalars
-	// pass through unchanged.
-	stored := dictutil.DeepCopyValue(effectiveStored)
-
-	// Structural snapshots preserve scalar types, nil leaves, and sub-tree
-	// shape. SetNested may insert intermediate maps before returning a
-	// PathError, so every failure restores envConfig as well.
-	envSnap := dictutil.DeepCopyValue(c.envConfig).(map[string]any)
-	unresolvedEnvSnap := dictutil.DeepCopyValue(c.unresolvedEnvConfig).(map[string]any)
-	mergedSnap := dictutil.DeepCopyValue(c.mergedConfig).(map[string]any)
-	trackerSnap := c.sourceTracker.Snapshot()
-
-	// Snapshot pre-mutation flat state under the write lock.
-	// Used downstream for the change-notification payload.
-	oldFlat := dictutil.Flatten(c.envConfig)
-
-	// Try the mutation against envConfig first. SetNested returns a
-	// *PathError when a key path traverses through a non-map; surface
-	// that as a typed *ConfigError and do NOT mutate mergedConfig.
-	if err := dictutil.SetNested(c.envConfig, keyPath, stored); err != nil {
-		// SetNested may have
-		// inserted intermediate maps before failing, so restore envConfig
-		// from the deep-copy snapshot. mergedConfig is untouched on this
-		// path but we restore it (and the tracker) for symmetry with the
-		// second-call failure path below.
-		c.envConfig = envSnap
-		c.unresolvedEnvConfig = unresolvedEnvSnap
-		c.mergedConfig = mergedSnap
-		c.sourceTracker.Restore(trackerSnap)
-		if c.observer != nil {
-			c.observer.RecordSetFailed()
+		if c.closed {
+			c.mu.Unlock()
+			return NewClosedError("Set")
 		}
-		if c.eventEmitter != nil {
-			c.eventEmitter.Emit("set_failed", keyPath, err)
+		if c.frozen {
+			c.mu.Unlock()
+			return NewFrozenError("Set")
 		}
-		return NewInvalidError("Set", keyPath, err)
+		if c.revision != baseRevision {
+			c.mu.Unlock()
+			continue
+		}
+
+		c.publishRuntimeMutationCandidate(candidate)
+		callbacks := c.snapshotChangeCallbacks()
+		contextCallbacks := c.snapshotChangeContextCallbacks()
+		observer, emitter := c.observer, c.eventEmitter
+		c.mu.Unlock()
+
+		oldFlat, newFlat := dictutil.Flatten(oldEnv), dictutil.Flatten(newEnv)
+		c.notifyChangesUnlocked(callbacks, oldFlat, newFlat)
+		c.notifyContextChangesUnlocked(ctx, contextCallbacks, oldFlat, newFlat)
+		if observer != nil {
+			observer.RecordSet()
+			observer.RecordChange()
+		}
+		if emitter != nil {
+			emitter.EmitWithContext(ctx, "set", keyPath, dictutil.DeepCopyValue(effectiveStored))
+			emitter.EmitWithContext(ctx, "change", keyPath, dictutil.DeepCopyValue(effectiveStored))
+		}
+		return nil
 	}
-	if err := dictutil.SetNested(c.unresolvedEnvConfig, keyPath, rawStored); err != nil {
-		c.envConfig = envSnap
-		c.unresolvedEnvConfig = unresolvedEnvSnap
-		c.mergedConfig = mergedSnap
-		c.sourceTracker.Restore(trackerSnap)
-		if c.observer != nil {
-			c.observer.RecordSetFailed()
-		}
-		if c.eventEmitter != nil {
-			c.eventEmitter.Emit("set_failed", keyPath, err)
-		}
-		return NewInvalidError("Set", keyPath, err)
-	}
-	// mergedConfig must agree with envConfig; the same path-error guard
-	// applies. If this fails, roll back the envConfig mutation so the
-	// two maps stay in lockstep.
-	if err := dictutil.SetNested(c.mergedConfig, keyPath, rawStored); err != nil {
-		// Restore envConfig
-		// AND mergedConfig from their deep-copy snapshots to preserve
-		// scalar type identity (int stays int, time.Duration stays
-		// Duration), nil-leaf distinctions, and sub-tree shape. The
-		// tracker snapshot is restored even though TrackValue has not yet fired.
-		c.envConfig = envSnap
-		c.unresolvedEnvConfig = unresolvedEnvSnap
-		c.mergedConfig = mergedSnap
-		c.sourceTracker.Restore(trackerSnap)
-		if c.observer != nil {
-			c.observer.RecordSetFailed()
-		}
-		if c.eventEmitter != nil {
-			c.eventEmitter.Emit("set_failed", keyPath, err)
-		}
-		return NewInvalidError("Set", keyPath, err)
-	}
-	if err := c.validateMaterializedCandidate(c.envConfig); err != nil {
-		c.envConfig = envSnap
-		c.unresolvedEnvConfig = unresolvedEnvSnap
-		c.mergedConfig = mergedSnap
-		c.sourceTracker.Restore(trackerSnap)
-		if c.observer != nil {
-			c.observer.RecordSetFailed()
-		}
-		if c.eventEmitter != nil {
-			c.eventEmitter.Emit("set_failed", keyPath, err)
-		}
-		return err
-	}
-
-	// Source-tracking parity: a successful Set claims "runtime" as the
-	// source so Explain/GetSourceInfo report the runtime origin until a
-	// subsequent Reload overwrites it.
-	c.sourceTracker.TrackValue(keyPath, rawStored, "runtime", "runtime", c.env)
-
-	c.validatedModel = nil
-	c.revision++
-
-	// Snapshot everything callbacks/observability need WHILE the write
-	// lock is held, then release the lock BEFORE invoking them.
-	callbacks := c.snapshotChangeCallbacks()
-	contextCallbacks := c.snapshotChangeContextCallbacks()
-	newFlat := dictutil.Flatten(c.envConfig)
-	observer := c.observer
-	emitter := c.eventEmitter
-
-	c.mu.Unlock()
-	unlocked = true
-
-	c.notifyChangesUnlocked(callbacks, oldFlat, newFlat)
-	c.notifyContextChangesUnlocked(ctx, contextCallbacks, oldFlat, newFlat)
-
-	if observer != nil {
-		observer.RecordSet()
-		observer.RecordChange()
-	}
-	if emitter != nil {
-		emitter.EmitWithContext(ctx, "set", keyPath, stored)
-		emitter.EmitWithContext(ctx, "change", keyPath, stored)
-	}
-
-	return nil
 }
 
 // OnChange registers fn to observe committed configuration changes. A nil fn
