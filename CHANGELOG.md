@@ -26,6 +26,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   the YAML and TOML behavior.
 - Migrate the integration self-configuration fixture from removed
   `default_files` and `deep_merge` fields to canonical `sources` configuration.
+- Account for the AWS SDK v1 S3 crypto advisories inherited through the
+  official Vault AWS authentication module with scoped OpenVEX statements;
+  CI now proves that the vulnerable S3 crypto package is absent from the
+  compiled secret-cloud and cloud-example dependency graphs.
 
 ### Changed
 

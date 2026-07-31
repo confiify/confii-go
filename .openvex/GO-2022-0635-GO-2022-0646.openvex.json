@@ -1,0 +1,72 @@
+{
+  "@context": "https://openvex.dev/ns/v0.2.0",
+  "@id": "https://github.com/confiify/confii-go/security/vex/aws-sdk-go-s3crypto/1",
+  "author": "The Confii Maintainers <confii.connect@gmail.com>",
+  "role": "Document Creator",
+  "timestamp": "2026-07-31T09:50:50Z",
+  "last_updated": "2026-07-31T09:50:50Z",
+  "version": 1,
+  "tooling": "Maintainer assessment enforced by scripts/check-vex.sh, govulncheck, and OSV-Scanner",
+  "statements": [
+    {
+      "@id": "https://github.com/confiify/confii-go/security/vex/aws-sdk-go-s3crypto/statement/GO-2022-0635/1",
+      "version": 1,
+      "vulnerability": {
+        "name": "GO-2022-0635",
+        "description": "Algorithm downgrade in the AWS SDK for Go v1 S3 crypto client"
+      },
+      "timestamp": "2026-07-31T09:50:50Z",
+      "products": [
+        {
+          "@id": "pkg:golang/github.com/confiify/confii-go/secret/cloud/v2",
+          "subcomponents": [
+            {
+              "@id": "pkg:golang/github.com/aws/aws-sdk-go@v1.55.7"
+            }
+          ]
+        },
+        {
+          "@id": "pkg:golang/github.com/confiify/confii-go/examples/cloud",
+          "subcomponents": [
+            {
+              "@id": "pkg:golang/github.com/aws/aws-sdk-go@v1.55.7"
+            }
+          ]
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Confii receives AWS credential discovery and request signing through HashiCorp's official Vault AWS auth module. Neither Confii module imports github.com/aws/aws-sdk-go/service/s3/s3crypto or calls its vulnerable encryption and decryption constructors. Govulncheck reports no reachable vulnerable symbol, and CI fails if the S3 crypto package enters either compiled dependency graph."
+    },
+    {
+      "@id": "https://github.com/confiify/confii-go/security/vex/aws-sdk-go-s3crypto/statement/GO-2022-0646/1",
+      "version": 1,
+      "vulnerability": {
+        "name": "GO-2022-0646",
+        "description": "Padding oracle in the AWS SDK for Go v1 S3 crypto client"
+      },
+      "timestamp": "2026-07-31T09:50:50Z",
+      "products": [
+        {
+          "@id": "pkg:golang/github.com/confiify/confii-go/secret/cloud/v2",
+          "subcomponents": [
+            {
+              "@id": "pkg:golang/github.com/aws/aws-sdk-go@v1.55.7"
+            }
+          ]
+        },
+        {
+          "@id": "pkg:golang/github.com/confiify/confii-go/examples/cloud",
+          "subcomponents": [
+            {
+              "@id": "pkg:golang/github.com/aws/aws-sdk-go@v1.55.7"
+            }
+          ]
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Confii receives AWS credential discovery and request signing through HashiCorp's official Vault AWS auth module. Neither Confii module imports github.com/aws/aws-sdk-go/service/s3/s3crypto or calls its vulnerable encryption and decryption constructors. Govulncheck reports no reachable vulnerable symbol, and CI fails if the S3 crypto package enters either compiled dependency graph."
+    }
+  ]
+}

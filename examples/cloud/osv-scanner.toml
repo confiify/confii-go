@@ -1,3 +1,11 @@
 [[IgnoredVulns]]
 id = "GO-2026-5932"
 reason = "The examples do not import golang.org/x/crypto/openpgp; govulncheck confirms no vulnerable symbol is reachable."
+
+[[IgnoredVulns]]
+id = "GO-2022-0635"
+reason = "The examples inherit AWS SDK v1 through the official Vault AWS auth module but do not import the vulnerable S3 crypto package; govulncheck confirms no vulnerable symbol is reachable."
+
+[[IgnoredVulns]]
+id = "GO-2022-0646"
+reason = "The examples inherit AWS SDK v1 through the official Vault AWS auth module but do not import the vulnerable S3 crypto package; govulncheck confirms no vulnerable symbol is reachable."

@@ -21,18 +21,22 @@ func assertEnvFileInvariants(t *testing.T, policy confii.ErrorPolicy, result map
 	t.Helper()
 
 	if err != nil {
-
 		if result != nil {
 			t.Fatalf("envfile loader returned non-nil result with non-nil error: result=%v err=%v", result, err)
-		}
-
-		if policy == confii.ErrorPolicyIgnore {
-			t.Fatalf("envfile loader under ErrorPolicyIgnore returned an error: %v", err)
 		}
 
 		var ce *confii.ConfigError
 		if !errors.As(err, &ce) {
 			t.Fatalf("envfile loader error is not *confii.ConfigError: %T (%v)", err, err)
+		}
+		// Cross-format rejection is a source-integrity boundary, not a
+		// malformed-line policy. It must fail for every error policy so JSON
+		// cannot be silently accepted or skipped as dotenv content.
+		if errors.Is(err, confii.ErrConfigFormat) {
+			return
+		}
+		if policy == confii.ErrorPolicyIgnore {
+			t.Fatalf("envfile loader under ErrorPolicyIgnore returned a non-format error: %v", err)
 		}
 		if !errors.Is(err, confii.ErrConfigLoad) {
 			t.Fatalf("envfile loader error does not wrap ErrConfigLoad: %v", err)
@@ -76,6 +80,8 @@ func FuzzEnvFileLoader(f *testing.F) {
 		"KEY='it\\'s quoted'",
 		"KEY=\"escaped\\nvalue\"",
 		"UNICODE=こんにちは",
+		"{}",
+		`{"key":"value"}`,
 		strings.Repeat("K=V\n", 1000),
 	}
 	for _, s := range seeds {

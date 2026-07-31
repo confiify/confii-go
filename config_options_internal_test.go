@@ -5,7 +5,11 @@ package confii
 
 import (
 	"context"
+	"errors"
 	"testing"
+
+	"github.com/confiify/confii-go/v2/configmap"
+	"github.com/stretchr/testify/require"
 )
 
 func TestWithEnvPrefix_EmptyAndNilLoaderDedupPaths(t *testing.T) {
@@ -29,4 +33,13 @@ func TestEnvPrefixAutoLoader_NoMatches(t *testing.T) {
 	if err != nil || got != nil {
 		t.Fatalf("Load = %#v, %v; want nil, nil", got, err)
 	}
+}
+
+func TestEnvPrefixAutoLoaderRejectsScalarPathConflict(t *testing.T) {
+	t.Setenv("CONFII_PATH_CONFLICT_PARENT", "scalar")
+	t.Setenv("CONFII_PATH_CONFLICT_PARENT__CHILD", "nested")
+	_, err := (&envPrefixAutoLoader{prefix: "CONFII_PATH_CONFLICT"}).Load(context.Background())
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrConfigLoad)
+	require.True(t, errors.Is(err, configmap.ErrPathConflict))
 }

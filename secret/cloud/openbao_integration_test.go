@@ -43,7 +43,7 @@ func TestOpenBaoInterop(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = store.DeleteSecret(ctx, key) })
 
-	got, err := store.GetSecret(ctx, key+":source")
+	got, err := store.GetSecret(ctx, key, confii.WithField("source"))
 	if err != nil {
 		t.Fatalf("GetSecret field: %v", err)
 	}
@@ -64,7 +64,7 @@ func TestOpenBaoInterop(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewOpenBao AppRole store: %v", err)
 	}
-	got, err = appRoleStore.GetSecret(ctx, key+":value")
+	got, err = appRoleStore.GetSecret(ctx, key, confii.WithField("value"))
 	if err != nil {
 		t.Fatalf("AppRole GetSecret: %v", err)
 	}
