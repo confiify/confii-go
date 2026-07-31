@@ -10,15 +10,33 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/confiify/confii-go/v2/compose"
+	"github.com/confiify/confii-go/v2/envhandler"
 	"github.com/confiify/confii-go/v2/hook"
 	"github.com/confiify/confii-go/v2/selfconfig"
+	"github.com/confiify/confii-go/v2/sourcetrack"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type cancelOnErrCheckContext struct {
+	context.Context
+	cancel context.CancelFunc
+	at     int32
+	calls  atomic.Int32
+}
+
+func (c *cancelOnErrCheckContext) Err() error {
+	if c.calls.Add(1) == c.at {
+		c.cancel()
+	}
+	return c.Context.Err()
+}
 
 func TestContextAwareReadsRejectInvalidContexts(t *testing.T) {
 	type model struct {
@@ -43,6 +61,28 @@ func TestContextAwareReadsRejectInvalidContexts(t *testing.T) {
 	typed, err := cfg.TypedWithContext(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, "ready", typed.Value)
+}
+
+func TestTypedReportsDecodeAndValidationFailures(t *testing.T) {
+	type model struct {
+		Required string `confii:"required" validate:"required"`
+	}
+	cfg, err := New[model](
+		WithLoaders(&stubLoader{source: "typed-invalid", data: map[string]any{}}),
+		WithValidateOnLoad(false),
+	)
+	require.NoError(t, err)
+	_, err = cfg.TypedWithContext(context.Background())
+	require.ErrorIs(t, err, ErrConfigValidation)
+}
+
+func TestGetIntRejectsPlatformOverflow(t *testing.T) {
+	if strconv.IntSize != 32 {
+		t.Skip("int64 overflow is only representable when int is 32 bits")
+	}
+	cfg := newTestConfig(t, map[string]any{"value": int64(1 << 32)})
+	_, err := cfg.GetInt("value")
+	require.ErrorIs(t, err, ErrConfigInvalid)
 }
 
 func TestBuilderRegistersEveryHookKind(t *testing.T) {
@@ -123,13 +163,37 @@ func TestParallelMaterializationCancelsOnHookFailure(t *testing.T) {
 		return value, nil
 	})
 	cfg := &Config[any]{
-		opts:          defaultOptions(),
+		opts: options{
+			SecretResolutionConcurrency: 1,
+		},
 		hookProcessor: processor,
 	}
 	_, err := cfg.applySecretHookMapParallel(context.Background(), "", map[string]any{
 		"a": "fail", "b": []any{"value"}, "c": map[string]any{"nested": "value"}, "d": "value",
 	})
 	require.ErrorIs(t, err, boom)
+}
+
+func TestRefreshSecretsObservesCancellationBeforePublication(t *testing.T) {
+	var refresh atomic.Bool
+	var cancel context.CancelFunc
+	processor := hook.NewProcessor()
+	processor.RegisterGlobalHook(func(_ context.Context, _ string, value any) (any, error) {
+		if refresh.Load() {
+			cancel()
+		}
+		return value, nil
+	})
+	cfg := &Config[any]{
+		opts:                defaultOptions(),
+		hookProcessor:       processor,
+		envConfig:           map[string]any{"key": "ready"},
+		unresolvedEnvConfig: map[string]any{"key": "ready"},
+	}
+	ctx, cancelOperation := context.WithCancel(context.Background())
+	cancel = cancelOperation
+	refresh.Store(true)
+	require.ErrorIs(t, cfg.refreshSecretsAttempt(ctx, time.Now()), context.Canceled)
 }
 
 func TestObserveOperationsPropagateInvalidContexts(t *testing.T) {
@@ -159,6 +223,15 @@ func TestObserveOperationsPropagateInvalidContexts(t *testing.T) {
 	left.mu.Unlock()
 	_, err = left.SaveVersionWithContext(context.Background(), nil)
 	require.Error(t, err)
+
+	left = newTestConfig(t, map[string]any{"key": "left"})
+	right = newTestConfig(t, map[string]any{"key": "right"})
+	diffCtx, cancelDiff := context.WithCancel(context.Background())
+	_, err = left.DiffWithContext(&cancelOnErrCheckContext{Context: diffCtx, cancel: cancelDiff, at: 2}, right)
+	require.ErrorIs(t, err, context.Canceled)
+	saveCtx, cancelSave := context.WithCancel(context.Background())
+	_, err = left.SaveVersionWithContext(&cancelOnErrCheckContext{Context: saveCtx, cancel: cancelSave, at: 2}, nil)
+	require.ErrorIs(t, err, context.Canceled)
 }
 
 func TestCloseStopsDynamicWatchingAndCallbacksRecoverPanics(t *testing.T) {
@@ -252,6 +325,19 @@ func (l *cancelingLoader) Load(context.Context) (map[string]any, error) {
 func (*cancelingLoader) Source() string { return "canceling-loader" }
 
 func TestLoadPipelineStopsAfterLoaderCancellation(t *testing.T) {
+	t.Run("before loader", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		cfg := &Config[any]{
+			opts:          defaultOptions(),
+			loaders:       []Loader{&stubLoader{source: "must-not-run", data: map[string]any{"key": "value"}}},
+			envHandler:    envhandler.New(nil),
+			sourceTracker: sourcetrack.NewTracker(false),
+			composer:      compose.New("."),
+		}
+		require.ErrorIs(t, cfg.loadSelected(ctx, nil), context.Canceled)
+	})
+
 	t.Run("between loaders", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		_, err := NewWithContext[any](ctx,

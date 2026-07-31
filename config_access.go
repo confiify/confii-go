@@ -463,14 +463,12 @@ func (c *Config[T]) typedCtx(ctx context.Context, cacheable bool) (*T, error) {
 	}
 
 	// Publish the context-free cache only if live state still matches the
-	// snapshot that was resolved. A hook may have re-entered Set/Reload while
-	// the lock was released; caching that stale model would make future Typed
-	// calls return data older than envConfig. If another caller populated a
-	// valid cache first, prefer it.
+	// snapshot that was resolved. A concurrent mutation may have invalidated the
+	// snapshot while decoding; caching that stale model would make future Typed
+	// calls return data older than envConfig. Concurrent decoders of the same
+	// snapshot may replace one equivalent cached pointer with another.
 	c.mu.Lock()
-	if c.validatedModel != nil {
-		model = c.validatedModel
-	} else if reflect.DeepEqual(snapshot, c.envConfig) {
+	if reflect.DeepEqual(snapshot, c.envConfig) {
 		c.validatedModel = model
 	}
 	c.mu.Unlock()

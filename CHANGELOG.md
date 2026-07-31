@@ -30,6 +30,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   official Vault AWS authentication module with scoped OpenVEX statements;
   CI now proves that the vulnerable S3 crypto package is absent from the
   compiled secret-cloud and cloud-example dependency graphs.
+- Make parallel secret materialization cancellation race-free by queuing the
+  bounded work plan before workers start, and fail composition when an include
+  path cannot be canonicalized instead of weakening cycle detection.
 
 ### Changed
 

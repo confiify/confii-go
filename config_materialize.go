@@ -107,7 +107,14 @@ func (c *Config[T]) applySecretHookMapParallel(ctx context.Context, prefix strin
 	values := make([]any, len(keys))
 	workCtx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
-	jobs := make(chan int)
+	// Buffer the complete deterministic work plan before starting workers. This
+	// removes a sender/worker cancellation race: after the first failure,
+	// workers can stop immediately without leaving a producer blocked on jobs.
+	jobs := make(chan int, len(keys))
+	for index := range keys {
+		jobs <- index
+	}
+	close(jobs)
 	var wg sync.WaitGroup
 	workers := min(c.opts.SecretResolutionConcurrency, len(keys))
 	for range workers {
@@ -116,7 +123,7 @@ func (c *Config[T]) applySecretHookMapParallel(ctx context.Context, prefix strin
 			defer wg.Done()
 			for index := range jobs {
 				if workCtx.Err() != nil {
-					continue
+					return
 				}
 				key := keys[index]
 				keyPath := key
@@ -142,18 +149,6 @@ func (c *Config[T]) applySecretHookMapParallel(ctx context.Context, prefix strin
 			}
 		}()
 	}
-sendJobs:
-	for index := range keys {
-		select {
-		case jobs <- index:
-		case <-workCtx.Done():
-			break sendJobs
-		}
-		if workCtx.Err() != nil {
-			break sendJobs
-		}
-	}
-	close(jobs)
 	wg.Wait()
 	if cause := context.Cause(workCtx); cause != nil {
 		return nil, cause

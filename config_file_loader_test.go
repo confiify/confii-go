@@ -88,6 +88,16 @@ func TestFileAutoLoader_EnvFile(t *testing.T) {
 	assert.EqualValues(t, 5432, db["PORT"])
 }
 
+func TestFileAutoLoader_EnvFileRejectsNestedPathConflict(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "conflict.env")
+	require.NoError(t, os.WriteFile(p, []byte("SERVICE=scalar\nSERVICE.PORT=8080\n"), 0o600))
+
+	_, err := (&fileAutoLoader{path: p, errorPolicy: ErrorPolicyRaise}).Load(context.Background())
+	require.ErrorIs(t, err, ErrConfigLoad)
+	assert.Contains(t, err.Error(), "SERVICE.PORT")
+}
+
 func TestFileAutoLoader_UnsupportedExtension_Typed(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "config.xml")

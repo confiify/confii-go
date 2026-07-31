@@ -82,15 +82,26 @@ func TestStartWatching_FiltersNonFileSources(t *testing.T) {
 }
 
 func TestStartWatching_FileSources_StillWatched(t *testing.T) {
+	testStartWatchingReloadsFile(t)
+}
+
+func TestStartWatching_FileSources_WithoutOperationTimeout(t *testing.T) {
+	testStartWatchingReloadsFile(t, confii.WithOperationTimeout(0))
+}
+
+func testStartWatchingReloadsFile(t *testing.T, options ...confii.Option) {
+	t.Helper()
 	dir := t.TempDir()
 	yamlPath := filepath.Join(dir, "watched.yaml")
 	require.NoError(t, os.WriteFile(yamlPath, []byte("k: before\n"), 0644))
 
-	cfg, err := confii.NewWithContext[any](context.Background(),
+	configOptions := []confii.Option{
 		confii.WithLoaders(loader.NewYAML(yamlPath)),
 		confii.WithEnvPrefix("APP"),
 		confii.WithDynamicReloading(true),
-	)
+	}
+	configOptions = append(configOptions, options...)
+	cfg, err := confii.NewWithContext[any](context.Background(), configOptions...)
 	require.NoError(t, err)
 	defer cfg.StopWatching()
 

@@ -5,12 +5,28 @@ package compose
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
+
+type cancelAfterChecksContext struct {
+	context.Context
+	cancel context.CancelFunc
+	at     int
+	calls  int
+}
+
+func (c *cancelAfterChecksContext) Err() error {
+	c.calls++
+	if c.calls == c.at {
+		c.cancel()
+	}
+	return c.Context.Err()
+}
 
 func TestComposeWithDependenciesContextAdmission(t *testing.T) {
 	composer := New(t.TempDir())
@@ -41,4 +57,38 @@ func TestComposeCancellationBeforeIncludeIO(t *testing.T) {
 	require.ErrorIs(t, err, context.Canceled)
 	_, err = composer.loadFile(canceled, include, 0, map[string]bool{}, new([]string))
 	require.ErrorIs(t, err, context.Canceled)
+}
+
+func TestLoadFileChecksCancellationAroundIOAndParsing(t *testing.T) {
+	dir := t.TempDir()
+	include := filepath.Join(dir, "include.yaml")
+	require.NoError(t, os.WriteFile(include, []byte("key: value\n"), 0o600))
+	composer := New(dir)
+
+	readCtx, cancelRead := context.WithCancel(context.Background())
+	_, err := composer.loadFile(
+		&cancelAfterChecksContext{Context: readCtx, cancel: cancelRead, at: 2},
+		include, 0, map[string]bool{}, new([]string),
+	)
+	require.ErrorIs(t, err, context.Canceled)
+
+	parseCtx, cancelParse := context.WithCancel(context.Background())
+	_, err = composer.loadFile(
+		&cancelAfterChecksContext{Context: parseCtx, cancel: cancelParse, at: 3},
+		include, 0, map[string]bool{}, new([]string),
+	)
+	require.ErrorIs(t, err, context.Canceled)
+}
+
+func TestComposeReportsIncludeCanonicalizationFailure(t *testing.T) {
+	want := errors.New("absolute path unavailable")
+	composer := New(t.TempDir())
+	composer.absolutePath = func(string) (string, error) { return "", want }
+
+	_, err := composer.Compose(
+		map[string]any{"_include": "include.yaml"},
+		"config.yaml",
+	)
+	require.ErrorIs(t, err, want)
+	require.Contains(t, err.Error(), "resolve include include.yaml")
 }

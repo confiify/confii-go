@@ -46,7 +46,8 @@ func (deepMerger) Merge(base, overlay map[string]any) map[string]any {
 // concurrently with composition. Each call detects cycles independently, so
 // includes remain eligible on later reloads.
 type Composer struct {
-	basePath string
+	basePath     string
+	absolutePath func(string) (string, error)
 	// merger combines included/default maps into the result. It defaults to
 	// dictutil.DeepMerge via deepMerger when nil; callers may inject a
 	// strategy-aware merger via [Composer.WithMerger] or [New] options.
@@ -73,8 +74,9 @@ func New(basePath string, opts ...Option) *Composer {
 		basePath = "."
 	}
 	c := &Composer{
-		basePath: basePath,
-		merger:   deepMerger{},
+		basePath:     basePath,
+		absolutePath: filepath.Abs,
+		merger:       deepMerger{},
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -238,17 +240,18 @@ func (c *Composer) processIncludes(ctx context.Context, includes any, source str
 			resolved = filepath.Join(baseDir, p)
 		}
 
-		abs, err := filepath.Abs(resolved)
+		canonical, err := c.absolutePath(resolved)
 		if err != nil {
-			abs = resolved
+			return nil, fmt.Errorf("resolve include %s: %w", p, err)
 		}
+		canonical = filepath.Clean(canonical)
 
 		// Cycle detection within this single traversal.
-		if visited[abs] {
+		if visited[canonical] {
 			continue // skip circular include
 		}
-		visited[abs] = true
-		*dependencies = append(*dependencies, abs)
+		visited[canonical] = true
+		*dependencies = append(*dependencies, canonical)
 
 		included, err := c.loadFile(ctx, resolved, depth, visited, dependencies)
 		if err != nil {
