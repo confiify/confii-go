@@ -21,13 +21,13 @@ cd "$fixture_dir"
 go mod init confii-cloud-consumer >/dev/null
 go mod edit -go=1.25.0
 go mod edit \
-	-require=github.com/confiify/confii-go@v0.0.0 \
-	-require=github.com/confiify/confii-go/loader/cloud@v0.0.0 \
-	-require=github.com/confiify/confii-go/secret/cloud@v0.0.0 \
+	-require=github.com/confiify/confii-go/v2@v2.0.0 \
+	-require=github.com/confiify/confii-go/loader/cloud/v2@v2.0.0 \
+	-require=github.com/confiify/confii-go/secret/cloud/v2@v2.0.0 \
 	-require=github.com/confiify/confii-go/examples/cloud@v0.0.0 \
-	-replace="github.com/confiify/confii-go=$repo_root" \
-	-replace="github.com/confiify/confii-go/loader/cloud=$repo_root/loader/cloud" \
-	-replace="github.com/confiify/confii-go/secret/cloud=$repo_root/secret/cloud" \
+	-replace="github.com/confiify/confii-go/v2=$repo_root" \
+	-replace="github.com/confiify/confii-go/loader/cloud/v2=$repo_root/loader/cloud" \
+	-replace="github.com/confiify/confii-go/secret/cloud/v2=$repo_root/secret/cloud" \
 	-replace="github.com/confiify/confii-go/examples/cloud=$repo_root/examples/cloud"
 
 has_tag() {
@@ -40,9 +40,9 @@ has_tag() {
 # Populate the consumer fixture's go.sum, including transitive cloud SDKs.
 go mod download all
 
-packages="github.com/confiify/confii-go/loader/cloud"
+packages="github.com/confiify/confii-go/loader/cloud/v2/..."
 if has_tag aws || has_tag azure || has_tag gcp || has_tag vault; then
-	packages="$packages github.com/confiify/confii-go/secret/cloud"
+	packages="$packages github.com/confiify/confii-go/secret/cloud/v2"
 fi
 packages="$packages github.com/confiify/confii-go/examples/cloud/..."
 
@@ -70,7 +70,7 @@ case "$mode" in
 		;;
 	openbao)
 		go test -tags vault -count=1 -run '^TestOpenBaoInterop$' -timeout=60s \
-			github.com/confiify/confii-go/secret/cloud
+			github.com/confiify/confii-go/secret/cloud/v2
 		;;
 	*)
 		echo "usage: $0 [tags] [build|test|coverage|vet|vuln|openbao] [coverage-output]" >&2

@@ -13,8 +13,8 @@ import (
 	"strings"
 	"testing"
 
-	confii "github.com/confiify/confii-go"
-	"github.com/confiify/confii-go/selfconfig"
+	confii "github.com/confiify/confii-go/v2"
+	"github.com/confiify/confii-go/v2/selfconfig"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -39,20 +39,18 @@ func TestInitCommandScaffoldsNamedFilesThatLoad(t *testing.T) {
 
 	withWorkingDirectory(t, dir)
 	selfconfig.ClearCache()
-	cfg, err := confii.New[any](context.Background(), confii.WithEnv("production"))
+	cfg, err := confii.NewWithContext[any](context.Background(), confii.WithEnv("production"))
 	require.NoError(t, err)
 	assert.Equal(t, "todo-service", getTestString(t, cfg, "app.name"))
 	assert.Equal(t, "0.0.0.0", getTestString(t, cfg, "server.host"))
 	assert.Equal(t, "info", getTestString(t, cfg, "log.level"))
 
-	// The generated control plane must also support its advertised final
-	// environment-variable override layer once a project chooses a prefix.
 	updatedSelfConfig := strings.Replace(selfConfig, `env_prefix: ""`, "env_prefix: APP", 1)
 	require.NotEqual(t, selfConfig, updatedSelfConfig)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, selfConfigFilename), []byte(updatedSelfConfig), 0644))
 	t.Setenv("APP_SERVER__PORT", "9090")
 	selfconfig.ClearCache()
-	cfg, err = confii.New[any](context.Background())
+	cfg, err = confii.NewWithContext[any](context.Background())
 	require.NoError(t, err)
 	port, err := cfg.Get("server.port")
 	require.NoError(t, err)
@@ -77,7 +75,7 @@ func TestInitCommandScaffoldsSectionedFileThatLoads(t *testing.T) {
 
 	withWorkingDirectory(t, dir)
 	selfconfig.ClearCache()
-	cfg, err := confii.New[any](context.Background())
+	cfg, err := confii.NewWithContext[any](context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, "billing-service", getTestString(t, cfg, "app.name"))
 	assert.Equal(t, "debug", getTestString(t, cfg, "log.level"))
@@ -86,7 +84,7 @@ func TestInitCommandScaffoldsSectionedFileThatLoads(t *testing.T) {
 func TestInitCommandIsIdempotentForExistingProject(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "confii.yaml")
-	require.NoError(t, os.WriteFile(path, []byte("deep_merge: true\n"), 0o600))
+	require.NoError(t, os.WriteFile(path, []byte("debug_mode: true\n"), 0o600))
 
 	selfconfig.ClearCache()
 	out, err := execCobra(NewInitCmd(), []string{dir})
@@ -95,7 +93,7 @@ func TestInitCommandIsIdempotentForExistingProject(t *testing.T) {
 	assert.Contains(t, out, "No files changed")
 	assert.NoFileExists(t, filepath.Join(dir, selfConfigFilename))
 	assert.NoDirExists(t, filepath.Join(dir, "config"))
-	assert.Equal(t, "deep_merge: true\n", readTestFile(t, path))
+	assert.Equal(t, "debug_mode: true\n", readTestFile(t, path))
 }
 
 func TestInitCommandRejectsInvalidExistingProject(t *testing.T) {
@@ -121,8 +119,8 @@ func TestInitCommandRejectsMisspelledExistingSetting(t *testing.T) {
 
 func TestInitCommandRejectsAmbiguousSelfConfiguration(t *testing.T) {
 	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "confii.yaml"), []byte("deep_merge: true\n"), 0o600))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, selfConfigFilename), []byte("deep_merge: false\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "confii.yaml"), []byte("debug_mode: true\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, selfConfigFilename), []byte("debug_mode: false\n"), 0o600))
 
 	_, err := execCobra(NewInitCmd(), []string{dir})
 	require.Error(t, err)
@@ -131,7 +129,7 @@ func TestInitCommandRejectsAmbiguousSelfConfiguration(t *testing.T) {
 
 func TestInitCommandForceDoesNotCompeteWithAlternateSelfConfig(t *testing.T) {
 	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "confii.toml"), []byte("deep_merge = true\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "confii.toml"), []byte("debug_mode = true\n"), 0o600))
 
 	_, err := execCobra(NewInitCmd(), []string{"--force", dir})
 	require.Error(t, err)
@@ -311,18 +309,17 @@ func TestInitRenderTemplateAndHelpers(t *testing.T) {
 	unknownSection := string(renderSectionedStarter("service", []string{"staging"}))
 	assert.Contains(t, unknownSection, "staging:\n  {}")
 
-	replaced, err := replaceSingleInitSetting("a: 1\n", "a: 1", "a: 2")
+	replaced, err := replaceSingleInitSetting("a:1\n", "a:1", "a:2")
 	require.NoError(t, err)
-	assert.Equal(t, "a: 2\n", replaced)
-	_, err = replaceSingleInitSetting("a: 1\na: 1\n", "a: 1", "a: 2")
+	assert.Equal(t, "a:2\n", replaced)
+	_, err = replaceSingleInitSetting("a: 1\na: 1\n", "a:1", "a:2")
 	require.Error(t, err)
 
 	_, err = renderInitSelfConfigTemplate("not the canonical template", initLayoutSectioned, "config", "development", "APP_ENV")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "template drift")
 
-	_, err = buildInitPlanWithRenderer(
-		".",
+	_, err = buildInitPlanWithRenderer(".",
 		initLayoutSectioned,
 		initOptions{defaultEnvironment: "development", envSwitcher: "APP_ENV", configDir: "config"},
 		func(initLayout, string, string, string) ([]byte, error) {
@@ -450,8 +447,7 @@ func TestInitRollbackReportsRestoreFailure(t *testing.T) {
 	parent := filepath.Join(dir, "parent")
 	require.NoError(t, os.WriteFile(parent, []byte("file"), 0o600))
 	path := filepath.Join(parent, "child")
-	err := withInitRollback(
-		errors.New("original failure"),
+	err := withInitRollback(errors.New("original failure"),
 		[]string{path},
 		map[string]initFileBackup{path: {data: []byte("old"), mode: 0o600, exists: true}},
 		true,
@@ -478,30 +474,30 @@ func TestWriteInitPlanReportsBackupFailures(t *testing.T) {
 func TestInitOutputHelpersReturnWriterErrors(t *testing.T) {
 	err := printInitPlan(errorWriter{}, "Created", initLayoutMinimal, []initFile{{path: "x"}})
 	require.Error(t, err)
-	err = printInitNextSteps(errorWriter{}, initLayoutNamedFiles, ".", "development", "APP_ENV", false)
+	err = printInitNextSteps(errorWriter{}, initLayoutNamedFiles, ".", ".confii.yaml", "development", "APP_ENV", false)
 	require.Error(t, err)
 }
 
 func TestInitNextStepsMatchLayoutAndTarget(t *testing.T) {
 	var named bytes.Buffer
-	require.NoError(t, printInitNextSteps(&named, initLayoutNamedFiles, "path with spaces", "development", "APP_ENV", true))
+	require.NoError(t, printInitNextSteps(&named, initLayoutNamedFiles, "path with spaces", ".confii.yaml", "development", "APP_ENV", true))
 	assert.Contains(t, named.String(), `cd "path with spaces"`)
 	assert.Contains(t, named.String(), "confii env list")
 	assert.Contains(t, named.String(), "APP_ENV=development confii plan")
 	assert.Contains(t, named.String(), "never removes files")
 
 	var minimal bytes.Buffer
-	require.NoError(t, printInitNextSteps(&minimal, initLayoutMinimal, ".", "development", "APP_ENV", false))
-	assert.Contains(t, minimal.String(), "Edit .confii.yaml")
+	require.NoError(t, printInitNextSteps(&minimal, initLayoutMinimal, ".", ".confii.toml", "development", "APP_ENV", false))
+	assert.Contains(t, minimal.String(), "Edit .confii.toml")
 	assert.NotContains(t, minimal.String(), "APP_ENV=development")
 }
 
 func TestInitNextStepsReportsEveryWriterFailure(t *testing.T) {
 	for writes := 0; writes <= 7; writes++ {
-		err := printInitNextSteps(
-			&failAfterWriter{writesBeforeFailure: writes},
+		err := printInitNextSteps(&failAfterWriter{writesBeforeFailure: writes},
 			initLayoutNamedFiles,
 			"another project",
+			".confii.yaml",
 			"development",
 			"APP_ENV",
 			true,
@@ -509,10 +505,10 @@ func TestInitNextStepsReportsEveryWriterFailure(t *testing.T) {
 		require.Error(t, err, "named layout write %d", writes)
 	}
 	for writes := 0; writes <= 4; writes++ {
-		err := printInitNextSteps(
-			&failAfterWriter{writesBeforeFailure: writes},
+		err := printInitNextSteps(&failAfterWriter{writesBeforeFailure: writes},
 			initLayoutMinimal,
 			".",
+			".confii.yaml",
 			"development",
 			"APP_ENV",
 			false,

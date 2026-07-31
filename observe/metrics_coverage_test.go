@@ -14,7 +14,6 @@ import (
 func TestMetrics_RecordAccess_MultipleDifferentKeys(t *testing.T) {
 	m := NewMetrics(5)
 
-	// Record accesses on several keys.
 	for i := 0; i < 15; i++ {
 		m.RecordAccess("key_a", time.Millisecond)
 	}
@@ -45,6 +44,31 @@ func TestMetrics_RecordAccess_Disabled(t *testing.T) {
 	assert.Equal(t, 0, stats["accessed_keys"])
 }
 
+func TestMetrics_DisabledSuppressesEveryOperationCounter(t *testing.T) {
+	m := NewMetrics(5)
+	m.Disable()
+	m.RecordAccess("key", time.Millisecond)
+	m.RecordReload(time.Millisecond)
+	m.RecordReloadFailed(time.Millisecond)
+	m.RecordExtend(time.Millisecond)
+	m.RecordExtendFailed(time.Millisecond)
+	m.RecordSet()
+	m.RecordSetFailed()
+	m.RecordOverride()
+	m.RecordOverrideFailed()
+	m.RecordOverrideRestored()
+	m.RecordChange()
+
+	stats := m.Statistics()
+	for _, key := range []string{
+		"accessed_keys", "reload_count", "reload_failed_count",
+		"extend_count", "extend_failed_count", "set_count", "set_failed_count",
+		"override_count", "override_failed_count", "override_restored_count", "change_count",
+	} {
+		assert.Equal(t, 0, stats[key], key)
+	}
+}
+
 func TestMetrics_EnableAfterDisable(t *testing.T) {
 	m := NewMetrics(5)
 	m.Disable()
@@ -69,7 +93,7 @@ func TestMetrics_RecordReload_AvgDuration(t *testing.T) {
 
 	stats := m.Statistics()
 	assert.Equal(t, 3, stats["reload_count"])
-	// Average is (100+200+300)/3 = 200ms.
+
 	assert.Equal(t, (200 * time.Millisecond).String(), stats["avg_reload_time"])
 	assert.Contains(t, stats, "last_reload")
 }
@@ -78,14 +102,14 @@ func TestMetrics_RecordReload_EvictsOldDurations(t *testing.T) {
 	m := NewMetrics(5)
 	m.maxDurations = 3
 
-	m.RecordReload(100 * time.Millisecond) // will be evicted
+	m.RecordReload(100 * time.Millisecond)
 	m.RecordReload(200 * time.Millisecond)
 	m.RecordReload(300 * time.Millisecond)
-	m.RecordReload(400 * time.Millisecond) // triggers eviction of 100ms
+	m.RecordReload(400 * time.Millisecond)
 
 	stats := m.Statistics()
 	assert.Equal(t, 4, stats["reload_count"])
-	// Average of [200, 300, 400] = 300ms.
+
 	assert.Equal(t, (300 * time.Millisecond).String(), stats["avg_reload_time"])
 }
 
@@ -105,7 +129,7 @@ func TestMetrics_Statistics_ZeroKeys(t *testing.T) {
 	m.RecordAccess("key", time.Millisecond)
 
 	stats := m.Statistics()
-	// With totalKeys=0, access_rate should be 0 (avoid div by zero).
+
 	assert.Equal(t, float64(0), stats["access_rate"])
 }
 
@@ -132,7 +156,6 @@ func TestMetrics_Statistics_NoReloadsOrChanges(t *testing.T) {
 func TestMetrics_Statistics_TopKeysLimitedTo10(t *testing.T) {
 	m := NewMetrics(20)
 
-	// Create 15 different keys with varying access counts.
 	for i := 0; i < 15; i++ {
 		key := string(rune('a' + i))
 		for j := 0; j <= i; j++ {

@@ -1,17 +1,20 @@
 # Lifecycle Management
 
-Confii provides a full set of lifecycle operations for managing configuration at runtime. You can reload, extend, freeze, override, set values, and react to changes -- all in a thread-safe manner.
+Confii provides thread-safe lifecycle operations for reloading, extending, freezing, overriding, mutating, and observing runtime configuration.
+
+Runtime I/O is context-controlled and Reload/Extend prepare private candidates
+without blocking readers. See [Context, cancellation, and operation lifecycles](context.md).
 
 ---
 
 ## Reload
 
-Reload re-reads all configuration sources, re-merges them, and updates the in-memory config. If any source fails and `ErrorPolicyRaise` is set, the reload rolls back to the previous state automatically.
+Reload re-reads configuration sources and builds a private, fully materialized candidate. Confii publishes it atomically only after loading and validation succeed. If a source fails under `ErrorPolicyRaise`, the candidate is discarded and readers continue to observe the previous snapshot.
 
 === "Full Reload"
 
     ```go
-    err := cfg.Reload(ctx)
+    err := cfg.ReloadWithContext(ctx)
     if err != nil {
         log.Printf("reload failed: %v", err)
     }
@@ -22,7 +25,7 @@ Reload re-reads all configuration sources, re-merges them, and updates the in-me
     Only reload files whose mtime or SHA256 content hash has changed. This avoids unnecessary parsing when most files have not been modified.
 
     ```go
-    err := cfg.Reload(ctx, confii.WithIncremental(true))
+    err := cfg.ReloadWithContext(ctx, confii.WithIncremental(true))
     ```
 
 === "Dry-Run Reload"
@@ -30,7 +33,7 @@ Reload re-reads all configuration sources, re-merges them, and updates the in-me
     Load and validate from sources without applying any changes. Useful for pre-flight checks in CI or before a deploy.
 
     ```go
-    err := cfg.Reload(ctx, confii.WithDryRun(true))
+    err := cfg.ReloadWithContext(ctx, confii.WithDryRun(true))
     if err != nil {
         log.Printf("dry-run failed: %v", err)
     }
@@ -42,14 +45,14 @@ Reload re-reads all configuration sources, re-merges them, and updates the in-me
     Override the `validate_on_load` setting for this specific reload.
 
     ```go
-    err := cfg.Reload(ctx, confii.WithReloadValidate(true))
+    err := cfg.ReloadWithContext(ctx, confii.WithReloadValidate(true))
     ```
 
 !!! tip "Combine reload options"
-    You can combine multiple reload options in a single call:
+    Multiple reload options may be combined in one call:
 
     ```go
-    err := cfg.Reload(ctx,
+    err := cfg.ReloadWithContext(ctx,
         confii.WithIncremental(true),
         confii.WithReloadValidate(true),
     )
@@ -65,7 +68,7 @@ Reload re-reads all configuration sources, re-merges them, and updates the in-me
 Add a new loader at runtime and merge its configuration on top of the existing state. The new loader is also registered for future reloads.
 
 ```go
-err := cfg.Extend(ctx, loader.NewJSON("extra.json"))
+err := cfg.ExtendWithContext(ctx, loader.NewJSON("extra.json"))
 if err != nil {
     log.Fatal(err)
 }
@@ -128,12 +131,12 @@ err := cfg.Set("key", "value")
 fmt.Println(cfg.IsFrozen()) // true
 ```
 
-You can also freeze at construction time:
+Configuration may also be frozen during construction:
 
 === "Constructor"
 
     ```go
-    cfg, err := confii.New[any](ctx,
+    cfg, err := confii.NewWithContext[any](ctx,
         confii.WithLoaders(loader.NewYAML("config.yaml")),
         confii.WithFreezeOnLoad(true),
     )
@@ -145,7 +148,7 @@ You can also freeze at construction time:
     cfg, err := confii.NewBuilder[any]().
         AddLoader(loader.NewYAML("config.yaml")).
         EnableFreezeOnLoad().
-        Build(ctx)
+        BuildWithContext(ctx)
     ```
 
 !!! warning "ErrConfigFrozen"
@@ -202,10 +205,12 @@ cfg.OnChange(func(key string, oldVal, newVal any) {
 ```
 
 !!! tip "Multiple callbacks"
-    You can register as many callbacks as you need. They are called in registration order for each changed key. Panics in callbacks are caught and do not propagate.
+    Callbacks run in registration order for each changed key. Callback panics are recovered and do not propagate.
 
 !!! note "When do callbacks fire?"
-    Callbacks fire during `Reload` (after changes are applied, not during dry-run). They do **not** fire on `Set` or `Override`.
+    Callbacks fire after successful `Set`, `Override`, override restoration,
+    `Reload`, `Extend`, secret refresh, and version rollback commits. Dry runs,
+    rejected candidates, and no-op operations do not deliver changes.
 
 ---
 
@@ -220,15 +225,15 @@ import (
     "fmt"
     "log"
 
-    confii "github.com/confiify/confii-go"
-    "github.com/confiify/confii-go/loader"
+    confii "github.com/confiify/confii-go/v2"
+    "github.com/confiify/confii-go/v2/loader"
 )
 
 func main() {
     ctx := context.Background()
 
     // Create config
-    cfg, err := confii.New[any](ctx,
+    cfg, err := confii.NewWithContext[any](ctx,
         confii.WithLoaders(loader.NewYAML("config.yaml")),
         confii.WithEnv("production"),
     )
@@ -242,7 +247,7 @@ func main() {
     })
 
     // Extend with another source
-    _ = cfg.Extend(ctx, loader.NewJSON("overrides.json"))
+    _ = cfg.ExtendWithContext(ctx, loader.NewJSON("overrides.json"))
 
     // Set a value with protection
     _ = cfg.Set("feature.enabled", true, confii.WithOverride(false))
@@ -253,10 +258,10 @@ func main() {
     restore()
 
     // Reload with dry-run first
-    if err := cfg.Reload(ctx, confii.WithDryRun(true)); err != nil {
+    if err := cfg.ReloadWithContext(ctx, confii.WithDryRun(true)); err != nil {
         log.Printf("dry-run failed: %v", err)
     } else {
-        _ = cfg.Reload(ctx) // apply for real
+        _ = cfg.ReloadWithContext(ctx) // apply for real
     }
 
     // Freeze when done

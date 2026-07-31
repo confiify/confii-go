@@ -9,11 +9,11 @@ import (
 	"context"
 	"fmt"
 
-	confii "github.com/confiify/confii-go"
+	confii "github.com/confiify/confii-go/v2"
 )
 
 func init() {
-	confii.RegisterSelfConfigSecretProvider("aws", func(cfg map[string]any) (confii.SelfConfigSecretStore, error) {
+	confii.RegisterSelfConfigSecretProvider("aws", func(ctx context.Context, cfg map[string]any) (confii.SecretReader, error) {
 		var opts []AWSSecretsManagerOption
 		if region := selfString(cfg, "region"); region != "" {
 			opts = append(opts, WithAWSRegion(region))
@@ -29,7 +29,7 @@ func init() {
 		if endpoint := selfString(cfg, "endpoint", "endpoint_url"); endpoint != "" {
 			opts = append(opts, WithAWSEndpoint(endpoint))
 		}
-		store, err := NewAWSSecretsManager(context.Background(), opts...)
+		store, err := NewAWSSecretsManager(ctx, opts...)
 		if err != nil {
 			return nil, err
 		}

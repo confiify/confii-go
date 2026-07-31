@@ -6,6 +6,150 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Add a configurable trailing-edge reload debounce (`reload_debounce` and
+  `WithReloadDebounce`) with a 150ms default. Editor write bursts now produce
+  one watcher-driven reload, zero retains immediate behavior, and shutdown
+  cancels pending work.
+- Add explicit sensitivity classification through `sensitive_paths` and
+  `WithSensitivePaths`. Declared paths are combined with automatically detected
+  secret references and remain redacted across hooks, runtime mutations,
+  versions, rollback, diffs, generated documentation, and source inspection.
+
+### Fixed
+
+- Make explicit `WithEnv` selection authoritative for environment-specific
+  self-config overlays and scope cached self-config results by environment;
+  callers now receive detached settings instead of cache-owned pointers.
+- Register declarative secret providers created during runtime mutation with
+  the Config lifecycle, including providers initialized lazily after startup,
+  and close late creations safely when they race with `Config.Close`.
+- Fail construction when dynamic watcher setup fails, watch transitive
+  composition includes, and atomically adopt changed dependency sets after
+  successful reload and extend transactions.
+- Validate nil and typed-nil collaborators, option enums, merge paths, hook
+  registrations, and secret resolver hooks before source I/O; defensively own
+  caller-provided option slices, maps, and inline schemas.
+- Preserve secret-derived sensitivity metadata through mutation, refresh,
+  source transactions, overrides, version persistence, and rollback. Config
+  diff/drift, CLI diff, documentation generation, schema/explain output, and
+  detached source-tracker inspection redact those paths by default.
+
+- Make an override restore function a no-op after `Config.Close` so the closed
+  snapshot remains immutable and emits no further lifecycle signals.
+- Detach `reload`, `extend`, and `override_restored` event payloads completely;
+  listeners can no longer reach live configuration through shared slice values.
+- Return structured `ConfigError` values (stable `errors.Is` categories) for a
+  `Set` rejected by `WithOverride(false)`, version save and rollback admission
+  failures, nil diff targets, documentation/export format errors, serializer
+  failures, and export or debug-report write failures.
+- Classify AWS Secrets Manager not-found responses by the SDK's typed
+  `ResourceNotFoundException` and GCP already-exists responses by gRPC status
+  code instead of matching error message text, with typed-versus-message
+  regression coverage for both providers.
+- Reject an explicit secret version against a Vault KV v1 mount instead of
+  silently serving the current value.
+- Treat an empty `.confii.json` self-configuration file as defaults, matching
+  the YAML and TOML behavior.
+- Migrate the integration self-configuration fixture from removed
+  `default_files` and `deep_merge` fields to canonical `sources` configuration.
+- Account for the AWS SDK v1 S3 crypto advisories inherited through the
+  official Vault AWS authentication module with scoped OpenVEX statements;
+  CI now proves that the vulnerable S3 crypto package is absent from the
+  compiled secret-cloud and cloud-example dependency graphs.
+- Make parallel secret materialization cancellation race-free by queuing the
+  bounded work plan before workers start, and fail composition when an include
+  path cannot be canonicalized instead of weakening cycle detection.
+
+### Changed
+
+- Return capability-oriented views from `EnableObservability`, `EnableEvents`,
+  and `EnableVersioning` instead of Config-owned mutable collaborators. Metrics
+  control remains on Config, event consumers can subscribe without fabricating
+  lifecycle events, and version consumers can inspect history without bypassing
+  Config's transactional save and rollback operations.
+- Make disabling metrics pause every access and lifecycle counter consistently;
+  `Config.ResetMetrics` clears retained observations without exposing the
+  mutable collector.
+
+- Give `Typed` and `TypedWithContext` identical cached shared-view semantics,
+  and add `TypedCopy` plus `TypedCopyWithContext` for explicitly detached typed
+  models. Context selection now changes operation control, not value ownership.
+- Return a detached, redacted tracker from `Config.SourceTracker` instead of
+  exposing the live mutable collaborator.
+- Return detached version records from save, lookup, list, and latest-version
+  operations so caller mutation cannot corrupt retained version history.
+
+- Adopt Go semantic import versioning for the v2 API. The core module is now
+  `github.com/confiify/confii-go/v2`; the independently versioned cloud modules
+  are `github.com/confiify/confii-go/loader/cloud/v2` and
+  `github.com/confiify/confii-go/secret/cloud/v2`.
+- Replace the split legacy/context hook surfaces with one context-aware,
+  error-returning contract. Hook operations capture immutable execution plans,
+  provider and condition failures propagate to callers, and hook registration
+  invalidates the effective typed-model cache. Value-hook matching now occurs
+  at its documented pipeline stage, after key hooks, so a key transformation
+  can select a value hook in the same operation.
+- Make `Config.ToDict`, `Config.Diff`, and `Config.DetectDrift` return errors so
+  hook failures can no longer be silently discarded.
+- Reject empty, nil, and duplicate declarative provider registrations instead
+  of silently accepting ambiguous process-global state.
+- Use the Confii-owned `confii` struct tag for configuration mapping. The v2
+  typed decoder no longer treats `mapstructure` as a Confii mapping contract;
+  independent `validate` tags continue to work unchanged.
+- Standardize every paired explicit-context API on the unambiguous
+  `OperationWithContext` form. This includes construction, builders, access,
+  mutation, snapshots, composition, watchers, events, and Vault/OpenBao
+  constructors; the v2 surface no longer mixes `Ctx`, `OperationContext`, and
+  `ContextOperation` naming.
+- Canonicalize overlapping core source types to `yaml`, `json`, `toml`, `ini`,
+  `dotenv`, `environment`, and declarative `environment_files`; explicit CLI
+  loaders retain the separate `http` transport. Remove ambiguous v1 aliases,
+  make the declared local-file type authoritative, and reject paths whose
+  format contradicts that declaration while retaining `.yml` and `.cfg` as
+  valid filename extensions. Reject complete JSON documents presented through
+  a selected YAML, TOML, INI, or dotenv parser instead of accepting or
+  reinterpreting cross-format content.
+- Consolidate export serialization, snapshot validation, environment
+  selection, and format detection behind one implementation per concern.
+  Runtime mutations now pass through the same validation transaction as
+  construction, reload, extension, override, and secret refresh.
+- Delegate AppRole, Kubernetes, AWS IAM, Azure managed identity, and GCP Vault
+  authentication to HashiCorp's official auth packages. Retain explicit
+  adapters for externally signed AWS requests and externally supplied Azure or
+  GCP identity JWTs, whose acquisition is intentionally owned by the caller.
+- Replace the archived mapstructure module and original YAML import with their
+  maintained successors. Consolidate explicit and declarative dotenv loading
+  on godotenv while preserving Confii's nested keys, scalar coercion, variable
+  expansion, and error policies.
+- Harden remote loaders with standards-based media type parsing, exact Git
+  provider host validation, bounded HTTP response bodies, and injectable HTTP
+  clients.
+- Replace timestamp-hash version identifiers with monotonic ULIDs, represent
+  timestamps as `time.Time`, publish snapshot files through Google's renameio
+  implementation, snapshot metadata immutably, and return the canonical typed
+  diff model from version comparisons.
+
+### Added
+
+- Add a v2 migration guide covering module paths, struct tags, hooks,
+  error-returning snapshots/diffs, provider registration, and typed-hook cache
+  behavior.
+- Add `Config.GetFloat64Or`, completing the default-returning typed getter set
+  already documented by the project.
+- Make the existing `Exporter` and `Validator` contracts usable application
+  extension points through `WithExporter`, `WithValidator`, and their builder
+  equivalents. Custom validators receive isolated candidate data and reject a
+  snapshot atomically; custom exporters can add formats or replace built-ins.
+- Implement value-safe existence and metadata capabilities for `DictStore`,
+  and use `FileTracker.GetChangedFiles` for batched reload decisions.
+- Add the dependency-free public `configmap` package for deterministic
+  Confii-compatible key-path lookup, existence checks, enumeration, and atomic
+  mutation. Core and cloud loaders now share its typed invalid-path,
+  nil-map, and path-conflict behavior instead of maintaining separate nested
+  map implementations.
+
 ## [1.4.1] - 2026-07-30
 
 ### Fixed
@@ -267,8 +411,8 @@ public functions extend the self-config secret provider story.
 
 ### Fixed
 
-- **Re-entrant hook deadlocks.** `GetCtx`, `ToDictCtx`, `ExportCtx`, and
-  `TypedCtx` now snapshot configuration under lock and execute user hooks
+- **Re-entrant hook deadlocks.** `GetWithContext`, `ToDictWithContext`, `ExportWithContext`, and
+  `TypedWithContext` now snapshot configuration under lock and execute user hooks
   after releasing it. Hooks may call back into Config APIs, and slow secret
   resolution no longer blocks unrelated writers. Typed-cache publication is
   skipped when a hook changed live state while resolving the snapshot.
@@ -281,7 +425,7 @@ public functions extend the self-config secret provider story.
 - **Contradictory module CI gates.** Core and cloud integrations now have
   independent module manifests, and CI verifies that every manifest is tidy
   before exercising cloud-tag builds through a consumer fixture.
-- **Atomic rollback in `Config.Reload`.** A Phase 5/6/7 failure now
+- **Atomic rollback in `Config.Reload`.** A load, validation, or dry-run failure now
   restores `fileTracker` alongside `envConfig`, `mergedConfig`, and
   the source tracker. Previously the file tracker carried the
   malformed-content hash forward, so the next incremental Reload
@@ -348,10 +492,10 @@ public functions extend the self-config secret provider story.
 - Cloud loaders: AWS S3, SSM, Azure Blob, GCS, IBM COS, Git repositories
 - Secret management with `${secret:key}` placeholder resolution
 - Cloud secret stores: AWS Secrets Manager, Azure Key Vault, GCP Secret Manager, and a Vault-compatible layer with nine implemented auth flows (Token and AppRole live-tested against OpenBao; other flows protocol-tested and provider-configured)
-- 6 merge strategies (replace, merge, append, prepend, intersection, union) with per-path overrides
+- Merge strategies (replace, merge, append, prepend, intersection, union) with per-path overrides
 - Hydra-style config composition via `_include` and `_defaults` directives
 - Environment resolution with automatic default + environment-specific merging
-- 4-type hook system (key, value, condition, global) for value transformation
+- Key, value, condition, and global hooks for value transformation
 - Struct tag validation via go-playground/validator and JSON Schema validation
 - Full introspection: Explain(), Layers(), Schema(), source tracking, override history
 - Config diff, drift detection, versioning with rollback
@@ -360,7 +504,7 @@ public functions extend the self-config secret provider story.
 - Documentation generation (markdown, JSON)
 - Export to JSON, YAML, TOML
 - Self-configuration via `.confii.yaml` auto-discovery
-- CLI tool with 10 commands: load, get, validate, export, diff, debug, explain, lint, docs, migrate
-- 19 focused runnable examples
+- CLI commands for loading, inspecting, validating, exporting, comparing, and migrating configuration
+- Focused runnable examples
 - GitHub Actions CI/CD: test matrix, CodeQL, govulncheck, OSSF Scorecard
 - Broad unit, integration, race, fuzz, and cross-platform test coverage

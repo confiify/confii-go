@@ -3,31 +3,6 @@
 
 package dictutil
 
-// This file fuzzes the dictutil nested-key helpers and DeepMerge.
-//
-// FuzzGetNested and FuzzSetNested assert these invariants beyond
-// "does not panic":
-//
-//  - GetNested: when (val, true) is returned, the same val must be
-//    reachable via the same path on a fresh probe — i.e. GetNested is
-//    pure (does not mutate the input map).
-//  - SetNested: after a successful SetNested(data, path, value), a
-//    GetNested(data, path) must return (value, true). This is the
-//    fundamental round-trip property of the get/set pair. Failed
-//    SetNested calls (returning *PathError) must leave the map
-//    unchanged at the affected prefix.
-//
-// FuzzDeepMerge asserts the merge contract:
-//
-//  - Right identity: DeepMerge(a, {}) is value-equal to a.
-//  - Left identity: DeepMerge({}, b) is value-equal to b.
-//  - Self-idempotence: DeepMerge(a, a) is value-equal to a.
-//  - Non-mutation: neither input map is modified by DeepMerge — we
-//    snapshot both inputs before the call and re-check after.
-//  - Result well-formedness: every key in the result is non-empty (the
-//    inputs are constructed from fuzz-generated key paths so this
-//    catches any key transformation that produces an empty entry).
-
 import (
 	"reflect"
 	"strings"
@@ -58,19 +33,15 @@ func FuzzGetNested(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, keyPath string) {
-		// Snapshot the data map so we can verify GetNested doesn't
-		// mutate it.
+
 		snapshot := deepCopyMap(data)
 
 		val, ok := GetNested(data, keyPath)
 
-		// Invariant: GetNested must not mutate the input.
 		if !reflect.DeepEqual(data, snapshot) {
 			t.Fatalf("GetNested mutated input: before=%v after=%v", snapshot, data)
 		}
 
-		// Invariant: the result must be deterministic across repeated
-		// calls.
 		val2, ok2 := GetNested(data, keyPath)
 		if ok != ok2 {
 			t.Fatalf("GetNested returned different ok on repeat call: %v vs %v (path=%q)", ok, ok2, keyPath)
@@ -99,11 +70,7 @@ func FuzzSetNested(f *testing.F) {
 
 		err := SetNested(data, keyPath, sentinel)
 		if err != nil {
-			// SetNested only fails on conflict with a non-map
-			// intermediate. With a freshly-allocated empty map there
-			// are no intermediates to conflict with — so an error
-			// here would imply a regression. Allow only the
-			// PathError type for forward compatibility.
+
 			var pe *PathError
 			if !asPathError(err, &pe) {
 				t.Fatalf("SetNested returned non-PathError on empty map: %T (%v) path=%q", err, err, keyPath)
@@ -111,10 +78,6 @@ func FuzzSetNested(f *testing.F) {
 			return
 		}
 
-		// Invariant: round-trip with GetNested. The path-segments
-		// produced by strings.Split on "..", "a.", etc. include empty
-		// strings; SetNested stores under those empty segments
-		// without complaint, and GetNested must retrieve them.
 		got, ok := GetNested(data, keyPath)
 		if !ok {
 			t.Fatalf("GetNested could not find value just set by SetNested: path=%q data=%v", keyPath, data)
@@ -125,12 +88,6 @@ func FuzzSetNested(f *testing.F) {
 	})
 }
 
-// FuzzDeepMerge fuzzes the DeepMerge function. The fuzz input is a pair
-// of dotted key paths used to construct two small nested maps which are
-// then merged. This is enough surface to exercise both flat-key merges
-// and nested recursion paths; full random-tree fuzzing would require
-// custom value generation, which the standard fuzz harness does not
-// support directly.
 func FuzzDeepMerge(f *testing.F) {
 	type seed struct{ a, b string }
 	seeds := []seed{
@@ -149,11 +106,7 @@ func FuzzDeepMerge(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, pathA, pathB string) {
-		// Skip pathological seeds that produce structurally
-		// incompatible parents (e.g. "a" and "a.b" — SetNested would
-		// turn a leaf into a map). We test DeepMerge, not SetNested
-		// conflict resolution. Detect this by checking whether either
-		// path is a strict prefix of the other (component-wise).
+
 		if isComponentPrefix(pathA, pathB) || isComponentPrefix(pathB, pathA) {
 			return
 		}
@@ -171,21 +124,18 @@ func FuzzDeepMerge(f *testing.F) {
 		snapshotA := deepCopyMap(mapA)
 		snapshotB := deepCopyMap(mapB)
 
-		// Invariant: right identity.
 		if got := DeepMerge(mapA, empty); !reflect.DeepEqual(got, mapA) {
 			t.Fatalf("DeepMerge(a, {}) != a: a=%v got=%v", mapA, got)
 		}
-		// Invariant: left identity.
+
 		if got := DeepMerge(empty, mapB); !reflect.DeepEqual(got, mapB) {
 			t.Fatalf("DeepMerge({}, b) != b: b=%v got=%v", mapB, got)
 		}
-		// Invariant: self-idempotence.
+
 		if got := DeepMerge(mapA, mapA); !reflect.DeepEqual(got, mapA) {
 			t.Fatalf("DeepMerge(a, a) != a: a=%v got=%v", mapA, got)
 		}
 
-		// Invariant: non-mutation. The actual merge of distinct
-		// inputs must leave both originals untouched.
 		_ = DeepMerge(mapA, mapB)
 		if !reflect.DeepEqual(mapA, snapshotA) {
 			t.Fatalf("DeepMerge mutated base: before=%v after=%v", snapshotA, mapA)
@@ -196,9 +146,6 @@ func FuzzDeepMerge(f *testing.F) {
 	})
 }
 
-// deepCopyMap returns a deep copy of m, recursing through nested
-// map[string]any values. Other values (strings, ints, etc.) are
-// reference-copied; that's safe because they are immutable in Go.
 func deepCopyMap(m map[string]any) map[string]any {
 	out := make(map[string]any, len(m))
 	for k, v := range m {
@@ -211,8 +158,6 @@ func deepCopyMap(m map[string]any) map[string]any {
 	return out
 }
 
-// asPathError unwraps err looking for a *PathError. Implemented inline
-// to avoid pulling errors.As into the fuzz harness for a single use.
 func asPathError(err error, target **PathError) bool {
 	if pe, ok := err.(*PathError); ok {
 		*target = pe
@@ -221,8 +166,6 @@ func asPathError(err error, target **PathError) bool {
 	return false
 }
 
-// isComponentPrefix reports whether the dot-separated components of a
-// are a strict prefix of those of b. Equal paths return false.
 func isComponentPrefix(a, b string) bool {
 	if a == b {
 		return false

@@ -8,14 +8,13 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"time"
 
-	confii "github.com/confiify/confii-go"
-	"github.com/confiify/confii-go/loader"
-	"github.com/confiify/confii-go/secret"
+	confii "github.com/confiify/confii-go/v2"
+	"github.com/confiify/confii-go/v2/loader"
+	"github.com/confiify/confii-go/v2/secret"
 )
 
 func main() {
@@ -35,8 +34,7 @@ func main() {
 		secret.WithResolverPrefix("prod/"),
 	)
 
-	cfg, err := confii.New[any](context.Background(),
-		confii.WithLoaders(loader.NewYAML("config.yaml")),
+	cfg, err := confii.New[any](confii.WithLoaders(loader.NewYAML("config.yaml")),
 		confii.WithSecretResolver(resolver),
 	)
 	if err != nil {

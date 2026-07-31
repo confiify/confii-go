@@ -3,29 +3,6 @@
 
 package confii_test
 
-// G12 / Wave 11 coverage for runtime mutation APIs (Set, Override).
-//
-// Pre-G12 the runtime mutation APIs left state and introspection
-// inconsistent in four orthogonal ways:
-//
-//  1. Set updated envConfig/mergedConfig but did not update the source
-//     tracker, so a key written via Set still reported its pre-Set
-//     source via Explain.
-//  2. Set silently swallowed dictutil.SetNested *PathError errors, so
-//     a caller's bad path traversal "succeeded" while leaving state
-//     unchanged.
-//  3. Override silently swallowed the same SetNested errors AND always
-//     returned nil, so partial-application bugs were invisible.
-//  4. Set did not fire OnChange callbacks (F-G12-Set-CallbackSilence).
-//  5. Set stored caller's value reference without defensive copy
-//     (F-G10-SetInputAlias) — a caller mutating the original map after
-//     Set bled into Config state.
-//  6. G21 residual: Set / Override emitted no metrics or events, so
-//     observers could not see runtime mutations.
-//
-// Each test below pins one observable that would fail under the
-// pre-G12 behavior.
-
 import (
 	"context"
 	"errors"
@@ -34,24 +11,18 @@ import (
 	"sync/atomic"
 	"testing"
 
-	confii "github.com/confiify/confii-go"
-	"github.com/confiify/confii-go/loader"
+	confii "github.com/confiify/confii-go/v2"
+	"github.com/confiify/confii-go/v2/loader"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// TestSet_SourceTrackingParity asserts that a successful Set updates
-// the source tracker so Explain reports source="runtime" for the
-// runtime-written key. Pre-G12 Explain reported the loader's source
-// (e.g. "loader/testdata/simple.yaml") even after Set overrode the
-// value, leaving introspection inconsistent with the live state.
 func TestSet_SourceTrackingParity(t *testing.T) {
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML("loader/testdata/simple.yaml")),
 	)
 	require.NoError(t, err)
 
-	// Sanity: pre-Set source is the file loader.
 	pre := cfg.Explain("database.host")
 	require.Equal(t, true, pre["exists"])
 	require.NotEqual(t, "runtime", pre["source"],
@@ -62,16 +33,14 @@ func TestSet_SourceTrackingParity(t *testing.T) {
 	post := cfg.Explain("database.host")
 	require.Equal(t, true, post["exists"])
 	assert.Equal(t, "runtime", post["source"],
-		"Explain must report source=runtime after Set (G12 source-tracking parity)")
+		"Explain must report source=runtime after Set (source-tracking parity)")
 	assert.Equal(t, "runtime", post["loader_type"],
-		"Explain must report loader_type=runtime after Set (G12 source-tracking parity)")
+		"Explain must report loader_type=runtime after Set (source-tracking parity)")
 	assert.Equal(t, "set-by-runtime", post["current_value"])
 }
 
-// TestSet_SourceTrackingParity_NewKey asserts that Set adding a brand
-// new key (not present in any loader) records "runtime" as the source.
 func TestSet_SourceTrackingParity_NewKey(t *testing.T) {
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML("loader/testdata/simple.yaml")),
 	)
 	require.NoError(t, err)
@@ -84,58 +53,42 @@ func TestSet_SourceTrackingParity_NewKey(t *testing.T) {
 	assert.Equal(t, 42, got["current_value"])
 }
 
-// TestSet_PathErrorPropagatesAsTypedError asserts that when Set's
-// dot-separated key path traverses through a non-map intermediate,
-// the *PathError is surfaced as a typed *ConfigError wrapping
-// ErrConfigInvalid. Pre-G12 the error was silently swallowed, so the
-// caller saw success while state stayed unchanged.
 func TestSet_PathErrorPropagatesAsTypedError(t *testing.T) {
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML("loader/testdata/simple.yaml")),
 	)
 	require.NoError(t, err)
 
-	// "debug" is bound to a bool in simple.yaml, so "debug.feature.flag"
-	// must traverse through a non-map intermediate. Pre-G12 SetNested
-	// returned its *PathError and Set silently swallowed it.
 	err = cfg.Set("debug.feature.flag", true)
-	require.Error(t, err, "Set must surface the SetNested PathError (G12)")
+	require.Error(t, err, "Set must surface the SetNested PathError ")
 
 	var ce *confii.ConfigError
 	require.True(t, errors.As(err, &ce),
 		"expected *ConfigError, got %T (%v)", err, err)
 	assert.Equal(t, "Set", ce.Op,
-		"ConfigError.Op must be Set (G12 typed-error contract)")
+		"ConfigError.Op must be Set (typed-error contract)")
 	assert.Equal(t, "debug.feature.flag", ce.Key,
 		"ConfigError.Key must echo the rejected key path")
 	assert.True(t, errors.Is(err, confii.ErrConfigInvalid),
-		"error must wrap ErrConfigInvalid sentinel (G12)")
+		"error must wrap ErrConfigInvalid sentinel ")
 
-	// State must be unchanged: original "debug" still reachable as bool.
 	dbg, gerr := cfg.GetBool("debug")
 	require.NoError(t, gerr,
-		"after a rejected Set, the pre-Set debug value must still be queryable")
+		"after a rejected Set(), the pre-Set debug value must still be queryable")
 	assert.Equal(t, true, dbg)
 }
 
-// TestOverride_PathErrorPropagatesAsTypedError asserts that when an
-// override key's path traverses through a non-map intermediate, the
-// *PathError is surfaced as a typed *ConfigError wrapping
-// ErrConfigInvalid AND that the partial mutations applied earlier in
-// the loop are rolled back. Pre-G12 the error was silently swallowed
-// and Override always returned (restore, nil).
 func TestOverride_PathErrorPropagatesAsTypedError(t *testing.T) {
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML("loader/testdata/simple.yaml")),
 	)
 	require.NoError(t, err)
 
-	// "debug" is a bool; "debug.feature" forces a non-map traversal.
 	restore, err := cfg.Override(map[string]any{
 		"debug.feature": "x",
 	})
 	require.Error(t, err,
-		"Override must surface SetNested PathError (G12)")
+		"Override must surface SetNested PathError ")
 	assert.Nil(t, restore,
 		"Override must return nil restore on failure")
 
@@ -146,18 +99,13 @@ func TestOverride_PathErrorPropagatesAsTypedError(t *testing.T) {
 	assert.True(t, errors.Is(err, confii.ErrConfigInvalid),
 		"Override error must wrap ErrConfigInvalid sentinel")
 
-	// Live state must be untouched: debug stays bool=true.
 	dbg, gerr := cfg.GetBool("debug")
 	require.NoError(t, gerr)
 	assert.Equal(t, true, dbg)
 }
 
-// TestSet_FiresOnChangeCallback_AddAndUpdate pins the
-// F-G12-Set-CallbackSilence contract: Set fires OnChange callbacks
-// with (oldVal, newVal) when the value changes, and (nil, newVal)
-// for a brand new key.
 func TestSet_FiresOnChangeCallback_AddAndUpdate(t *testing.T) {
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML("loader/testdata/simple.yaml")),
 	)
 	require.NoError(t, err)
@@ -180,9 +128,8 @@ func TestSet_FiresOnChangeCallback_AddAndUpdate(t *testing.T) {
 		})
 	})
 
-	// Update existing key: must fire (oldVal != nil, newVal != nil).
 	require.NoError(t, cfg.Set("database.host", "set-by-test"))
-	// Add new key: must fire (oldVal == nil, newVal != nil).
+
 	require.NoError(t, cfg.Set("freshly.added.key", "added"))
 
 	mu.Lock()
@@ -198,7 +145,7 @@ func TestSet_FiresOnChangeCallback_AddAndUpdate(t *testing.T) {
 		}
 	}
 	require.NotNil(t, update,
-		"Set on existing key must fire OnChange (F-G12-Set-CallbackSilence)")
+		"Set on existing key must fire OnChange ")
 	assert.False(t, update.oldNil,
 		"update fire must report non-nil oldVal")
 	assert.False(t, update.newNil,
@@ -207,20 +154,15 @@ func TestSet_FiresOnChangeCallback_AddAndUpdate(t *testing.T) {
 	assert.Equal(t, "set-by-test", update.newS)
 
 	require.NotNil(t, addition,
-		"Set on new key must fire OnChange (F-G12-Set-CallbackSilence)")
+		"Set on new key must fire OnChange ")
 	assert.True(t, addition.oldNil,
-		"addition fire must report nil oldVal (G13 deletion contract symmetry)")
+		"addition fire must report nil oldVal (deletion contract symmetry)")
 	assert.False(t, addition.newNil)
 	assert.Equal(t, "added", addition.newS)
 }
 
-// TestSet_DeepCopiesMapValue pins F-G10-SetInputAlias: a caller
-// passing a map[string]any to Set, then mutating that map after the
-// Set returns, must NOT bleed into Config state. Pre-G10 Set stored
-// the caller's map by reference, inverting the read-time deep-copy
-// contract introduced in G11.
 func TestSet_DeepCopiesMapValue(t *testing.T) {
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML("loader/testdata/simple.yaml")),
 	)
 	require.NoError(t, err)
@@ -228,26 +170,21 @@ func TestSet_DeepCopiesMapValue(t *testing.T) {
 	original := map[string]any{"a": 1}
 	require.NoError(t, cfg.Set("user.payload", original))
 
-	// Mutate caller's reference. Pre-G10 this would alias into c.envConfig.
 	original["a"] = 999
 	original["b"] = "leaked"
 
-	// Confii must observe the value at the moment of Set.
 	got, err := cfg.Get("user.payload.a")
 	require.NoError(t, err)
 	assert.Equal(t, 1, got,
-		"Set must defensively deep-copy map values (F-G10-SetInputAlias)")
+		"Set must defensively deep-copy map values ")
 
-	// And the leaked sibling must not be reachable.
 	_, err = cfg.Get("user.payload.b")
 	assert.Error(t, err,
 		"caller-side keys added after Set must NOT leak into Config state")
 }
 
-// TestSet_DeepCopiesSliceValue is the slice counterpart: a []any
-// passed to Set must be deep-copied so caller mutation does not bleed.
 func TestSet_DeepCopiesSliceValue(t *testing.T) {
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML("loader/testdata/simple.yaml")),
 	)
 	require.NoError(t, err)
@@ -255,7 +192,6 @@ func TestSet_DeepCopiesSliceValue(t *testing.T) {
 	original := []any{"x", "y"}
 	require.NoError(t, cfg.Set("user.list", original))
 
-	// Mutate the slice's storage in place.
 	original[0] = "MUTATED"
 
 	got, err := cfg.Get("user.list")
@@ -265,14 +201,11 @@ func TestSet_DeepCopiesSliceValue(t *testing.T) {
 		"value must round-trip as []any after deep copy")
 	require.Len(t, gotSlice, 2)
 	assert.Equal(t, "x", gotSlice[0],
-		"Set must defensively deep-copy slice values (F-G10-SetInputAlias)")
+		"Set must defensively deep-copy slice values ")
 }
 
-// TestSet_EmitsMetricsAndEvent pins the G21 residual scope:
-// a successful Set must emit RecordSet + RecordChange and "set" +
-// "change" events. Pre-G21-residual Set was invisible to observers.
 func TestSet_EmitsMetricsAndEvent(t *testing.T) {
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML("loader/testdata/simple.yaml")),
 	)
 	require.NoError(t, err)
@@ -289,21 +222,17 @@ func TestSet_EmitsMetricsAndEvent(t *testing.T) {
 
 	stats := metrics.Statistics()
 	assert.Equal(t, 1, stats["set_count"],
-		"successful Set must increment set_count (G21 residual)")
+		"successful Set must increment set_count (residual)")
 	assert.Equal(t, 1, stats["change_count"],
 		"successful Set must increment change_count")
 	assert.Equal(t, int64(1), setEvents.Load(),
-		"successful Set must emit a 'set' event (G21 residual)")
+		"successful Set must emit a 'set' event (residual)")
 	assert.Equal(t, int64(1), changeEvents.Load(),
 		"successful Set must emit a 'change' event")
 }
 
-// TestSet_FailureEmitsSetFailedMetricAndEvent: a Set that hits a
-// non-map traversal must fire the failure-path observability and
-// leave set_count untouched. Mirrors the reload_failed / extend_failed
-// success-vs-failure split.
 func TestSet_FailureEmitsSetFailedMetricAndEvent(t *testing.T) {
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML("loader/testdata/simple.yaml")),
 	)
 	require.NoError(t, err)
@@ -316,7 +245,7 @@ func TestSet_FailureEmitsSetFailedMetricAndEvent(t *testing.T) {
 	emitter.On("set", func(args ...any) { setSuccesses.Add(1) })
 	emitter.On("set_failed", func(args ...any) { setFailures.Add(1) })
 
-	err = cfg.Set("debug.feature.flag", true) // debug is bool
+	err = cfg.Set("debug.feature.flag", true)
 	require.Error(t, err)
 
 	stats := metrics.Statistics()
@@ -330,11 +259,8 @@ func TestSet_FailureEmitsSetFailedMetricAndEvent(t *testing.T) {
 		"failed Set must emit 'set_failed'")
 }
 
-// TestOverride_EmitsMetricsAndEvent pins that a successful Override
-// emits RecordOverride + RecordChange and "override" + "change"
-// events. Pre-G21-residual Override was invisible to observers.
 func TestOverride_EmitsMetricsAndEvent(t *testing.T) {
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML("loader/testdata/simple.yaml")),
 	)
 	require.NoError(t, err)
@@ -358,23 +284,19 @@ func TestOverride_EmitsMetricsAndEvent(t *testing.T) {
 	assert.Equal(t, 1, stats["override_count"],
 		"successful Override must increment override_count")
 	assert.Equal(t, 1, stats["override_restored_count"],
-		"restore() must increment override_restored_count")
+		"restore must increment override_restored_count")
 	assert.GreaterOrEqual(t, stats["change_count"].(int), 2,
 		"Override + restore must each increment change_count")
 	assert.Equal(t, int64(1), overrideEvents.Load(),
 		"successful Override must emit 'override' event")
 	assert.Equal(t, int64(1), restoreEvents.Load(),
-		"restore() must emit 'override_restored' event")
+		"restore must emit 'override_restored' event")
 	assert.GreaterOrEqual(t, changeEvents.Load(), int64(2),
 		"Override + restore must each emit 'change'")
 }
 
-// TestOverride_FailureEmitsOverrideFailedMetricAndEvent pins the
-// failure-path observability: when an override key hits a non-map
-// traversal, override_failed_count and the "override_failed" event
-// must fire while override_count stays at zero.
 func TestOverride_FailureEmitsOverrideFailedMetricAndEvent(t *testing.T) {
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML("loader/testdata/simple.yaml")),
 	)
 	require.NoError(t, err)
@@ -401,12 +323,8 @@ func TestOverride_FailureEmitsOverrideFailedMetricAndEvent(t *testing.T) {
 		"failed Override must emit 'override_failed'")
 }
 
-// TestSet_SourceParityAcrossReload pins the second half of the
-// source-tracking parity contract: a Set source claim must persist
-// only until a subsequent Reload overwrites it. After a Reload that
-// re-reads the file, the source must revert to the file source.
 func TestSet_SourceParityAcrossReload(t *testing.T) {
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML("loader/testdata/simple.yaml")),
 	)
 	require.NoError(t, err)
@@ -415,12 +333,12 @@ func TestSet_SourceParityAcrossReload(t *testing.T) {
 	mid := cfg.Explain("database.host")
 	require.Equal(t, "runtime", mid["source"])
 
-	require.NoError(t, cfg.Reload(context.Background(),
+	require.NoError(t, cfg.ReloadWithContext(context.Background(),
 		confii.WithIncremental(false),
 	))
 
 	post := cfg.Explain("database.host")
 	require.Equal(t, true, post["exists"])
 	assert.NotEqual(t, "runtime", post["source"],
-		"Reload must overwrite the runtime source claim with the loader source (G12)")
+		"Reload must overwrite the runtime source claim with the loader source ")
 }

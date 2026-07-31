@@ -9,7 +9,10 @@ Confii can compare two configurations and produce a structured diff, or detect u
 The `Diff` method compares two `Config` instances and returns a list of `ConfigDiff` entries:
 
 ```go
-diffs := cfg1.Diff(cfg2)
+diffs, err := cfg1.Diff(cfg2)
+if err != nil {
+    log.Fatal(err)
+}
 
 for _, d := range diffs {
     switch d.Type {
@@ -23,13 +26,19 @@ for _, d := range diffs {
 }
 ```
 
-You can also diff raw maps directly using the `diff` package:
+The `diff` package also compares raw maps directly:
 
 ```go
-import "github.com/confiify/confii-go/diff"
+import "github.com/confiify/confii-go/v2/diff"
 
 diffs := diff.Diff(map1, map2)
 ```
+
+!!! warning "Choose the Config API for safe diagnostics"
+    `Config.Diff`, `Config.DetectDrift`, and the `confii diff` command preserve
+    sensitivity metadata and replace secret-backed values with a redaction
+    marker. The lower-level `diff.Diff` function has no metadata and compares
+    the raw values supplied by its caller.
 
 ---
 
@@ -147,7 +156,10 @@ intended := map[string]any{
     },
 }
 
-drifts := cfg.DetectDrift(intended)
+drifts, err := cfg.DetectDrift(intended)
+if err != nil {
+    log.Fatal(err)
+}
 if len(drifts) > 0 {
     fmt.Printf("Drift detected! %d differences\n", len(drifts))
     for _, d := range drifts {
@@ -161,17 +173,22 @@ if len(drifts) > 0 {
 For repeated checks against the same baseline, create a `DriftDetector`:
 
 ```go
-import "github.com/confiify/confii-go/diff"
+import "github.com/confiify/confii-go/v2/diff"
 
 detector := diff.NewDriftDetector(intendedConfig)
 
+snapshot, err := cfg.ToDict()
+if err != nil {
+    log.Fatal(err)
+}
+
 // Check if any drift exists
-if detector.HasDrift(cfg.ToDict()) {
+if detector.HasDrift(snapshot) {
     fmt.Println("Configuration has drifted from baseline!")
 }
 
 // Get detailed drift information
-drifts := detector.DetectDrift(cfg.ToDict())
+drifts := detector.DetectDrift(snapshot)
 for _, d := range drifts {
     fmt.Printf("  %s (%s): %v -> %v\n", d.Path, d.Type, d.OldValue, d.NewValue)
 }
@@ -188,13 +205,13 @@ Run drift detection in CI to ensure deployed configs match the intended state:
 ```go
 func TestConfigDrift(t *testing.T) {
     // Load the intended baseline (e.g., checked into git)
-    baseline, _ := confii.New[any](ctx,
+    baseline, _ := confii.NewWithContext[any](ctx,
         confii.WithLoaders(loader.NewYAML("config/baseline.yaml")),
         confii.WithEnv("production"),
     )
 
     // Load the actual deployed config
-    actual, _ := confii.New[any](ctx,
+    actual, _ := confii.NewWithContext[any](ctx,
         confii.WithLoaders(loader.NewYAML("config/deployed.yaml")),
         confii.WithEnv("production"),
     )
@@ -212,17 +229,20 @@ func TestConfigDrift(t *testing.T) {
 Compare configs across environments to document differences:
 
 ```go
-devCfg, _ := confii.New[any](ctx,
+devCfg, _ := confii.NewWithContext[any](ctx,
     confii.WithLoaders(loader.NewYAML("config.yaml")),
     confii.WithEnv("development"),
 )
 
-prodCfg, _ := confii.New[any](ctx,
+prodCfg, _ := confii.NewWithContext[any](ctx,
     confii.WithLoaders(loader.NewYAML("config.yaml")),
     confii.WithEnv("production"),
 )
 
-diffs := devCfg.Diff(prodCfg)
+diffs, err := devCfg.Diff(prodCfg)
+if err != nil {
+    log.Fatal(err)
+}
 summary := diff.Summary(diffs)
 fmt.Printf("Dev vs Prod: %d differences\n", summary["total"])
 
@@ -236,9 +256,17 @@ os.WriteFile("env-diff.json", []byte(jsonStr), 0644)
 Diff before and after a reload to know exactly what changed:
 
 ```go
-before := copyConfig(cfg.ToDict())
-cfg.Reload(ctx)
-after := cfg.ToDict()
+before, err := cfg.ToDict()
+if err != nil {
+    log.Fatal(err)
+}
+if err := cfg.ReloadWithContext(ctx); err != nil {
+    log.Fatal(err)
+}
+after, err := cfg.ToDict()
+if err != nil {
+    log.Fatal(err)
+}
 
 changes := diff.Diff(before, after)
 if len(changes) > 0 {

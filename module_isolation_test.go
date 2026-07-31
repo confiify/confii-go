@@ -12,10 +12,6 @@ import (
 	"testing"
 )
 
-// TestCoreModuleExcludesCloudSDKs guards the multi-module boundary: cloud
-// integrations live in nested modules, so the root library's go.mod/go.sum
-// must never acquire a provider SDK. This keeps core consumers lightweight
-// while allowing every module to remain valid under `go mod tidy`.
 func TestCoreModuleExcludesCloudSDKs(t *testing.T) {
 	root, err := repositoryRoot()
 	if err != nil {

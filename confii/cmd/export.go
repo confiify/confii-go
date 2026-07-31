@@ -26,12 +26,12 @@ func NewExportCmd() *cobra.Command {
 				env = args[0]
 			}
 
-			cfg, err := buildConfig(env, loaders)
+			cfg, err := buildConfigWithContext(c.Context(), env, loaders)
 			if err != nil {
 				return err
 			}
 
-			data, err := cfg.Export(format)
+			data, err := cfg.ExportWithContext(c.Context(), format)
 			if err != nil {
 				return err
 			}
@@ -44,7 +44,7 @@ func NewExportCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringSliceVarP(&loaders, "loader", "l", nil, "Loader spec (type:source)")
+	cmd.Flags().StringSliceVarP(&loaders, "loader", "l", nil, loaderSpecHelp)
 	cmd.Flags().StringVarP(&format, "format", "f", "json", "Output format (json, yaml)")
 	cmd.Flags().StringVarP(&output, "output", "o", "", "Output file path")
 	return cmd

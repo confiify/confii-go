@@ -49,37 +49,28 @@ func TestGitLoader_ResolveRawURL_Unsupported(t *testing.T) {
 	assert.Contains(t, err.Error(), "unsupported")
 }
 
-func TestGitLoader_Load_Integration(t *testing.T) {
-	// Mock a GitHub raw content endpoint.
+// Load's transport and parsing path is hermetically exercised through
+// loadResolved; provider raw-URL resolution and the composed Load error path
+// are covered by the resolveRawURL and FullEndToEnd tests.
+func TestGitLoader_LoadResolved_FetchesParsesAndSendsHeaders(t *testing.T) {
+	var gotPath, gotAuth string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotAuth = r.Header.Get("Authorization")
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"app": {"name": "test-app"}}`))
 	}))
 	defer srv.Close()
 
-	// We can't easily inject a custom URL for the git loader since it constructs
-	// the URL internally, so we test the URL resolution logic above and rely on
-	// HTTP loader integration tests for the fetch behavior.
-}
-
-func TestGitLoader_Load_WithMockServer(t *testing.T) {
-	// This test verifies the full load path by using a loader that hits a real server.
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Contains(t, r.URL.Path, "config.yaml")
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"database": {"host": "git-host"}}`))
-	}))
-	defer srv.Close()
-
-	// Create a git loader pointing to a "github.com" URL rewritten to use our test server.
-	// Since GitLoader constructs raw.githubusercontent.com URLs, we can't easily redirect.
-	// Instead, test the resolved URL independently.
 	l := NewGit("https://github.com/owner/repo", "config.yaml")
-	rawURL, _, err := l.resolveRawURL()
+	result, err := l.loadResolved(context.Background(),
+		srv.URL+"/owner/repo/main/config.yaml",
+		map[string]string{"Authorization": "token mytoken"})
 	require.NoError(t, err)
-	assert.Equal(t, "https://raw.githubusercontent.com/owner/repo/main/config.yaml", rawURL)
 
-	// The actual HTTP call would go to raw.githubusercontent.com.
-	// For integration testing, skip if no network.
-	_ = context.Background()
+	app, ok := result["app"].(map[string]any)
+	require.True(t, ok, "parsed JSON must expose the nested app section")
+	assert.Equal(t, "test-app", app["name"])
+	assert.Equal(t, "/owner/repo/main/config.yaml", gotPath)
+	assert.Equal(t, "token mytoken", gotAuth)
 }

@@ -15,9 +15,8 @@ import (
 	"github.com/IBM/ibm-cos-sdk-go/aws/credentials/ibmiam"
 	awssession "github.com/IBM/ibm-cos-sdk-go/aws/session"
 	ibms3 "github.com/IBM/ibm-cos-sdk-go/service/s3"
-	confii "github.com/confiify/confii-go"
-	"github.com/confiify/confii-go/internal/formatparse"
-	"github.com/confiify/confii-go/loader"
+	confii "github.com/confiify/confii-go/v2"
+	"github.com/confiify/confii-go/v2/loader"
 )
 
 // IBMCOSLoader loads configuration from IBM Cloud Object Storage.
@@ -43,7 +42,10 @@ func WithIBMRegion(region string) IBMCOSOption {
 	return func(l *IBMCOSLoader) { l.region = region }
 }
 
-// NewIBMCOS creates a new IBM Cloud Object Storage loader.
+// NewIBMCOS creates a loader for bucket and key. Credentials are read from
+// IBM_API_KEY and IBM_SERVICE_INSTANCE_ID. Region defaults to us-south and
+// determines the endpoint unless WithIBMEndpoint overrides it. Construction
+// performs no network request.
 func NewIBMCOS(bucket, key string, opts ...IBMCOSOption) *IBMCOSLoader {
 	l := &IBMCOSLoader{
 		bucketName:        bucket,
@@ -66,7 +68,10 @@ func (l *IBMCOSLoader) Source() string {
 	return fmt.Sprintf("ibmcos://%s/%s", l.bucketName, l.objectKey)
 }
 
-// Load fetches configuration from the IBM Cloud Object Storage object at the configured bucket and key.
+// Load fetches and parses the object while honoring ctx. Format is selected
+// from the object-key extension and defaults to JSON. Session, transport, and
+// read failures wrap [confii.ErrConfigLoad]; parse failures wrap
+// [confii.ErrConfigFormat].
 func (l *IBMCOSLoader) Load(ctx context.Context) (map[string]any, error) {
 	authEndpoint := "https://iam.cloud.ibm.com/identity/token"
 
@@ -95,9 +100,9 @@ func (l *IBMCOSLoader) Load(ctx context.Context) (map[string]any, error) {
 		return nil, confii.NewLoadError(l.Source(), err)
 	}
 
-	format := formatparse.FromExtension(l.objectKey)
-	if format == formatparse.FormatUnknown {
-		format = formatparse.FormatJSON
+	format := loader.FormatFromExtension(l.objectKey)
+	if format == loader.FormatUnknown {
+		format = loader.FormatJSON
 	}
 
 	return loader.ParseContent(data, format, l.Source())

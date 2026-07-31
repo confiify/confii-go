@@ -5,30 +5,64 @@
 package watch
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
+	"sort"
 	"sync"
+	"time"
 
-	"github.com/confiify/confii-go/internal/sourcekind"
+	"github.com/confiify/confii-go/v2/internal/sourcekind"
 	"github.com/fsnotify/fsnotify"
 )
 
-// ReloadFunc is called when a watched file changes.
+// ReloadFunc handles a watched-file creation or content change. Returning an
+// error logs the failed reload and keeps the watcher running.
 type ReloadFunc func() error
+
+// ReloadFuncWithContext is called with the watcher's lifecycle context when a
+// watched file changes.
+type ReloadFuncWithContext func(context.Context) error
+
+const defaultDebounce = 150 * time.Millisecond
+
+// Option configures a Watcher before its filesystem subscriptions are
+// installed.
+type Option func(*options)
+
+type options struct {
+	debounce time.Duration
+}
+
+// WithDebounce sets the trailing-edge interval used to coalesce bursts of
+// write and create events into one reload. Zero makes matching events reload
+// immediately. Negative durations are rejected by [New] and [NewWithContext].
+func WithDebounce(interval time.Duration) Option {
+	return func(options *options) {
+		options.debounce = interval
+	}
+}
 
 // Watcher monitors configuration files and triggers reloads on changes.
 type Watcher struct {
-	watcher    *fsnotify.Watcher
-	files      map[string]struct{} // absolute paths of watched files
-	reloadFunc ReloadFunc
-	logger     *slog.Logger
-	done       chan struct{}
-	once       sync.Once
+	watcher               *fsnotify.Watcher
+	files                 map[string]struct{} // absolute paths of watched files
+	dirs                  map[string]struct{} // directories registered with fsnotify
+	reloadFunc            ReloadFunc
+	reloadFuncWithContext ReloadFuncWithContext
+	ctx                   context.Context
+	cancel                context.CancelFunc
+	logger                *slog.Logger
+	debounce              time.Duration
+	done                  chan struct{}
+	once                  sync.Once
 
 	// mu guards 'present', which tracks whether each watched path
 	// currently has a backing file on disk. This lets the loop
-	// distinguish "rename/remove of a present file" from "create of a
-	// previously removed file" so it can log once per state change and
+	// distinguish removal from recreation so it can log once per state change and
 	// re-arm reload after atomic-save sequences. The watch is on the
 	// containing directory, so the directory-level fsnotify subscription
 	// keeps delivering events across child rename/remove/recreate.
@@ -39,10 +73,8 @@ type Watcher struct {
 // isNonFileSource reports whether s is a Loader.Source() identifier that
 // cannot be watched via fsnotify (URL, env-prefix marker, cloud-store id).
 //
-// D-W20-01 (Wave 22): the canonical allowlist now lives in
-// [github.com/confiify/confii-go/internal/sourcekind]; this thin wrapper
-// preserves the watcher-local call site while eliminating the historical
-// drift between watcher.go, sourcetrack/filetracker.go, and config.go.
+// Classification is shared with source tracking through
+// [github.com/confiify/confii-go/v2/internal/sourcekind].
 func isNonFileSource(s string) bool {
 	return sourcekind.IsNonFileSource(s)
 }
@@ -51,10 +83,37 @@ func isNonFileSource(s string) bool {
 //
 // Sources that are not local file paths (HTTP/HTTPS URLs, "environment:"
 // markers, cloud-store identifiers like "s3://", "gs://", "ssm:", etc.) are
-// silently skipped with a warning log; only real file paths are registered
-// with fsnotify. This lets callers pass the raw list of Loader.Source()
+// skipped with a warning log; only real file paths are registered
+// with fsnotify. This lets callers pass the raw list of Loader.Source
 // strings without filtering by capability.
-func New(files []string, reloadFunc ReloadFunc, logger *slog.Logger) (*Watcher, error) {
+func New(files []string, reloadFunc ReloadFunc, logger *slog.Logger, opts ...Option) (*Watcher, error) {
+	return newWatcher(context.Background(), files, reloadFunc, nil, logger, opts...)
+}
+
+// NewWithContext creates a watcher whose loop and reload work are canceled when
+// ctx is done. A nil context returns an error. A nil reload function is
+// accepted but produces no action for matching events. Stop remains safe and
+// idempotent.
+func NewWithContext(ctx context.Context, files []string, reloadFunc ReloadFuncWithContext, logger *slog.Logger, opts ...Option) (*Watcher, error) {
+	if ctx == nil {
+		return nil, context.Canceled
+	}
+	return newWatcher(ctx, files, nil, reloadFunc, logger, opts...)
+}
+
+func newWatcher(ctx context.Context, files []string, reloadFunc ReloadFunc, reloadFuncWithContext ReloadFuncWithContext, logger *slog.Logger, opts ...Option) (*Watcher, error) {
+	resolved := options{debounce: defaultDebounce}
+	for index, option := range opts {
+		if option == nil {
+			return nil, fmt.Errorf("watch: option %d is nil", index)
+		}
+		if err := applyOption(&resolved, option); err != nil {
+			return nil, fmt.Errorf("watch: apply option %d: %w", index, err)
+		}
+	}
+	if resolved.debounce < 0 {
+		return nil, errors.New("watch: debounce must not be negative")
+	}
 	fw, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, err
@@ -64,48 +123,149 @@ func New(files []string, reloadFunc ReloadFunc, logger *slog.Logger) (*Watcher, 
 		logger = slog.Default()
 	}
 
+	watchCtx, cancel := context.WithCancel(ctx)
 	w := &Watcher{
-		watcher:    fw,
-		files:      make(map[string]struct{}),
-		reloadFunc: reloadFunc,
-		logger:     logger,
-		done:       make(chan struct{}),
-		present:    make(map[string]bool),
+		watcher:               fw,
+		files:                 make(map[string]struct{}),
+		dirs:                  make(map[string]struct{}),
+		reloadFunc:            reloadFunc,
+		reloadFuncWithContext: reloadFuncWithContext,
+		ctx:                   watchCtx,
+		cancel:                cancel,
+		logger:                logger,
+		debounce:              resolved.debounce,
+		done:                  make(chan struct{}),
+		present:               make(map[string]bool),
 	}
 
-	// Deduplicate directories and register files.
-	dirs := make(map[string]struct{})
-	for _, f := range files {
-		if isNonFileSource(f) {
-			// Non-file sources cannot be watched via fsnotify; record
-			// the skip so operators can see why a reload never fires
-			// for that loader, but do not error out.
-			logger.Warn("watch: skipping non-file source (not watchable)",
-				slog.String("source", f))
-			continue
-		}
-		abs, err := filepath.Abs(f)
-		if err != nil {
-			continue
-		}
-		w.files[abs] = struct{}{}
-		w.present[abs] = true
-		dir := filepath.Dir(abs)
-		dirs[dir] = struct{}{}
-	}
-
-	for dir := range dirs {
-		if err := fw.Add(dir); err != nil {
-			_ = fw.Close()
-			return nil, err
-		}
+	if err := w.ReplaceFiles(files); err != nil {
+		cancel()
+		_ = fw.Close()
+		return nil, err
 	}
 
 	go w.loop()
 	return w, nil
 }
 
+func applyOption(options *options, option Option) (err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("option panic: %v", recovered)
+		}
+	}()
+	option(options)
+	return nil
+}
+
+// ReplaceFiles atomically replaces the set of file paths that trigger reloads.
+// Directory subscriptions already installed with fsnotify are retained so
+// repeated dependency-graph changes do not churn operating-system handles.
+// When a new directory cannot be watched, the prior file set remains active.
+func (w *Watcher) ReplaceFiles(files []string) error {
+	if w == nil {
+		return nil
+	}
+	nextFiles := make(map[string]struct{})
+	nextPresent := make(map[string]bool)
+	nextDirs := make(map[string]struct{})
+	for _, file := range files {
+		if isNonFileSource(file) {
+			w.logger.Warn("watch: skipping non-file source", "source", file)
+			continue
+		}
+		abs, err := filepath.Abs(file)
+		if err != nil {
+			return err
+		}
+		nextFiles[abs] = struct{}{}
+		_, statErr := os.Stat(abs)
+		nextPresent[abs] = statErr == nil
+		nextDirs[filepath.Dir(abs)] = struct{}{}
+	}
+
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if err := w.ctx.Err(); err != nil {
+		return err
+	}
+	added := make([]string, 0)
+	for dir := range nextDirs {
+		if _, exists := w.dirs[dir]; exists {
+			continue
+		}
+		if err := w.watcher.Add(dir); err != nil {
+			for _, rollbackDir := range added {
+				_ = w.watcher.Remove(rollbackDir)
+			}
+			return err
+		}
+		added = append(added, dir)
+	}
+	for _, dir := range added {
+		w.dirs[dir] = struct{}{}
+	}
+	w.files = nextFiles
+	w.present = nextPresent
+	return nil
+}
+
+// Files returns the currently active absolute trigger paths in deterministic
+// order. The returned slice is detached from watcher state.
+func (w *Watcher) Files() []string {
+	if w == nil {
+		return nil
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	files := make([]string, 0, len(w.files))
+	for file := range w.files {
+		files = append(files, file)
+	}
+	sort.Strings(files)
+	return files
+}
+
 func (w *Watcher) loop() {
+	var debounceTimer *time.Timer
+	var debounceC <-chan time.Time
+	defer func() {
+		if debounceTimer != nil {
+			debounceTimer.Stop()
+		}
+	}()
+
+	runReload := func() {
+		var err error
+		if w.reloadFuncWithContext != nil {
+			err = w.reloadFuncWithContext(w.ctx)
+		} else if w.reloadFunc != nil {
+			err = w.reloadFunc()
+		}
+		if err != nil && w.ctx.Err() == nil {
+			w.logger.Error("reload failed", slog.String("error", err.Error()))
+		}
+	}
+	scheduleReload := func() {
+		if w.debounce == 0 {
+			runReload()
+			return
+		}
+		if debounceTimer == nil {
+			debounceTimer = time.NewTimer(w.debounce)
+			debounceC = debounceTimer.C
+			return
+		}
+		if !debounceTimer.Stop() {
+			select {
+			case <-debounceTimer.C:
+			default:
+			}
+		}
+		debounceTimer.Reset(w.debounce)
+		debounceC = debounceTimer.C
+	}
+
 	for {
 		select {
 		case event, ok := <-w.watcher.Events:
@@ -113,7 +273,10 @@ func (w *Watcher) loop() {
 				return
 			}
 			abs, _ := filepath.Abs(event.Name)
-			if _, watched := w.files[abs]; !watched {
+			w.mu.Lock()
+			_, watched := w.files[abs]
+			w.mu.Unlock()
+			if !watched {
 				continue
 			}
 
@@ -131,11 +294,12 @@ func (w *Watcher) loop() {
 					w.logger.Info("watched file recreated, re-arming",
 						slog.String("file", event.Name))
 				}
-				w.logger.Info("config file changed, reloading",
-					slog.String("file", event.Name))
-				if err := w.reloadFunc(); err != nil {
-					w.logger.Error("reload failed", slog.String("error", err.Error()))
+				message := "config file changed, scheduling reload"
+				if w.debounce == 0 {
+					message = "config file changed, reloading"
 				}
+				w.logger.Info(message, slog.String("file", event.Name))
+				scheduleReload()
 
 			case event.Op&fsnotify.Rename != 0:
 				// Atomic-save case: original file was renamed away. The
@@ -165,15 +329,23 @@ func (w *Watcher) loop() {
 			}
 			w.logger.Error("file watcher error", slog.String("error", err.Error()))
 
+		case <-debounceC:
+			debounceC = nil
+			runReload()
+
 		case <-w.done:
+			return
+		case <-w.ctx.Done():
 			return
 		}
 	}
 }
 
-// Stop stops the file watcher.
+// Stop cancels the watcher loop and releases its operating-system resources.
+// It is safe to call more than once.
 func (w *Watcher) Stop() {
 	w.once.Do(func() {
+		w.cancel()
 		close(w.done)
 		_ = w.watcher.Close()
 	})

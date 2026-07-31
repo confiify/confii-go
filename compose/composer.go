@@ -6,15 +6,16 @@
 package compose
 
 import (
-	"encoding/json"
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
-	"github.com/BurntSushi/toml"
-	"github.com/confiify/confii-go/internal/dictutil"
-	"gopkg.in/yaml.v3"
+	"github.com/confiify/confii-go/v2/internal/configdecode"
+	"github.com/confiify/confii-go/v2/internal/dictutil"
+	"github.com/confiify/confii-go/v2/internal/formatparse"
 )
 
 const maxDepth = 10
@@ -30,8 +31,7 @@ type Merger interface {
 	Merge(base, overlay map[string]any) map[string]any
 }
 
-// deepMerger is the default Merger used when none is configured. It delegates
-// to dictutil.DeepMerge to preserve historical composition semantics.
+// deepMerger is the default Merger and recursively merges maps.
 type deepMerger struct{}
 
 func (deepMerger) Merge(base, overlay map[string]any) map[string]any {
@@ -41,14 +41,13 @@ func (deepMerger) Merge(base, overlay map[string]any) map[string]any {
 // Composer processes _include and _defaults directives in loaded
 // configurations.
 //
-// A Composer is safe to reuse across multiple [Composer.Compose] calls: the
-// cycle-detection "visited" set lives on the call stack, not on the Composer
-// itself, so each top-level invocation starts with a fresh seen-set. This
-// means legitimate re-includes from a subsequent call (or after a config
-// reload) are processed normally instead of being silently skipped, while the
-// cycle-detection guarantee within any single traversal remains intact.
+// A Composer may be reused and Compose operations may run concurrently when
+// its Merger is concurrency-safe. Do not call [Composer.SetMerger]
+// concurrently with composition. Each call detects cycles independently, so
+// includes remain eligible on later reloads.
 type Composer struct {
-	basePath string
+	basePath     string
+	absolutePath func(string) (string, error)
 	// merger combines included/default maps into the result. It defaults to
 	// dictutil.DeepMerge via deepMerger when nil; callers may inject a
 	// strategy-aware merger via [Composer.WithMerger] or [New] options.
@@ -75,8 +74,9 @@ func New(basePath string, opts ...Option) *Composer {
 		basePath = "."
 	}
 	c := &Composer{
-		basePath: basePath,
-		merger:   deepMerger{},
+		basePath:     basePath,
+		absolutePath: filepath.Abs,
+		merger:       deepMerger{},
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -98,14 +98,22 @@ func (c *Composer) SetMerger(m Merger) {
 }
 
 // Compose processes _include, _defaults, and _merge_strategy directives in
-// config, resolving relative paths against source. Returns the fully composed
-// configuration with all directives removed.
-//
-// The cycle-detection state is local to this call: invoking Compose again on
-// the same Composer (for example, during a reload) starts with an empty
-// seen-set so legitimate re-includes are honored.
+// config, resolving relative paths against source and the Composer base path.
+// It returns a new top-level map with composition directives removed. Includes
+// may be YAML, JSON, or TOML; format is selected from the file extension and a
+// declared format is rejected when content is incompatible. Missing or
+// malformed includes, include cycles beyond the maximum depth, and parsing
+// failures return an error without mutating config.
 func (c *Composer) Compose(config map[string]any, source string) (map[string]any, error) {
-	result, _, err := c.ComposeWithDependencies(config, source)
+	return c.ComposeWithContext(context.Background(), config, source)
+
+}
+
+// ComposeWithContext is the context-aware form of [Composer.Compose]. A nil or
+// canceled context returns an error. Local file reads cannot be interrupted
+// once started, but cancellation is checked around each read and parse step.
+func (c *Composer) ComposeWithContext(ctx context.Context, config map[string]any, source string) (map[string]any, error) {
+	result, _, err := c.ComposeWithDependenciesWithContext(ctx, config, source)
 	return result, err
 }
 
@@ -114,13 +122,26 @@ func (c *Composer) Compose(config map[string]any, source string) (map[string]any
 // Paths are absolute and ordered by first traversal. Callers use this data to
 // watch and fingerprint the complete composition input set.
 func (c *Composer) ComposeWithDependencies(config map[string]any, source string) (map[string]any, []string, error) {
+	return c.ComposeWithDependenciesWithContext(context.Background(), config, source)
+}
+
+// ComposeWithDependenciesWithContext stops recursive include processing when ctx
+// is canceled. Individual local file reads are not interruptible, but Confii
+// checks cancellation immediately before and after each read and parse step.
+func (c *Composer) ComposeWithDependenciesWithContext(ctx context.Context, config map[string]any, source string) (map[string]any, []string, error) {
+	if ctx == nil {
+		return nil, nil, errors.New("compose: nil context")
+	}
 	visited := make(map[string]bool)
 	var dependencies []string
-	result, err := c.compose(config, source, 0, visited, &dependencies)
+	result, err := c.compose(ctx, config, source, 0, visited, &dependencies)
 	return result, dependencies, err
 }
 
-func (c *Composer) compose(config map[string]any, source string, depth int, visited map[string]bool, dependencies *[]string) (map[string]any, error) {
+func (c *Composer) compose(ctx context.Context, config map[string]any, source string, depth int, visited map[string]bool, dependencies *[]string) (map[string]any, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if depth >= maxDepth {
 		return nil, fmt.Errorf("composition max depth (%d) exceeded at %s", maxDepth, source)
 	}
@@ -130,7 +151,7 @@ func (c *Composer) compose(config map[string]any, source string, depth int, visi
 		result[k] = v
 	}
 
-	// Step 1: Process _defaults (provide base values).
+	// Apply defaults before includes so included sources can override them.
 	if defaults, ok := result["_defaults"]; ok {
 		base := c.processDefaults(defaults)
 		// Defaults go underneath current config.
@@ -138,9 +159,9 @@ func (c *Composer) compose(config map[string]any, source string, depth int, visi
 		delete(result, "_defaults")
 	}
 
-	// Step 2: Process _include (merge additional configs on top).
+	// Merge included sources on top of the defaults and local values.
 	if includes, ok := result["_include"]; ok {
-		included, err := c.processIncludes(includes, source, depth, visited, dependencies)
+		included, err := c.processIncludes(ctx, includes, source, depth, visited, dependencies)
 		if err != nil {
 			return nil, err
 		}
@@ -148,7 +169,7 @@ func (c *Composer) compose(config map[string]any, source string, depth int, visi
 		delete(result, "_include")
 	}
 
-	// Step 3: Remove _merge_strategy key.
+	// Composition directives are not part of the published configuration.
 	delete(result, "_merge_strategy")
 
 	return result, nil
@@ -187,7 +208,7 @@ func (c *Composer) processDefaults(defaults any) map[string]any {
 	return result
 }
 
-func (c *Composer) processIncludes(includes any, source string, depth int, visited map[string]bool, dependencies *[]string) (map[string]any, error) {
+func (c *Composer) processIncludes(ctx context.Context, includes any, source string, depth int, visited map[string]bool, dependencies *[]string) (map[string]any, error) {
 	result := make(map[string]any)
 
 	var paths []string
@@ -210,25 +231,29 @@ func (c *Composer) processIncludes(includes any, source string, depth int, visit
 	}
 
 	for _, p := range paths {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		// Resolve path relative to source file's directory.
 		resolved := p
 		if !filepath.IsAbs(p) {
 			resolved = filepath.Join(baseDir, p)
 		}
 
-		abs, err := filepath.Abs(resolved)
+		canonical, err := c.absolutePath(resolved)
 		if err != nil {
-			abs = resolved
+			return nil, fmt.Errorf("resolve include %s: %w", p, err)
 		}
+		canonical = filepath.Clean(canonical)
 
 		// Cycle detection within this single traversal.
-		if visited[abs] {
+		if visited[canonical] {
 			continue // skip circular include
 		}
-		visited[abs] = true
-		*dependencies = append(*dependencies, abs)
+		visited[canonical] = true
+		*dependencies = append(*dependencies, canonical)
 
-		included, err := c.loadFile(resolved, depth, visited, dependencies)
+		included, err := c.loadFile(ctx, resolved, depth, visited, dependencies)
 		if err != nil {
 			return nil, fmt.Errorf("include %s: %w", p, err)
 		}
@@ -240,30 +265,33 @@ func (c *Composer) processIncludes(includes any, source string, depth int, visit
 	return result, nil
 }
 
-func (c *Composer) loadFile(path string, depth int, visited map[string]bool, dependencies *[]string) (map[string]any, error) {
+func (c *Composer) loadFile(ctx context.Context, path string, depth int, visited map[string]bool, dependencies *[]string) (map[string]any, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	// #nosec G304 -- explicit and included configuration paths are the composer's documented input.
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-
-	var result map[string]any
-	ext := strings.ToLower(filepath.Ext(path))
-	switch ext {
-	case ".yaml", ".yml":
-		err = yaml.Unmarshal(data, &result)
-	case ".json":
-		err = json.Unmarshal(data, &result)
-	case ".toml":
-		err = toml.Unmarshal(data, &result)
-	default:
-		err = yaml.Unmarshal(data, &result) // default to YAML
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
+
+	ext := strings.ToLower(filepath.Ext(path))
+	format := formatparse.FromExtension(path)
+	if format != formatparse.FormatYAML && format != formatparse.FormatJSON && format != formatparse.FormatTOML {
+		return nil, fmt.Errorf("parse %s: unsupported configuration extension %q", path, ext)
+	}
+	result, err := configdecode.Map(data, format)
 	if err != nil {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
 
 	// Recursively compose the included file, threading visited through so
 	// cycle detection remains intact within this single top-level call.
-	return c.compose(result, path, depth+1, visited, dependencies)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return c.compose(ctx, result, path, depth+1, visited, dependencies)
 }

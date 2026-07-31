@@ -51,6 +51,19 @@ func TestDiff_NoDifferences(t *testing.T) {
 	assert.Empty(t, diffs)
 }
 
+func TestRedactProtectsSensitiveParentsAndChildrenWithoutMutatingInput(t *testing.T) {
+	original := []ConfigDiff{{
+		Key: "database", Path: "database", Type: Modified,
+		OldValue:    map[string]any{"password": "old"},
+		NewValue:    map[string]any{"password": "new"},
+		NestedDiffs: []ConfigDiff{{Key: "password", Path: "database.password", Type: Modified, OldValue: "old", NewValue: "new"}},
+	}}
+	redacted := Redact(original, []string{"database.password"}, "[redacted]")
+	require.Equal(t, "[redacted]", redacted[0].OldValue)
+	require.Equal(t, "[redacted]", redacted[0].NestedDiffs[0].NewValue)
+	assert.Equal(t, "old", original[0].NestedDiffs[0].OldValue)
+}
+
 func TestSummary(t *testing.T) {
 	diffs := []ConfigDiff{
 		{Type: Added},

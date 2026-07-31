@@ -11,15 +11,15 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/confiify/confii-go/internal/dictutil"
-	"github.com/confiify/confii-go/merge"
+	"github.com/confiify/confii-go/v2/internal/dictutil"
+	"github.com/confiify/confii-go/v2/merge"
 )
 
 // load loads and merges all configurations with source tracking and composition.
 //
 // Errors from individual loaders and from the composition pass are routed
 // through c.opts.OnError so that the three [ErrorPolicy] values behave
-// distinctly (G07):
+// distinctly:
 //
 //   - [ErrorPolicyRaise]: the first error is returned immediately; New /
 //     Reload propagate it to the caller.
@@ -34,8 +34,8 @@ func (c *Config[T]) load(ctx context.Context) error {
 
 // loadSelected refreshes selected loader layers and then deterministically
 // rebuilds merged/env config from the complete layer cache. A nil selector
-// performs a full load. The caller holds c.mu for Reload; New invokes this
-// before the Config is published.
+// performs a full load. Reload invokes this on a private candidate; New invokes
+// it before the Config is published.
 func (c *Config[T]) loadSelected(ctx context.Context, selected map[string]bool) error {
 	var configs []map[string]any
 	var resolvedConfigs []map[string]any
@@ -95,6 +95,9 @@ func (c *Config[T]) loadSelected(ctx context.Context, selected map[string]bool) 
 	}
 
 	for i, l := range c.loaders {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		selectedFile, isEnvironmentFile := l.(interface{ selectedEnvironmentFile() bool })
 		isEnvironmentFile = isEnvironmentFile && selectedFile.selectedEnvironmentFile()
 		usesEnvironmentFiles = usesEnvironmentFiles || isEnvironmentFile
@@ -115,6 +118,9 @@ func (c *Config[T]) loadSelected(ctx context.Context, selected map[string]bool) 
 		}
 		data, err := l.Load(ctx)
 		if err != nil {
+			if cancellation := operationCancellation(ctx, err); cancellation != nil {
+				return cancellation
+			}
 			switch c.opts.OnError {
 			case ErrorPolicyRaise:
 				return err
@@ -144,10 +150,13 @@ func (c *Config[T]) loadSelected(ctx context.Context, selected map[string]bool) 
 
 		// Process composition directives (_include, _defaults). Errors
 		// here used to be swallowed and the raw (un-composed) data was
-		// loaded regardless of policy. Post-G07, composition errors flow
+		// loaded regardless of policy. Currently, composition errors flow
 		// through the same OnError dispatch as loader errors.
-		composed, dependencies, err := c.composer.ComposeWithDependencies(data, l.Source())
+		composed, dependencies, err := c.composer.ComposeWithDependenciesWithContext(ctx, data, l.Source())
 		if err != nil {
+			if cancellation := operationCancellation(ctx, err); cancellation != nil {
+				return cancellation
+			}
 			switch c.opts.OnError {
 			case ErrorPolicyRaise:
 				return err
@@ -167,17 +176,12 @@ func (c *Config[T]) loadSelected(ctx context.Context, selected map[string]bool) 
 			}
 		}
 
-		// G08: Track each loader's RESOLVED contribution against the loader
+		// Track each loader's resolved contribution against the loader
 		// source so introspection reports resolved key paths
 		// (e.g. "database.host" not "production.database.host") AND attributes
-		// every key to the file/loader it actually came from. Pre-G08 this
-		// path tracked the raw composed data and then issued a second
-		// TrackConfig pass with the synthetic source string "(resolved)" that
-		// overwrote the loader source for every env-resolved key. Tracking
-		// the resolved-per-loader output here mirrors the pattern already
-		// used by Config.Extend (see config.go:1325-1329) and is Option A
-		// from the G08 closure plan: skip the post-resolve retrack entirely
-		// because the loader source is already the right answer.
+		// every key to the file/loader it actually came from. Tracking the
+		// resolved output directly avoids replacing real source identity with
+		// a synthetic resolved source.
 		loaderType := loaderTypeName(l)
 		resolvedLayer := c.envHandler.Resolve(composed, c.env)
 		if isEnvironmentFile {
@@ -255,15 +259,8 @@ func sourcePlanRole(loader Loader) string {
 // loaderTypeName returns the underlying type name of a Loader implementation,
 // suitable for use in source tracking and debug output.
 //
-// The Loader interface accepts both pointer and value receiver implementations,
-// so we cannot assume reflect.TypeOf(l) returns a pointer kind. Calling
-// reflect.Type.Elem on a non-pointer (and non-array/chan/map/slice) type panics
-// with "reflect: Elem of invalid type", which previously broke any custom
-// Loader registered as a value type. reflect.Indirect on the value normalizes
-// pointer and value loaders to the same underlying type before we read the
-// name. If the type is anonymous (Name() == ""), we fall back to the
-// reflect.Type string representation so the loader still surfaces something
-// meaningful in debug output.
+// Pointer and value implementations are normalized to the same underlying type.
+// Anonymous types use their full reflection string because they have no name.
 func loaderTypeName(l Loader) string {
 	t := reflect.TypeOf(l)
 	if t == nil {

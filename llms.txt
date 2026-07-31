@@ -7,14 +7,14 @@ Confii loads, merges, validates, and manages configuration from YAML, JSON, TOML
 ## Key Facts
 
 - Language: Go
-- Module: github.com/confiify/confii-go
+- Module: github.com/confiify/confii-go/v2
 - License: MIT
 - Minimum Go version: 1.25+
 - Thread-safe: Yes (sync.RWMutex, concurrent reads, serialized writes)
 - Runtime configuration state: per Config[T] instance; small synchronized process-level self-config caches and secret-provider registries also exist
 - Repository: https://github.com/confiify/confii-go
 - Documentation: https://confii-go-docs.pages.dev/
-- Go API reference: https://pkg.go.dev/github.com/confiify/confii-go
+- Go API reference: https://pkg.go.dev/github.com/confiify/confii-go/v2
 - Application-sized examples: https://github.com/confiify/confii-go-examples
 
 ## What Makes Confii Different
@@ -22,19 +22,19 @@ Confii loads, merges, validates, and manages configuration from YAML, JSON, TOML
 Confii provides:
 
 - Type-safe generics: Config[T] with cfg.Typed() returning *T with IDE autocomplete
-- 6 merge strategies (replace, merge, append, prepend, intersection, union) with per-path overrides
-- ${secret:key} placeholder resolution from AWS Secrets Manager, Azure Key Vault, GCP Secret Manager, HashiCorp Vault, and OpenBao — with caching, TTL, and multi-store fallback. The Vault-compatible layer implements nine auth flows; CI live-tests Token and AppRole against OpenBao, while other flows have protocol-level tests and require provider-side identity configuration.
-- Hydra-style config composition via _include and _defaults directives with cycle detection
+- Merge strategies (replace, shallow merge, deep merge, append, prepend, intersection, union) with per-path overrides
+- ${secret:key} placeholder resolution from AWS Secrets Manager, Azure Key Vault, GCP Secret Manager, HashiCorp Vault, and OpenBao — with caching, TTL, and multi-store fallback. The Vault-compatible layer exposes nine auth adapters and uses official HashiCorp auth packages where available; CI live-tests Token and AppRole against OpenBao, while other adapters have protocol-level tests and require provider-side identity configuration.
+- Config composition via _include and _defaults directives with cycle detection
 - Environment resolution: recommended named files or a single file with default + environment sections; explicit hybrid mode supports controlled migrations
-- 4-type hook system (key, value, condition, global) for value transformation on access
+- Key, value, condition, and global hooks for construction-time snapshot transformation
 - Full introspection: Explain(), Layers(), Schema(), source tracking, override history, conflict detection
 - Config diff, drift detection from intended baselines
 - Config versioning with snapshot, compare, and rollback
 - File watching with incremental reload (mtime + SHA256 change detection)
 - Observability: access metrics, event emission, top-accessed keys
 - Documentation generation (markdown, JSON) from live config
-- 14-command CLI tool: init, env, connections, load, get, validate, export, diff, debug, explain, plan, lint, docs, migrate. `confii init` is an idempotent project bootstrapper with interactive or flag-selected named-file/sectioned layouts, full preflight, dry-run, and rollback safety. `confii env` reports the effective/default selection, lists discoverable environments, and safely persists or resets the project default. `confii connections test` performs value-safe, fail-closed preflight of selected declarative sources and secret providers.
-- Self-configuration via .confii.yaml auto-discovery with 3-tier priority
+- CLI commands for initialization, environment selection, connection tests, loading, inspection, validation, export, migration, and documentation. `confii init` is an idempotent project bootstrapper with interactive or flag-selected named-file/sectioned layouts, preflight checks, dry-run, and rollback safety. `confii env` reports the effective/default selection, lists discoverable environments, and safely persists or resets the project default. `confii connections test` performs value-safe, fail-closed preflight of selected declarative sources and secret providers.
+- Layered self-configuration discovery with project and environment-specific files
 - Builder pattern with fluent API
 
 ## Installation
@@ -44,16 +44,16 @@ project's `go.mod` and `go.sum`. The version-qualified `go install` command may
 run from any directory and installs only the standalone CLI.
 
 ```bash
-go get github.com/confiify/confii-go@latest
-go install github.com/confiify/confii-go/confii@latest
+go get github.com/confiify/confii-go/v2@latest
+go install github.com/confiify/confii-go/v2/confii@latest
 confii --version
 ```
 
 Cloud integrations use separate modules; provider SDK implementations are opt-in via build tags (the Git loader in loader/cloud needs no tag):
 
 ```bash
-go get github.com/confiify/confii-go/loader/cloud@latest
-go get github.com/confiify/confii-go/secret/cloud@latest
+go get github.com/confiify/confii-go/loader/cloud/v2@latest
+go get github.com/confiify/confii-go/secret/cloud/v2@latest
 go build -tags aws          # S3, SSM, Secrets Manager
 go build -tags azure        # Blob Storage, Key Vault
 go build -tags gcp          # Cloud Storage, Secret Manager
@@ -73,8 +73,8 @@ verify the CLI, then initialize Confii:
 mkdir my-service
 cd my-service
 go mod init example.com/my-service
-go get github.com/confiify/confii-go@latest
-go install github.com/confiify/confii-go/confii@latest
+go get github.com/confiify/confii-go/v2@latest
+go install github.com/confiify/confii-go/v2/confii@latest
 confii --version
 confii init
 ```
@@ -113,10 +113,10 @@ self-config when code-level control is intentional.
 ```go
 type AppConfig struct {
     Database struct {
-        Host string `mapstructure:"host" validate:"required"`
-        Port int    `mapstructure:"port" validate:"required,min=1,max=65535"`
-    } `mapstructure:"database"`
-    Debug bool `mapstructure:"debug"`
+        Host string `confii:"host" validate:"required"`
+        Port int    `confii:"port" validate:"required,min=1,max=65535"`
+    } `confii:"database"`
+    Debug bool `confii:"debug"`
 }
 
 cfg, err := confii.New[AppConfig](ctx,
@@ -165,11 +165,10 @@ cfg, err := confii.NewBuilder[AppConfig]().
 | WithEnv(name) | Set active environment | "" |
 | WithEnvSwitcher(envVar) | Read environment name from OS variable | none |
 | WithEnvPrefix(prefix) | Auto-add EnvironmentLoader | none |
-| WithDeepMerge(bool) | Enable recursive merge | true |
-| WithMergeStrategyOption(strategy) | Default merge strategy | Merge |
+| WithMergeStrategy(strategy) | Default merge strategy | Merge |
 | WithMergeStrategyMap(map) | Per-path merge overrides | none |
 | WithValidateOnLoad(bool) | Validate struct tags after loading | false |
-| WithStrictValidation(bool) | Treat warnings as errors | false |
+| WithStrictValidation(bool) | Treat validation failures as errors | true |
 | WithSchema(schema) / WithSchemaPath(path) | JSON Schema validation | none |
 | WithEnvExpander(bool) | Enable ${VAR} expansion | false |
 | WithTypeCasting(bool) | Auto-convert strings | false |
@@ -194,7 +193,7 @@ cfg.GetFloat64("key") / GetFloat64Or() // (float64, error) / float64
 cfg.MustGet("key")                     // any (panics on error)
 cfg.Has("key")                         // bool
 cfg.Keys() / cfg.Keys("prefix")       // []string
-cfg.ToDict()                           // map[string]any
+cfg.ToDict()                           // (map[string]any, error)
 cfg.Typed()                            // (*T, error)
 ```
 
@@ -237,8 +236,8 @@ cfg.GenerateDocs("markdown")      // documentation generation
 ### Diff, versioning, and observability
 
 ```go
-cfg.Diff(otherCfg)                 // []ConfigDiff
-cfg.DetectDrift(intendedMap)       // []ConfigDiff
+cfg.Diff(otherCfg)                 // ([]ConfigDiff, error)
+cfg.DetectDrift(intendedMap)       // ([]ConfigDiff, error)
 cfg.EnableObservability()          // *Metrics
 cfg.EnableEvents()                 // *EventEmitter
 cfg.EnableVersioning(path, max)    // *VersionManager
@@ -264,7 +263,7 @@ cloud.NewGCPSecretManager(ctx, project)    // gcp
 
 // Wire up
 resolver := secret.NewResolver(store, secret.WithCache(true), secret.WithCacheTTL(5*time.Minute))
-cfg.HookProcessor().RegisterGlobalHook(resolver.Hook())
+cfg, err := confii.New[AppConfig](confii.WithSecretResolver(resolver))
 // ${secret:key}, ${secret:key:json_path}, ${secret:key:json_path:version}
 ```
 
@@ -282,7 +281,7 @@ github.com/confiify/confii-go/
   merge/                 Merge strategies (default + advanced with per-path overrides)
   compose/               Configuration composition (_include, _defaults)
   envhandler/            Environment resolution (named files or default + env sections)
-  hook/                  Hook processor (4 types: key, value, condition, global)
+  hook/                  Key, value, condition, and global hooks
   validate/              Struct tag + JSON Schema validation
   observe/               Metrics, events, versioning with rollback
   diff/                  Diff + drift detection
@@ -290,14 +289,14 @@ github.com/confiify/confii-go/
   watch/                 File watching (fsnotify)
   export/                JSON, YAML, TOML exporters
   selfconfig/            Self-configuration reader (.confii.yaml)
-  examples/              19 focused runnable examples
-  confii/                CLI tool (13 commands)
+  examples/              Focused runnable examples
+  confii/                CLI tool
 ```
 
 ## CLI Tool
 
 ```bash
-go install github.com/confiify/confii-go/confii@latest
+go install github.com/confiify/confii-go/v2/confii@latest
 
 confii init
 confii env
@@ -333,6 +332,6 @@ Confii is designed for projects that need more than just loading config files:
 ## Links
 
 - Source: https://github.com/confiify/confii-go
-- Package docs: https://pkg.go.dev/github.com/confiify/confii-go
+- Package docs: https://pkg.go.dev/github.com/confiify/confii-go/v2
 - Examples: https://github.com/confiify/confii-go/tree/main/examples
 - Issues: https://github.com/confiify/confii-go/issues

@@ -5,317 +5,266 @@ package confii
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"reflect"
 	"runtime/debug"
 
-	"github.com/confiify/confii-go/internal/dictutil"
+	"github.com/confiify/confii-go/v2/internal/dictutil"
+	"github.com/confiify/confii-go/v2/observe"
 )
 
-// SetOption is a functional option that configures the behavior of [Config.Set].
+// SetOption configures one [Config.Set] or [Config.SetWithContext] operation.
+// Options are applied in argument order; when the same setting is supplied
+// more than once, the last value wins.
 type SetOption func(*setOpts)
 
 type setOpts struct{ allowOverride bool }
 
-// WithOverride allows or prevents overwriting existing keys. Default: true.
+// WithOverride controls whether Set may replace an existing key. The default
+// is true. When false, attempting to write an existing path returns an error
+// and leaves the published configuration unchanged.
 func WithOverride(v bool) SetOption {
 	return func(o *setOpts) { o.allowOverride = v }
 }
 
-// Set sets a value by dot-separated key path. Thread-safe, respects frozen state.
-// Pass WithOverride(false) to raise an error if the key already exists.
+// Set materializes and validates a value, then atomically stores it at the
+// dot-separated key path. It is thread-safe and respects frozen state. Pass
+// WithOverride(false) to reject an existing key.
 //
-// G12 contract (Wave 11):
-//
-//   - Source-tracking parity. A successful Set records the new value
-//     against the synthetic source "runtime" so [Config.Explain] and
-//     friends report runtime mutations alongside file/env-loaded keys.
-//     The runtime tracking is overwritten by a subsequent Reload.
-//
-//   - Error propagation. dictutil.SetNested returns a *PathError when
-//     a key path traverses through a non-map intermediate (for example
-//     setting "service.host" when "service" is already bound to a
-//     scalar). Pre-G12 this error was silently swallowed; Set now
-//     surfaces it as a typed [*ConfigError] wrapping [ErrConfigInvalid]
-//     and leaves both envConfig and mergedConfig unmutated.
-//
-//   - Defensive deep copy (F-G10-SetInputAlias). The caller's value is
-//     deep-copied via [dictutil.DeepCopyValue] before storage so a
-//     subsequent caller-side mutation of a passed map/slice cannot
-//     bleed into Config state. This mirrors the read-side deep-copy
-//     contract introduced in G11.
-//
-//   - Change-event parity (F-G12-Set-CallbackSilence). Following the
-//     G13 lock-release-then-callback pattern (see [Config.Reload],
-//     [Config.Extend], [Config.Override]), a successful Set fires
-//     OnChange callbacks AFTER c.mu has been released so a callback
-//     that calls back into the Config cannot deadlock. Callbacks see
-//     the same union-iteration deletion contract: setting a key to a
-//     new non-equal value emits (oldVal, newVal); a key that was
-//     present and is now bound to a value that flatten cannot reach
-//     (e.g. nil) emits (oldVal, nil).
-//
-//   - Observability parity (G21 residual). When metrics or events are
-//     enabled, a successful Set emits "set" / "change" events and
-//     [observe.Metrics.RecordSet] / [observe.Metrics.RecordChange];
-//     a failed Set emits "set_failed" and [observe.Metrics.RecordSetFailed].
-//
-//   - Rollback fidelity (F-Set-RollbackFidelity, Wave 17). Pre-Wave 17
-//     a SetNested *PathError on c.mergedConfig rolled envConfig back via
-//     dictutil.Unflatten(Flatten(envConfig)), which collapses non-string
-//     scalar types (int -> float64, time.Duration -> int64), drops
-//     nil-leaf distinctions, and cannot reconstruct sub-tree shape. The
-//     rollback is now a structural Snapshot+Restore of envConfig,
-//     mergedConfig, and the source tracker — the same idiom used by
-//     [Config.Reload] (Wave 7 G14) and [Config.Override] (Wave 16). The
-//     pre-Wave 17 code also skipped rollback on the FIRST SetNested
-//     failure even though that call may have inserted intermediate maps
-//     before erroring; the Wave 17 path rolls envConfig back on both
-//     SetNested failures so a rejected Set leaves no observable trace.
-//
-//   - fileTracker divergence is intentional (G12-NewKey-Loaders, Wave 19).
-//     Set claims the synthetic source "runtime" via [sourcetrack.Tracker.TrackValue]
-//     but does NOT register a corresponding entry in c.fileTracker — the
-//     fileTracker is the file-mtime/hash gate consumed by [Config.Reload]'s
-//     incremental "did anything change?" filter, and runtime keys are not
-//     file-backed so they have no mtime/hash to track. The two trackers
-//     therefore diverge by design: sourceTracker reports runtime origin
-//     for introspection (Explain / GetSourceInfo / GetConflicts), while
-//     fileTracker only watches loader-backed files for incremental change
-//     detection. The divergence is observable but harmless:
-//
-//   - When Reload's gate short-circuits because no underlying file
-//     changed, runtime-Set keys persist in envConfig/mergedConfig and
-//     OnChange does not fire spuriously.
-//
-//   - When Reload's gate fires because a file changed, Reload rebuilds
-//     envConfig from the merged file data (Phase 4), so runtime-only
-//     keys are evicted and OnChange correctly emits (runtimeValue, nil)
-//     under the union-iteration deletion contract.
-//
-//     Both behaviors are documented Reload semantics: runtime mutations
-//     are intentionally non-persistent across Reload because Reload commits
-//     a fresh file-loaded view. Callers that need a runtime override to
-//     survive Reload should re-Set after Reload, or use a [Config.Override]
-//     restore handle. Adding a fileTracker.RegisterRuntimeKey API was
-//     considered and rejected — runtime keys cannot be watched via
-//     mtime/hash and the existing Wave 11 G12 source-tracker entry already
-//     provides correct introspection.
+// Input maps and slices are copied defensively. A failed path update or failed
+// materialization leaves the published snapshot and source tracking unchanged.
+// Successful values are attributed to the synthetic "runtime" source and
+// remain until a source-backed Reload rebuilds the snapshot. Change callbacks
+// run after the internal lock is released.
 func (c *Config[T]) Set(keyPath string, value any, opts ...SetOption) error {
-	// Resolve a private candidate before taking the Config lock. Hooks may
-	// perform remote I/O or re-enter Config, and a successful Set must preserve
-	// the invariant that all live reads observe an already-materialized value.
-	rawStored := dictutil.DeepCopyValue(value)
-	effectiveStored, materializeErr := c.materializeEffectiveValue(context.Background(), keyPath, rawStored)
-	if materializeErr != nil {
-		return &ConfigError{
-			Op:  "Set",
-			Err: fmt.Errorf("%w: materialize %q: %w", ErrConfigLoad, keyPath, materializeErr),
-		}
-	}
-	c.mu.Lock()
-	// G13: see Reload for the rationale behind the manual unlock flag.
-	// Failure paths fall through the deferred fallback; the success
-	// path manually unlocks before invoking change callbacks so
-	// callbacks may call back into the Config without deadlocking.
-	unlocked := false
-	defer func() {
-		if !unlocked {
-			c.mu.Unlock()
-		}
-	}()
+	ctx, cancel := c.implicitOperationContext()
+	defer cancel()
+	return c.SetWithContext(ctx, keyPath, value, opts...)
+}
 
-	if c.frozen {
+// SetWithContext is the context-aware form of [Config.Set]. The context bounds
+// transformation hooks and secret-provider work required to materialize value.
+// A nil context, cancellation, a frozen or closed Config, an invalid path, a
+// rejected overwrite, or a materialization failure returns an error and leaves
+// the published snapshot unchanged. Use [errors.Is] to identify Confii error
+// categories such as [ErrConfigInvalid], [ErrConfigFrozen], and
+// [ErrConfigClosed].
+func (c *Config[T]) SetWithContext(ctx context.Context, keyPath string, value any, opts ...SetOption) error {
+	if ctx == nil {
+		return NewInvalidError("Set", keyPath, errors.New("nil context"))
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	c.mu.RLock()
+	closed, frozen := c.closed, c.frozen
+	c.mu.RUnlock()
+	if closed {
+		return NewClosedError("Set")
+	}
+	if frozen {
 		return NewFrozenError("Set")
 	}
 
-	so := setOpts{allowOverride: true}
-	for _, o := range opts {
-		o(&so)
-	}
-
-	if !so.allowOverride && dictutil.HasNested(c.envConfig, keyPath) {
-		return fmt.Errorf("key %q already exists (override=false)", keyPath)
-	}
-
-	// F-G10-SetInputAlias: defensively deep-copy any map/slice value so
-	// later caller mutation does not alias into Config state. Scalars
-	// pass through unchanged.
-	stored := dictutil.DeepCopyValue(effectiveStored)
-
-	// F-Set-RollbackFidelity (Wave 17): structural snapshot/restore.
-	// Pre-Wave 17 the rollback path used dictutil.Unflatten(Flatten(envConfig)),
-	// which is lossy along two axes: (a) a yaml/json round-trip via the
-	// flat-keys representation collapses non-string scalar types
-	// (int -> float64, time.Duration -> int64) and drops nil-leaf
-	// distinctions; (b) on a hypothetical future sub-tree Set the flat
-	// representation cannot reconstruct the original sub-tree shape /
-	// key ordering. Adopting the same Snapshot+Restore idiom Wave 7 G14
-	// (Reload) and Wave 16 (Override) use guarantees structural fidelity
-	// of envConfig, mergedConfig, and the source tracker on rollback.
-	// Note: dictutil.SetNested may insert intermediate maps before
-	// returning a *PathError, so the FIRST SetNested call must also
-	// roll back envConfig (the pre-Wave 17 code skipped this path).
-	envSnap := dictutil.DeepCopyValue(c.envConfig).(map[string]any)
-	unresolvedEnvSnap := dictutil.DeepCopyValue(c.unresolvedEnvConfig).(map[string]any)
-	mergedSnap := dictutil.DeepCopyValue(c.mergedConfig).(map[string]any)
-	trackerSnap := c.sourceTracker.Snapshot()
-
-	// Snapshot pre-mutation flat state under the write lock (G13).
-	// Used downstream for the change-notification payload.
-	oldFlat := dictutil.Flatten(c.envConfig)
-
-	// Try the mutation against envConfig first. SetNested returns a
-	// *PathError when a key path traverses through a non-map; surface
-	// that as a typed *ConfigError and do NOT mutate mergedConfig.
-	if err := dictutil.SetNested(c.envConfig, keyPath, stored); err != nil {
-		// Structural rollback (F-Set-RollbackFidelity): SetNested may have
-		// inserted intermediate maps before failing, so restore envConfig
-		// from the deep-copy snapshot. mergedConfig is untouched on this
-		// path but we restore it (and the tracker) for symmetry with the
-		// second-call failure path below.
-		c.envConfig = envSnap
-		c.unresolvedEnvConfig = unresolvedEnvSnap
-		c.mergedConfig = mergedSnap
-		c.sourceTracker.Restore(trackerSnap)
-		if c.observer != nil {
-			c.observer.RecordSetFailed()
+	setOptions := setOpts{allowOverride: true}
+	for index, option := range opts {
+		if option == nil {
+			return NewInvalidError("Set", keyPath, fmt.Errorf("set option %d is nil", index))
 		}
-		if c.eventEmitter != nil {
-			c.eventEmitter.Emit("set_failed", keyPath, err)
+		if err := applySetOption(option, &setOptions, index); err != nil {
+			return NewInvalidError("Set", keyPath, err)
 		}
-		return NewInvalidError("Set", keyPath, err)
-	}
-	if err := dictutil.SetNested(c.unresolvedEnvConfig, keyPath, rawStored); err != nil {
-		c.envConfig = envSnap
-		c.unresolvedEnvConfig = unresolvedEnvSnap
-		c.mergedConfig = mergedSnap
-		c.sourceTracker.Restore(trackerSnap)
-		if c.observer != nil {
-			c.observer.RecordSetFailed()
-		}
-		if c.eventEmitter != nil {
-			c.eventEmitter.Emit("set_failed", keyPath, err)
-		}
-		return NewInvalidError("Set", keyPath, err)
-	}
-	// mergedConfig must agree with envConfig; the same path-error guard
-	// applies. If this fails, roll back the envConfig mutation so the
-	// two maps stay in lockstep.
-	if err := dictutil.SetNested(c.mergedConfig, keyPath, rawStored); err != nil {
-		// Structural rollback (F-Set-RollbackFidelity): restore envConfig
-		// AND mergedConfig from their deep-copy snapshots to preserve
-		// scalar type identity (int stays int, time.Duration stays
-		// Duration), nil-leaf distinctions, and sub-tree shape. The
-		// tracker snapshot is restored for symmetry with Wave 16
-		// Override even though TrackValue has not yet fired on this path.
-		c.envConfig = envSnap
-		c.unresolvedEnvConfig = unresolvedEnvSnap
-		c.mergedConfig = mergedSnap
-		c.sourceTracker.Restore(trackerSnap)
-		if c.observer != nil {
-			c.observer.RecordSetFailed()
-		}
-		if c.eventEmitter != nil {
-			c.eventEmitter.Emit("set_failed", keyPath, err)
-		}
-		return NewInvalidError("Set", keyPath, err)
 	}
 
-	// Source-tracking parity: a successful Set claims "runtime" as the
-	// source so Explain/GetSourceInfo report the runtime origin until a
-	// subsequent Reload overwrites it.
-	c.sourceTracker.TrackValue(keyPath, rawStored, "runtime", "runtime", c.env)
-
-	c.validatedModel = nil
-
-	// Snapshot everything callbacks/observability need WHILE the write
-	// lock is held, then release the lock BEFORE invoking them (G13).
-	callbacks := c.snapshotChangeCallbacks()
-	newFlat := dictutil.Flatten(c.envConfig)
-	observer := c.observer
-	emitter := c.eventEmitter
-
-	c.mu.Unlock()
-	unlocked = true
-
-	c.notifyChangesUnlocked(callbacks, oldFlat, newFlat)
-
-	if observer != nil {
-		observer.RecordSet()
-		observer.RecordChange()
+	// Materialization is independent of the current snapshot and therefore runs
+	// once before the optimistic transaction. Hooks and providers may perform
+	// remote I/O or read the Config without blocking live readers.
+	rawStored := dictutil.DeepCopyValue(value)
+	effectiveStored, materializeErr := c.materializeEffectiveValue(ctx, keyPath, rawStored)
+	if materializeErr != nil {
+		return &ConfigError{
+			Op:   "Set",
+			Code: ConfigErrorCodeLoad,
+			Err:  fmt.Errorf("materialize %q: %w", keyPath, materializeErr),
+		}
 	}
-	if emitter != nil {
-		emitter.Emit("set", keyPath, stored)
-		emitter.Emit("change", keyPath, stored)
-	}
+	for {
+		c.mu.RLock()
+		if c.closed {
+			c.mu.RUnlock()
+			return NewClosedError("Set")
+		}
+		if c.frozen {
+			c.mu.RUnlock()
+			return NewFrozenError("Set")
+		}
+		baseRevision := c.revision
+		oldEnv := copyMap(c.envConfig)
+		candidate := c.snapshotRuntimeMutationCandidate()
+		if !setOptions.allowOverride && dictutil.HasNested(candidate.envConfig, keyPath) {
+			c.mu.RUnlock()
+			return NewInvalidError("Set", keyPath, errors.New("key already exists (override=false)"))
+		}
+		if err := candidate.set(keyPath, rawStored, effectiveStored, "runtime", c.env); err != nil {
+			c.mu.RUnlock()
+			c.recordSetFailure(ctx, keyPath, err)
+			return NewInvalidError("Set", keyPath, err)
+		}
+		c.mu.RUnlock()
 
+		if err := c.validateMaterializedCandidate(candidate.envConfig); err != nil {
+			conflict, conflictErr := c.runtimeMutationConflict(ctx, "Set", baseRevision)
+			if conflictErr != nil {
+				return conflictErr
+			}
+			if conflict {
+				continue
+			}
+			c.recordSetFailure(ctx, keyPath, err)
+			return err
+		}
+
+		newEnv := copyMap(candidate.envConfig)
+		c.mu.Lock()
+		if err := ctx.Err(); err != nil {
+			c.mu.Unlock()
+			return err
+		}
+		if c.closed {
+			c.mu.Unlock()
+			return NewClosedError("Set")
+		}
+		if c.frozen {
+			c.mu.Unlock()
+			return NewFrozenError("Set")
+		}
+		if c.revision != baseRevision {
+			c.mu.Unlock()
+			continue
+		}
+
+		c.publishRuntimeMutationCandidate(candidate)
+		change := c.captureCommittedChange(oldEnv, newEnv)
+		c.mu.Unlock()
+
+		c.deliverCommittedChange(ctx, change, func(observer *observe.Metrics) {
+			observer.RecordSet()
+		}, "set", keyPath, dictutil.DeepCopyValue(effectiveStored))
+		return nil
+	}
+}
+
+func applySetOption(option SetOption, settings *setOpts, index int) (err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("set option %d panicked: %v", index, recovered)
+		}
+	}()
+	option(settings)
 	return nil
 }
 
-// OnChange registers a callback that fires whenever configuration
-// values change.
-//
-// Firing surfaces. The callback is invoked from each of the following
-// mutation entry points, once per key whose flattened value differs
-// between the pre- and post-mutation snapshots:
-//   - [Config.Set]                        (G12 / Wave 11)
+// OnChange registers fn to observe committed configuration changes. A nil fn
+// is ignored. The callback is invoked once for each changed leaf key produced
+// by:
+//   - [Config.Set]
 //   - [Config.Reload]
 //   - [Config.Extend]
 //   - [Config.Override]
 //   - the restore closure returned by [Config.Override]
+//   - [Config.RefreshSecrets]
+//   - [Config.RollbackToVersion]
 //
-// Lock-release contract (G13). Callbacks run AFTER the Config's internal
-// write lock has been released. A callback may therefore freely call
-// back into any public method on the Config — Get, Set, Has, Reload,
-// Extend, Override — without deadlocking. The trade-off is that the
-// Config state visible to a callback is whatever any concurrent
-// goroutine has produced by the time the callback runs; the (oldVal,
-// newVal) payload, however, is taken from a snapshot captured at the
-// moment of the change and is stable regardless of subsequent mutations.
+// The payload uses (oldValue, newValue): replacements provide both values,
+// additions provide nil as oldValue, and removals provide nil as newValue.
+// Explicit nil values cannot be distinguished from additions or removals by
+// this callback alone. Key delivery order is unspecified; callbacks for a key
+// run in registration order.
 //
-// Self-firing recursion (Wave 11 G12 / Wave 18). Because Set, Override,
-// Reload, Extend, and the Override restore closure all themselves fire
-// OnChange callbacks, a callback that mutates the Config will TRIGGER
-// another OnChange invocation for that nested mutation. This is a
-// load-bearing feature — it is what lets a callback transparently
-// notify downstream listeners — but it means callers are responsible
-// for guarding against unbounded recursion. The canonical idiom is an
-// [atomic.Bool] CAS one-shot, NOT [sync.Once]: a recursive Once.Do
-// deadlocks (see the documented Once contract), whereas atomic.Bool
-// CAS lets the first entry into the callback win the right to mutate
-// and subsequent self-fires become cheap no-ops. See
-// TestOnChange_GodocContract_Recursion in config_callbacks_test.go for
-// a runnable example. A typical guard reads:
+// Callbacks run after the change is committed and without holding the Config
+// lock, so they may call Config methods. The payload is a stable description
+// of that commit, while a concurrent read may already observe a newer commit.
+// A mutation performed by a callback produces another notification. Callers
+// that derive configuration inside a callback must therefore prevent
+// unbounded recursion. For example:
 //
 //	var fired atomic.Bool
 //	cfg.OnChange(func(key string, oldVal, newVal any) {
-//	    if fired.CompareAndSwap(false, true) {
-//	        _ = cfg.Set("derived.key", deriveFrom(newVal))
-//	    }
+//		if key == "source.value" && fired.CompareAndSwap(false, true) {
+//			_ = cfg.Set("derived.value", deriveFrom(newVal))
+//		}
 //	})
 //
-// Diff-based firing (G13). The callback fires for every key whose
-// pre/post flattened value differs. The (oldVal, newVal) payload uses
-// untyped `any`:
-//   - replaced key:   fn(key, oldVal, newVal) — both non-nil.
-//   - removed key:    fn(key, oldVal, nil)    — newVal is the zero value.
-//   - introduced key: fn(key, nil, newVal)    — oldVal is the zero value.
-//
-// Callbacks that need to distinguish "explicitly set to nil" from
-// "removed" must compare against a sentinel themselves; the contract
-// only guarantees that removal surfaces the zero `any`.
-//
-// Panic recovery (G13). A panicking callback does NOT abort sibling
-// callbacks, nor does it abort the calling goroutine: each callback
-// runs inside an independent recover() guard. A panic is logged via
-// the Config's slog logger and the next callback in the registration
-// order continues normally.
+// A callback panic is recovered and logged; remaining callbacks continue.
 func (c *Config[T]) OnChange(fn func(key string, oldVal, newVal any)) {
+	if fn == nil {
+		return
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.changeCallbacks = append(c.changeCallbacks, fn)
+}
+
+// OnChangeWithContext is the context-aware form of [Config.OnChange]. The
+// callback receives the context supplied to the mutation, allowing callers to
+// correlate changes with traces and request metadata. It otherwise follows
+// the same delivery, reentrancy, ordering, and panic-recovery contract. A nil
+// callback is ignored.
+func (c *Config[T]) OnChangeWithContext(fn func(context.Context, string, any, any)) {
+	if fn == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.changeContextCallbacks = append(c.changeContextCallbacks, fn)
+}
+
+func (c *Config[T]) snapshotChangeContextCallbacks() []func(context.Context, string, any, any) {
+	return append([]func(context.Context, string, any, any){}, c.changeContextCallbacks...)
+}
+
+func (c *Config[T]) notifyContextChangesUnlocked(ctx context.Context, callbacks []func(context.Context, string, any, any), oldFlat, newFlat map[string]any) {
+	if len(callbacks) == 0 {
+		return
+	}
+	c.notifyChangeSet(oldFlat, newFlat, func(key string, oldVal, newVal any) {
+		for index, callback := range callbacks {
+			func() {
+				defer func() {
+					if recovered := recover(); recovered != nil && c.logger != nil {
+						c.logger.Error("OnChangeWithContext callback panic recovered", slog.String("key", key), slog.Int("callback_index", index), slog.Any("panic", recovered), slog.String("stack", string(debug.Stack())))
+					}
+				}()
+				callback(ctx, key, oldVal, newVal)
+			}()
+		}
+	})
+}
+
+func (c *Config[T]) notifyChangeSet(oldFlat, newFlat map[string]any, emit func(string, any, any)) {
+	seen := make(map[string]struct{}, len(oldFlat)+len(newFlat))
+	for key := range oldFlat {
+		seen[key] = struct{}{}
+	}
+	for key := range newFlat {
+		seen[key] = struct{}{}
+	}
+	for key := range seen {
+		oldVal, hadOld := oldFlat[key]
+		newVal, hasNew := newFlat[key]
+		if hadOld && hasNew && reflect.DeepEqual(oldVal, newVal) {
+			continue
+		}
+		if !hadOld {
+			oldVal = nil
+		}
+		if !hasNew {
+			newVal = nil
+		}
+		emit(key, oldVal, newVal)
+	}
 }
 
 // snapshotChangeCallbacks returns a defensive copy of the registered
@@ -337,7 +286,7 @@ func (c *Config[T]) snapshotChangeCallbacks() []func(key string, oldVal, newVal 
 // released so that callbacks may freely call back into the public API
 // (Get/Set/Reload/etc.) without deadlocking on c.mu.
 //
-// G13 deletion semantics: this iterates the UNION of key sets, so:
+// Deletion semantics: this iterates the union of key sets, so:
 //   - keys present in both with different values fire (oldVal, newVal).
 //   - keys present in old only fire (oldVal, nil) — the deletion case.
 //   - keys present in new only fire (nil, newVal) — the addition case.
@@ -352,41 +301,11 @@ func (c *Config[T]) notifyChangesUnlocked(
 	if len(callbacks) == 0 {
 		return
 	}
-	// Iterate the union of keys so removed keys (present in oldFlat,
-	// absent from newFlat) and newly introduced keys (present in
-	// newFlat, absent from oldFlat) are both reported.
-	seen := make(map[string]struct{}, len(oldFlat)+len(newFlat))
-	for key := range oldFlat {
-		seen[key] = struct{}{}
-	}
-	for key := range newFlat {
-		seen[key] = struct{}{}
-	}
-	for key := range seen {
-		oldVal, hadOld := oldFlat[key]
-		newVal, hasNew := newFlat[key]
-		// Suppress only when both sides are present AND structurally
-		// equal under reflect.DeepEqual.
-		//
-		// reflect.DeepEqual is type-aware: int(8080) and float64(8080)
-		// are not equal, so a JSON-decoded float64 replacing an int
-		// correctly fires the callback for downstream re-coercion.
-		if hadOld && hasNew && reflect.DeepEqual(oldVal, newVal) {
-			continue
-		}
-		// Removed keys surface (oldVal, nil); added keys surface
-		// (nil, newVal) — the deletion contract.
-		var emitOld, emitNew any
-		if hadOld {
-			emitOld = oldVal
-		}
-		if hasNew {
-			emitNew = newVal
-		}
+	c.notifyChangeSet(oldFlat, newFlat, func(key string, oldVal, newVal any) {
 		for i, cb := range callbacks {
-			c.invokeChangeCallback(cb, i, key, emitOld, emitNew)
+			c.invokeChangeCallback(cb, i, key, oldVal, newVal)
 		}
-	}
+	})
 }
 
 // invokeChangeCallback runs cb under a recover guard. A panicking

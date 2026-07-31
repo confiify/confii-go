@@ -9,7 +9,7 @@ import (
 	"context"
 	"testing"
 
-	confii "github.com/confiify/confii-go"
+	confii "github.com/confiify/confii-go/v2"
 )
 
 func TestAzureSelfConfigSourceRegistration(t *testing.T) {

@@ -53,8 +53,8 @@ for section in "$tmp_dir/readme" "$tmp_dir/index" "$tmp_dir/quickstart" "$tmp_di
 	require_ordered_workflow "$section" \
 		"mkdir my-service" \
 		"go mod init example.com/my-service" \
-		"go get github.com/confiify/confii-go@latest" \
-		"go install github.com/confiify/confii-go/confii@latest" \
+		"go get github.com/confiify/confii-go/v2@latest" \
+		"go install github.com/confiify/confii-go/v2/confii@latest" \
 		"confii --version" \
 		"confii init"
 done

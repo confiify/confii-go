@@ -9,9 +9,10 @@ Confii watches configuration files on disk and automatically reloads when change
 === "Constructor"
 
     ```go
-    cfg, err := confii.New[any](ctx,
+    cfg, err := confii.NewWithContext[any](ctx,
         confii.WithLoaders(loader.NewYAML("config.yaml")),
         confii.WithDynamicReloading(true),
+        confii.WithReloadDebounce(150*time.Millisecond),
     )
     ```
 
@@ -21,7 +22,8 @@ Confii watches configuration files on disk and automatically reloads when change
     cfg, err := confii.NewBuilder[any]().
         AddLoader(loader.NewYAML("config.yaml")).
         EnableDynamicReloading().
-        Build(ctx)
+        WithReloadDebounce(150*time.Millisecond).
+        BuildWithContext(ctx)
     ```
 
 === "Self-Config"
@@ -29,11 +31,16 @@ Confii watches configuration files on disk and automatically reloads when change
     ```yaml
     # .confii.yaml
     dynamic_reloading: true
-    default_files:
-      - config.yaml
+    reload_debounce: 150ms
+    sources:
+      - type: yaml
+        path: config.yaml
     ```
 
-Once enabled, Confii starts a background goroutine that watches the **directories** containing your config files for changes.
+Once enabled, Confii starts a background goroutine that watches the
+**directories** containing local source files and transitive composition
+includes. If a directory cannot be watched, construction fails instead of
+silently returning a Config with reloading disabled.
 
 ---
 
@@ -43,8 +50,11 @@ The file watcher uses fsnotify to monitor directories (not individual files, whi
 
 1. **fsnotify** reports a `Write` or `Create` event on a watched directory
 2. Confii checks if the event file matches one of its tracked source files (by absolute path)
-3. If it matches, `Reload` is triggered automatically
-4. The reload uses incremental detection (mtime + SHA256 hash) to skip files that have not actually changed
+3. If it matches, Confii resets the trailing-edge debounce timer
+4. When the debounce interval expires, one `Reload` is triggered for the burst
+5. The reload uses incremental detection (mtime + SHA256 hash) to skip files that have not actually changed
+6. After a successful source transaction, the watcher atomically adopts the
+   candidate's current source and include dependency set
 
 ```text
 File edit detected
@@ -58,7 +68,10 @@ Is file in watched set? --No--> Ignore
    Yes
     |
     v
-cfg.Reload(ctx)
+Reset trailing-edge debounce timer
+    |
+    v
+cfg.ReloadWithContext(ctx)
     |
     v
 Incremental check (mtime + SHA256)
@@ -67,8 +80,18 @@ Incremental check (mtime + SHA256)
 Re-merge and notify callbacks
 ```
 
-!!! note "Events that trigger reload"
-    Only `Write` and `Create` events trigger a reload. Rename, chmod, and remove events are ignored.
+!!! note "Atomic saves and dependency changes"
+    `Write` and `Create` events trigger reload. When an editor removes or
+    renames a watched file as part of an atomic save, Confii retains the
+    directory watch and re-arms the file when it is recreated. Included files
+    are first-class triggers, and successful reload/extend transactions update
+    the active dependency set without restarting the watcher.
+
+!!! note "Debounce contract"
+    The default debounce is `150ms`. Set `reload_debounce: 0s` or
+    `WithReloadDebounce(0)` for immediate watcher-driven reloads. Manual
+    `Reload` and `ReloadWithContext` calls are never delayed. Closing or
+    stopping the watcher cancels pending debounced work.
 
 ---
 
@@ -77,7 +100,7 @@ Re-merge and notify callbacks
 Combine file watching with change callbacks to react to configuration changes in real-time:
 
 ```go
-cfg, _ := confii.New[any](ctx,
+cfg, _ := confii.NewWithContext[any](ctx,
     confii.WithLoaders(loader.NewYAML("config.yaml")),
     confii.WithDynamicReloading(true),
 )
@@ -141,27 +164,45 @@ This means:
 
 ```go
 // Manual incremental reload
-err := cfg.Reload(ctx, confii.WithIncremental(true))
+err := cfg.ReloadWithContext(ctx, confii.WithIncremental(true))
 ```
 
 The file watcher calls `Reload(ctx)`, whose default is the incremental behavior above. Pass `WithIncremental(false)` to force every loader to run.
+
+Applications that manage an additional file set can use the same public
+tracking utility directly:
+
+```go
+tracker := sourcetrack.NewFileTracker()
+for _, path := range []string{"config.yaml", "policies.yaml"} {
+    if err := tracker.Track(path); err != nil {
+        return err
+    }
+}
+
+changed := tracker.GetChangedFiles([]string{"config.yaml", "policies.yaml"})
+```
+
+`GetChangedFiles` preserves input order and returns only local files whose
+content hash changed. Confii also uses this batch operation internally when it
+selects local sources for an incremental reload.
 
 ---
 
 ## Best Practices for Production
 
 !!! tip "Use with validation"
-    Enable `WithValidateOnLoad(true)` so that invalid config changes are automatically rejected and rolled back:
+    Enable `WithValidateOnLoad(true)` so invalid candidates are rejected before publication:
 
     ```go
-    cfg, _ := confii.New[AppConfig](ctx,
+    cfg, _ := confii.NewWithContext[AppConfig](ctx,
         confii.WithLoaders(loader.NewYAML("config.yaml")),
         confii.WithDynamicReloading(true),
         confii.WithValidateOnLoad(true),
     )
     ```
 
-    If the new config fails validation, the reload is rolled back to the previous state.
+    If the new config fails validation, Confii discards the private candidate and readers continue to observe the previous snapshot.
 
 !!! tip "Combine with observability"
     Enable metrics and events to monitor reloads in production:
@@ -176,7 +217,7 @@ The file watcher calls `Reload(ctx)`, whose default is the incremental behavior 
     ```
 
 !!! warning "Do not watch files on networked or ephemeral filesystems"
-    fsnotify relies on OS-level filesystem events (inotify on Linux, kqueue on macOS). Network filesystems (NFS, CIFS) and container volumes may not reliably produce these events. For such environments, use a manual polling approach with `cfg.Reload(ctx)` on a timer instead.
+    fsnotify relies on OS-level filesystem events (inotify on Linux, kqueue on macOS). Network filesystems (NFS, CIFS) and container volumes may not reliably produce these events. For such environments, use a manual polling approach with `cfg.ReloadWithContext(ctx)` on a timer instead.
 
 !!! tip "Rate limiting"
     Editors may produce multiple write events in quick succession (e.g., write temp file, rename). fsnotify may fire multiple events for a single save. Confii's incremental check (mtime + hash) mitigates redundant reloads at the source level.
@@ -196,14 +237,14 @@ import (
     "os/signal"
     "syscall"
 
-    confii "github.com/confiify/confii-go"
-    "github.com/confiify/confii-go/loader"
+    confii "github.com/confiify/confii-go/v2"
+    "github.com/confiify/confii-go/v2/loader"
 )
 
 func main() {
     ctx := context.Background()
 
-    cfg, err := confii.New[any](ctx,
+    cfg, err := confii.NewWithContext[any](ctx,
         confii.WithLoaders(loader.NewYAML("config.yaml")),
         confii.WithDynamicReloading(true),
         confii.WithValidateOnLoad(true),

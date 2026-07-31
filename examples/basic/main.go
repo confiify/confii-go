@@ -6,26 +6,26 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
 
-	confii "github.com/confiify/confii-go"
-	"github.com/confiify/confii-go/loader"
+	confii "github.com/confiify/confii-go/v2"
+	"github.com/confiify/confii-go/v2/loader"
 )
 
 func main() {
-	cfg, err := confii.New[any](context.Background(),
-		confii.WithLoaders(
-			loader.NewYAML("config.yaml"),
-		),
+	cfg, err := confii.New[any](
+		confii.WithLoaders(loader.NewYAML("config.yaml")),
 	)
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	// Untyped access
-	name, _ := cfg.Get("app.name")
+	name, err := cfg.Get("app.name")
+	if err != nil {
+		log.Fatal(err)
+	}
 	fmt.Println("App:", name)
 
 	// Typed getters with defaults

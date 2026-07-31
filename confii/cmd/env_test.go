@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/confiify/confii-go/selfconfig"
+	"github.com/confiify/confii-go/v2/selfconfig"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

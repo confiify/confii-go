@@ -251,5 +251,5 @@ func environmentFilesError(message string, cause error) error {
 	if cause != nil {
 		message = message + ": " + cause.Error()
 	}
-	return &ConfigError{Op: "ApplySelfConfig", Err: fmt.Errorf("%w: environment_files: %s", ErrConfigLoad, message)}
+	return &ConfigError{Op: "ApplySelfConfig", Code: ConfigErrorCodeLoad, Err: fmt.Errorf("environment_files: %s", message)}
 }

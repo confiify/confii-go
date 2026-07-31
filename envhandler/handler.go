@@ -6,16 +6,15 @@
 //
 // # Environment-mode detection
 //
-// The handler treats a config as "environment-aware" only when the structure
-// gives an explicit signal. The previous heuristic (any top-level "default"
-// key flips the config into environment mode) was too permissive and could
-// silently strip legitimate sibling keys from flat configurations such as:
+// The handler treats a config as environment-aware only when the structure
+// gives an explicit signal. A scalar `default` key remains an ordinary key in
+// flat configuration such as:
 //
 //	default: en-US     # locale default, not a config section
 //	bar: 2
 //	baz: 3
 //
-// The current rules require one of the following signals before the handler
+// Environment mode requires one of the following signals before the handler
 // will consume "default" as a base section and discard everything that is
 // not the active environment:
 //
@@ -23,26 +22,24 @@
 //     (e.g. resolving env "production" against a config that contains a
 //     "production:" key — regardless of that value's type.)
 //  2. The "default" key is a map AND at least one other top-level sibling
-//     is also a map (i.e. a recognizable environment section). This catches
-//     the documented case where the user asked for an environment that
-//     does not yet exist in the file but other env sections clearly do.
+//     is also a map (i.e. a recognizable environment section). This supports
+//     selection of an environment not yet present when other environment
+//     sections establish the file's structure.
 //
-// If neither signal is present, the handler returns the config verbatim
-// (flat-config passthrough) instead of stripping siblings — preserving the
-// audit-flagged keys that previously disappeared.
+// If neither signal is present, the handler returns the config unchanged.
 package envhandler
 
 import (
 	"log/slog"
 	"os"
 
-	"github.com/confiify/confii-go/internal/dictutil"
+	"github.com/confiify/confii-go/v2/internal/dictutil"
 )
 
 // ResolveEnv decides which environment name should win when both an explicit
 // programmatic value and an OS-variable hook may be in play.
 //
-// The function encodes the documented precedence (G02):
+// The function encodes the documented precedence:
 //
 //  1. Explicit programmatic env (e.g. [confii.WithEnv]) — always wins when
 //     explicitFlag is true, regardless of explicitEnv's value (an explicit
@@ -54,10 +51,7 @@ import (
 //     string or a previously-resolved self-config default) when neither
 //     of the above produces a value.
 //
-// The audit-flagged bug (config.go:85-87 pre-fix) was that step 2 ran
-// unconditionally, overwriting an explicitly set env. ResolveEnv exists
-// to make that precedence testable in isolation and to give future
-// callers a single, documented entry point for env selection.
+// ResolveEnv centralizes this precedence for construction and reload paths.
 func ResolveEnv(explicitEnv string, explicitFlag bool, osVarName, fallback string) string {
 	if explicitFlag {
 		return explicitEnv
@@ -75,7 +69,7 @@ type Handler struct {
 	logger *slog.Logger
 }
 
-// New creates a new Handler. If logger is nil, slog.Default() is used.
+// New creates a Handler. A nil logger uses [slog.Default].
 func New(logger *slog.Logger) *Handler {
 	if logger == nil {
 		logger = slog.Default()
@@ -96,13 +90,12 @@ func New(logger *slog.Logger) *Handler {
 //     c. If the named env exists but is not a map, base is returned.
 //     d. If the named env is missing entirely, the handler warns and returns
 //     base (the default section, possibly empty).
-//  3. Outside environment mode the config is passed through verbatim, with
-//     one historical exception preserved for backwards compatibility: when
-//     the only top-level key is "default" (a map) and the user requested any
-//     environment, the contents of "default" are returned. This case has no
-//     siblings to drop, so the audit-flagged data-loss bug does not apply.
+//  3. Outside environment mode the config is passed through verbatim. In
+//     particular, a lone "default" key has no special meaning in flat or
+//     auto mode; callers that want section semantics must select the
+//     sectioned strategy.
 func (h *Handler) Resolve(config map[string]any, env string) map[string]any {
-	defaultSection, hasDefault := config["default"]
+	defaultSection := config["default"]
 	envSection, hasEnv := config[env]
 
 	// Decide whether the config is in environment mode.
@@ -110,13 +103,6 @@ func (h *Handler) Resolve(config map[string]any, env string) map[string]any {
 	envMode := h.IsEnvironmentAware(config, env)
 
 	if !envMode {
-		// Backwards-compatible default-only shorthand: a config that
-		// consists solely of a "default" map (no other top-level keys)
-		// still resolves to that map's contents. There are no siblings
-		// to strip, so this is safe.
-		if hasDefault && defaultIsMap && len(config) == 1 {
-			return defaultMap
-		}
 		// Flat-config passthrough: return verbatim so legitimate top-level
 		// keys are not silently dropped.
 		return config

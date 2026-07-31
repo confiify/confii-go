@@ -9,14 +9,14 @@ import (
 	"sync"
 	"testing"
 
-	confii "github.com/confiify/confii-go"
-	"github.com/confiify/confii-go/loader"
+	confii "github.com/confiify/confii-go/v2"
+	"github.com/confiify/confii-go/v2/loader"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestNew_BasicYAML(t *testing.T) {
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML("loader/testdata/simple.yaml")),
 	)
 	require.NoError(t, err)
@@ -35,7 +35,7 @@ func TestNew_BasicYAML(t *testing.T) {
 }
 
 func TestNew_EnvironmentResolution(t *testing.T) {
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML("loader/testdata/envs.yaml")),
 		confii.WithEnv("production"),
 	)
@@ -45,7 +45,6 @@ func TestNew_EnvironmentResolution(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "prod-db.example.com", host)
 
-	// debug overridden to false in production.
 	debug, err := cfg.GetBool("debug")
 	require.NoError(t, err)
 	assert.False(t, debug)
@@ -54,7 +53,7 @@ func TestNew_EnvironmentResolution(t *testing.T) {
 func TestNew_EnvSwitcher(t *testing.T) {
 	t.Setenv("MY_ENV", "staging")
 
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML("loader/testdata/envs.yaml")),
 		confii.WithEnvSwitcher("MY_ENV"),
 	)
@@ -67,22 +66,20 @@ func TestNew_EnvSwitcher(t *testing.T) {
 }
 
 func TestConfig_MultipleLoaders(t *testing.T) {
-	cfg, err := confii.New[any](context.Background(),
-		confii.WithLoaders(
-			loader.NewYAML("loader/testdata/simple.yaml"),
+	cfg, err := confii.NewWithContext[any](context.Background(),
+		confii.WithLoaders(loader.NewYAML("loader/testdata/simple.yaml"),
 			loader.NewJSON("loader/testdata/simple.json"),
 		),
 	)
 	require.NoError(t, err)
 
-	// JSON loader overrides YAML for database.host (both have "localhost").
 	host, err := cfg.Get("database.host")
 	require.NoError(t, err)
 	assert.Equal(t, "localhost", host)
 }
 
 func TestConfig_Set(t *testing.T) {
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML("loader/testdata/simple.yaml")),
 	)
 	require.NoError(t, err)
@@ -96,7 +93,7 @@ func TestConfig_Set(t *testing.T) {
 }
 
 func TestConfig_Set_Frozen(t *testing.T) {
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML("loader/testdata/simple.yaml")),
 		confii.WithFreezeOnLoad(true),
 	)
@@ -108,7 +105,7 @@ func TestConfig_Set_Frozen(t *testing.T) {
 }
 
 func TestConfig_Has(t *testing.T) {
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML("loader/testdata/simple.yaml")),
 	)
 	require.NoError(t, err)
@@ -118,7 +115,7 @@ func TestConfig_Has(t *testing.T) {
 }
 
 func TestConfig_Keys(t *testing.T) {
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML("loader/testdata/simple.yaml")),
 	)
 	require.NoError(t, err)
@@ -127,32 +124,28 @@ func TestConfig_Keys(t *testing.T) {
 	assert.Contains(t, allKeys, "database.host")
 	assert.Contains(t, allKeys, "debug")
 
-	// G30 (Wave 21): Keys(prefix) now returns FULL prefixed keys so the
-	// documented `for _, k := range cfg.Keys(p) { cfg.Get(k) }` loop
-	// works without manually re-prepending the prefix. Pre-Wave 21 this
-	// returned ["host","port",...]; the suffix-only form is recoverable
-	// at the call site via strings.TrimPrefix when needed.
 	dbKeys := cfg.Keys("database")
 	assert.Contains(t, dbKeys, "database.host")
 	assert.Contains(t, dbKeys, "database.port")
 	assert.NotContains(t, dbKeys, "debug")
-	assert.NotContains(t, dbKeys, "host", "Keys must not return prefix-stripped form post-Wave 21")
+	assert.NotContains(t, dbKeys, "host", "Keys must not return a prefix-stripped key")
 }
 
 func TestConfig_ToDict(t *testing.T) {
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML("loader/testdata/simple.yaml")),
 	)
 	require.NoError(t, err)
 
-	d := cfg.ToDict()
+	d, err := cfg.ToDict()
+	require.NoError(t, err)
 	assert.NotNil(t, d)
 	assert.Contains(t, d, "database")
 	assert.Contains(t, d, "debug")
 }
 
 func TestConfig_GetNotFound(t *testing.T) {
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML("loader/testdata/simple.yaml")),
 	)
 	require.NoError(t, err)
@@ -162,7 +155,7 @@ func TestConfig_GetNotFound(t *testing.T) {
 }
 
 func TestConfig_GetOr(t *testing.T) {
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML("loader/testdata/simple.yaml")),
 	)
 	require.NoError(t, err)
@@ -174,7 +167,7 @@ func TestConfig_GetOr(t *testing.T) {
 func TestConfig_SysenvFallback(t *testing.T) {
 	t.Setenv("DATABASE_HOST", "env-host")
 
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithSysenvFallback(true),
 	)
 	require.NoError(t, err)
@@ -187,7 +180,7 @@ func TestConfig_SysenvFallback(t *testing.T) {
 func TestConfig_SysenvFallback_WithPrefix(t *testing.T) {
 	t.Setenv("MYAPP_DATABASE_HOST", "prefixed-host")
 
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithSysenvFallback(true),
 		confii.WithEnvPrefix("MYAPP"),
 	)
@@ -199,7 +192,7 @@ func TestConfig_SysenvFallback_WithPrefix(t *testing.T) {
 }
 
 func TestConfig_MustGet_Panics(t *testing.T) {
-	cfg, err := confii.New[any](context.Background())
+	cfg, err := confii.NewWithContext[any](context.Background())
 	require.NoError(t, err)
 
 	assert.Panics(t, func() {
@@ -208,7 +201,7 @@ func TestConfig_MustGet_Panics(t *testing.T) {
 }
 
 func TestConfig_String(t *testing.T) {
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML("loader/testdata/simple.yaml")),
 		confii.WithEnv("test"),
 	)
@@ -220,7 +213,7 @@ func TestConfig_String(t *testing.T) {
 }
 
 func TestConfig_ConcurrentAccess(t *testing.T) {
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML("loader/testdata/simple.yaml")),
 	)
 	require.NoError(t, err)
@@ -247,12 +240,11 @@ func TestConfig_ConcurrentAccess(t *testing.T) {
 func TestConfig_EnvExpander(t *testing.T) {
 	t.Setenv("EXPANDED_VAL", "resolved")
 
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithEnvExpander(true),
 	)
 	require.NoError(t, err)
 
-	// Set a value with env placeholder.
 	err = cfg.Set("mykey", "${EXPANDED_VAL}")
 	require.NoError(t, err)
 
@@ -262,16 +254,12 @@ func TestConfig_EnvExpander(t *testing.T) {
 }
 
 func TestConfig_NoLoaders(t *testing.T) {
-	cfg, err := confii.New[any](context.Background())
+	cfg, err := confii.NewWithContext[any](context.Background())
 	require.NoError(t, err)
 	assert.NotNil(t, cfg)
 	assert.Empty(t, cfg.Keys())
 }
 
-// valueLoader is a value-typed (non-pointer) Loader implementation used to
-// verify that Config does not panic when reflecting on a non-pointer loader.
-// See gap G09: reflect.TypeOf(l).Elem() previously panicked for value-typed
-// loaders because Elem is only valid on pointer/array/chan/map/slice kinds.
 type valueLoader struct {
 	source string
 	data   map[string]any
@@ -293,7 +281,7 @@ func TestConfig_AcceptsValueTypedLoader(t *testing.T) {
 	}
 
 	require.NotPanics(t, func() {
-		cfg, err := confii.New[any](context.Background(),
+		cfg, err := confii.NewWithContext[any](context.Background(),
 			confii.WithLoaders(vl),
 		)
 		require.NoError(t, err)
@@ -314,7 +302,7 @@ func TestConfig_LayersDoesNotPanicOnValueLoader(t *testing.T) {
 		data:   map[string]any{"vl_layered": true},
 	}
 
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(vl),
 	)
 	require.NoError(t, err)
@@ -334,10 +322,6 @@ func TestConfig_LayersDoesNotPanicOnValueLoader(t *testing.T) {
 	}
 	assert.True(t, found, "expected a layer entry for the value-typed loader")
 
-	// Explain on a key tracked through the value-typed loader must not panic.
-	// The loader_type surfaced may reflect a later tracking pass (e.g. the
-	// EnvironmentHandler resolution step), but the override history should
-	// still record the original value-typed loader by name.
 	require.NotPanics(t, func() {
 		info := cfg.Explain("vl_layered")
 		assert.Equal(t, true, info["exists"])
@@ -355,7 +339,7 @@ func TestConfig_LayersDoesNotPanicOnValueLoader(t *testing.T) {
 }
 
 func TestConfig_ExtendDoesNotPanicOnValueLoader(t *testing.T) {
-	cfg, err := confii.New[any](context.Background())
+	cfg, err := confii.NewWithContext[any](context.Background())
 	require.NoError(t, err)
 
 	vl := valueLoader{
@@ -364,15 +348,13 @@ func TestConfig_ExtendDoesNotPanicOnValueLoader(t *testing.T) {
 	}
 
 	require.NotPanics(t, func() {
-		require.NoError(t, cfg.Extend(context.Background(), vl))
+		require.NoError(t, cfg.ExtendWithContext(context.Background(), vl))
 	})
 
 	got, err := cfg.Get("extended_key")
 	require.NoError(t, err)
 	assert.Equal(t, "extended_value", got)
 
-	// The Extend path also feeds source tracking; ensure the value-typed
-	// loader's name was captured rather than tripping the old reflect panic.
 	info := cfg.Explain("extended_key")
 	assert.Equal(t, true, info["exists"])
 	assert.Equal(t, "valueLoader", info["loader_type"])

@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"strings"
 
-	confii "github.com/confiify/confii-go"
-	"github.com/confiify/confii-go/loader"
+	confii "github.com/confiify/confii-go/v2"
+	"github.com/confiify/confii-go/v2/loader"
 )
+
+const loaderSpecHelp = "Loader spec TYPE:SOURCE (yaml, json, toml, ini, dotenv, environment, or http)"
 
 // parseLoaders parses "type:source" loader specs into Loader instances.
 func parseLoaders(specs []string) ([]confii.Loader, error) {
@@ -39,9 +41,9 @@ func createLoader(typ, source string) (confii.Loader, error) {
 		return loader.NewTOML(source), nil
 	case "ini":
 		return loader.NewINI(source), nil
-	case "env_file", "envfile":
+	case "dotenv":
 		return loader.NewEnvFile(source), nil
-	case "env", "environment":
+	case "environment":
 		return loader.NewEnvironment(source), nil
 	case "http", "https":
 		return loader.NewHTTP(source), nil
@@ -52,14 +54,10 @@ func createLoader(typ, source string) (confii.Loader, error) {
 
 // buildConfig creates a Config from CLI flags.
 //
-// When the caller supplied no -l/--loader specs, buildConfig deliberately
-// omits [confii.WithLoaders] rather than passing an empty slice. Passing
-// `WithLoaders()` would mark "loaders" as explicitly set with zero entries
-// and suppress any `default_files` declared in a self-config file
-// (confii.yaml). With no explicit loaders, callers fall through to the
-// documented priority model (explicit > self-config > built-in default)
-// so a project's confii.yaml `default_files` are honored as intended
-// (G05).
+// When the caller supplies no -l/--loader specs, buildConfig omits
+// [confii.WithLoaders] rather than passing an empty slice. This lets the
+// project's declarative `sources` participate through the documented priority
+// model: explicit code > self-config > built-in defaults.
 func buildConfig(env string, loaderSpecs []string) (*confii.Config[any], error) {
 	return buildConfigWithOptions(env, loaderSpecs)
 }
@@ -83,5 +81,5 @@ func buildConfigWithContext(ctx context.Context, env string, loaderSpecs []strin
 	}
 	opts = append(opts, extraOptions...)
 
-	return confii.New[any](ctx, opts...)
+	return confii.NewWithContext[any](ctx, opts...)
 }

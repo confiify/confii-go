@@ -3,16 +3,17 @@
 
 package confii
 
-import "github.com/confiify/confii-go/hook"
+import "github.com/confiify/confii-go/v2/hook"
 
 type (
-	// Hook is a function that transforms a configuration value during access.
-	// Hooks are executed in registration order and may modify, enrich, or
-	// replace the value before it is returned to the caller.
+	// Hook transforms one leaf value while a candidate snapshot is materialized.
+	// It receives the full dot-separated key and the output of the preceding
+	// hook. Returning an error rejects the candidate; read methods do not rerun
+	// hooks after publication.
 	Hook = hook.Func
 
-	// HookCondition is a predicate that determines whether a conditional
-	// hook should fire for a given key and value. Returning true causes the
-	// associated [Hook] to execute; returning false skips it.
+	// HookCondition is a context-aware predicate that determines whether a
+	// conditional hook should run for a key and its current candidate value. An
+	// error aborts materialization before the associated hook is invoked.
 	HookCondition = hook.Condition
 )

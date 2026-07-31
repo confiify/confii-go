@@ -13,13 +13,58 @@ import (
 )
 
 func TestConfigError_Unwrap(t *testing.T) {
-	err := NewLoadError("config.yaml", errors.New("file broken"))
+	cause := errors.New("file broken")
+	err := NewLoadError("config.yaml", cause)
 	assert.True(t, errors.Is(err, ErrConfigLoad))
+	assert.True(t, errors.Is(err, cause))
 
 	var ce *ConfigError
 	assert.True(t, errors.As(err, &ce))
 	assert.Equal(t, "Load", ce.Op)
 	assert.Equal(t, "config.yaml", ce.Source)
+	assert.Equal(t, ConfigErrorCodeLoad, ce.Code)
+	assert.Equal(t, cause, ce.Err)
+}
+
+func TestConfigErrorCode_MatchesSentinelCategories(t *testing.T) {
+	tests := []struct {
+		code     ConfigErrorCode
+		sentinel error
+	}{
+		{ConfigErrorCodeLoad, ErrConfigLoad},
+		{ConfigErrorCodeFormat, ErrConfigFormat},
+		{ConfigErrorCodeValidation, ErrConfigValidation},
+		{ConfigErrorCodeNotFound, ErrConfigNotFound},
+		{ConfigErrorCodeMerge, ErrConfigMerge},
+		{ConfigErrorCodeFrozen, ErrConfigFrozen},
+		{ConfigErrorCodeClosed, ErrConfigClosed},
+		{ConfigErrorCodeAccess, ErrConfigAccess},
+		{ConfigErrorCodeInvalid, ErrConfigInvalid},
+	}
+	for _, test := range tests {
+		t.Run(string(test.code), func(t *testing.T) {
+			err := &ConfigError{Op: "Test", Code: test.code}
+			assert.ErrorIs(t, err, test.sentinel)
+			assert.Contains(t, err.Error(), test.sentinel.Error())
+		})
+	}
+
+	unknown := &ConfigError{Op: "Test", Code: ConfigErrorCode("unknown")}
+	assert.False(t, unknown.Is(ErrConfigLoad))
+	assert.Equal(t, "Test: unknown", unknown.Error())
+}
+
+func TestConfigError_OneCauseChain(t *testing.T) {
+	cause := errors.New("provider unavailable")
+	err := &ConfigError{Op: "Load", Code: ConfigErrorCodeLoad, Err: cause}
+	assert.Equal(t, cause, err.Unwrap())
+	assert.ErrorIs(t, err, ErrConfigLoad)
+	assert.ErrorIs(t, err, cause)
+	assert.Contains(t, err.Error(), "config load error: provider unavailable")
+
+	var nilConfigError *ConfigError
+	assert.Nil(t, nilConfigError.Unwrap())
+	assert.False(t, nilConfigError.Is(ErrConfigLoad))
 }
 
 func TestConfigError_ErrorMessage(t *testing.T) {
@@ -41,10 +86,6 @@ func TestNewFrozenError(t *testing.T) {
 	assert.Contains(t, err.Error(), "Set")
 }
 
-// TestConfigError_DeterministicContextOrder verifies that ConfigError.Error()
-// renders Context entries in a stable, alphabetical order regardless of Go's
-// randomized map iteration. We invoke Error() many times against the same
-// struct and assert every rendering is byte-identical.
 func TestConfigError_DeterministicContextOrder(t *testing.T) {
 	ctx := map[string]any{}
 	for c := 'a'; c <= 'z'; c++ {
@@ -53,7 +94,7 @@ func TestConfigError_DeterministicContextOrder(t *testing.T) {
 	ce := &ConfigError{
 		Op:      "Get",
 		Key:     "some.key",
-		Err:     ErrConfigAccess,
+		Code:    ConfigErrorCodeAccess,
 		Context: ctx,
 	}
 
@@ -62,23 +103,19 @@ func TestConfigError_DeterministicContextOrder(t *testing.T) {
 		assert.Equal(t, first, ce.Error(), "iteration %d differs", i)
 	}
 
-	// Spot-check the alphabetical ordering: "a=" must appear before "b=" etc.
 	idxA := strings.Index(first, "a=a-value")
 	idxZ := strings.Index(first, "z=z-value")
 	assert.True(t, idxA >= 0 && idxZ > idxA, "expected sorted context keys; got %q", first)
 }
 
-// TestConfigError_LargeContextSummarized verifies that nested map values in
-// Context are not expanded inline; instead a bounded "<map: N entries>"
-// summary is emitted so operator messages stay readable for big configs.
 func TestConfigError_LargeContextSummarized(t *testing.T) {
 	big := make(map[string]any, 1000)
 	for i := 0; i < 1000; i++ {
 		big[fmt.Sprintf("k%04d", i)] = i
 	}
 	ce := &ConfigError{
-		Op:  "Load",
-		Err: ErrConfigLoad,
+		Op:   "Load",
+		Code: ConfigErrorCodeLoad,
 		Context: map[string]any{
 			"foo": big,
 		},
@@ -86,15 +123,11 @@ func TestConfigError_LargeContextSummarized(t *testing.T) {
 
 	msg := ce.Error()
 	assert.Contains(t, msg, "<map: 1000 entries>")
-	// And critically: none of the actual keys should leak into the string.
+
 	assert.NotContains(t, msg, "k0500")
 	assert.NotContains(t, msg, "k0999")
 }
 
-// TestConfigKeyNotFound_TruncatesAvailableKeys verifies that a not-found
-// error built against a 50-key config renders only the first availableKeysCap
-// keys (alphabetically) followed by an "(N more...)" suffix, while leaving
-// the full slice intact on Context for programmatic inspection.
 func TestConfigKeyNotFound_TruncatesAvailableKeys(t *testing.T) {
 	keys := make([]string, 50)
 	for i := 0; i < 50; i++ {
@@ -103,19 +136,16 @@ func TestConfigKeyNotFound_TruncatesAvailableKeys(t *testing.T) {
 	err := NewNotFoundError("missing", keys)
 	msg := err.Error()
 
-	// First 10 alphabetically are key00..key09.
 	for i := 0; i < availableKeysCap; i++ {
 		assert.Contains(t, msg, fmt.Sprintf("key%02d", i))
 	}
-	// Beyond the cap should NOT appear.
+
 	for i := availableKeysCap; i < 50; i++ {
 		assert.NotContains(t, msg, fmt.Sprintf("key%02d", i))
 	}
 	expectedRemaining := 50 - availableKeysCap
 	assert.Contains(t, msg, fmt.Sprintf("(%d more...)", expectedRemaining))
 
-	// Structured Context still carries every candidate so callers can
-	// inspect the full list programmatically.
 	var ce *ConfigError
 	assert.True(t, errors.As(err, &ce))
 	full, ok := ce.Context["available_keys"].([]string)
@@ -123,8 +153,6 @@ func TestConfigKeyNotFound_TruncatesAvailableKeys(t *testing.T) {
 	assert.Len(t, full, 50)
 }
 
-// TestConfigKeyNotFound_SmallListNotTruncated verifies that lists at or below
-// the cap are rendered in full with no "more..." suffix.
 func TestConfigKeyNotFound_SmallListNotTruncated(t *testing.T) {
 	keys := []string{"alpha", "bravo", "charlie", "delta", "echo"}
 	err := NewNotFoundError("missing", keys)
@@ -136,11 +164,7 @@ func TestConfigKeyNotFound_SmallListNotTruncated(t *testing.T) {
 	assert.NotContains(t, msg, "more...")
 }
 
-// TestConfigError_PreservesPrefix guarantees the legacy sentinel-error
-// prefixes survive the new rendering, so log pipelines and substring
-// matchers built around strings like "config load error" / "config key not
-// found" continue to function.
-func TestConfigError_PreservesPrefix(t *testing.T) {
+func TestConfigError_RendersCategory(t *testing.T) {
 	cases := []struct {
 		name   string
 		err    error
@@ -175,7 +199,7 @@ func TestConfigError_PreservesPrefix(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			assert.Contains(t, tc.err.Error(), tc.prefix,
-				"expected %q to contain legacy prefix %q", tc.err.Error(), tc.prefix)
+				"expected %q to contain category text %q", tc.err.Error(), tc.prefix)
 		})
 	}
 }

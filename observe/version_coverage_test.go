@@ -11,15 +11,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/confiify/confii-go/v2/diff"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestVersionManager_Defaults(t *testing.T) {
 	vm := NewVersionManager("", 0)
-	// Empty storage path means in-memory only: no source-tree artifacts
-	// are created. Callers must opt in to disk persistence with an explicit
-	// directory.
+
 	assert.Equal(t, "", vm.storagePath)
 	assert.Equal(t, 100, vm.maxVersions)
 }
@@ -40,14 +39,15 @@ func TestVersionManager_SaveVersionImmutability(t *testing.T) {
 	vm := NewVersionManager(dir, 100)
 
 	original := map[string]any{"key": "original"}
-	v, err := vm.SaveVersion(original, nil)
+	metadata := map[string]any{"actor": "original"}
+	v, err := vm.SaveVersion(original, metadata)
 	require.NoError(t, err)
 
-	// Mutate the original map.
 	original["key"] = "mutated"
+	metadata["actor"] = "mutated"
 
-	// The saved version should still have the original value.
 	assert.Equal(t, "original", v.Config["key"])
+	assert.Equal(t, "original", v.Metadata["actor"])
 }
 
 func TestVersionManager_SaveVersionPersistsToDisk(t *testing.T) {
@@ -57,7 +57,6 @@ func TestVersionManager_SaveVersionPersistsToDisk(t *testing.T) {
 	v, err := vm.SaveVersion(map[string]any{"persisted": true}, nil)
 	require.NoError(t, err)
 
-	// Verify the file exists on disk.
 	path := filepath.Join(dir, v.VersionID+".json")
 	data, err := os.ReadFile(path)
 	require.NoError(t, err)
@@ -70,6 +69,7 @@ func TestVersionManager_SaveVersionPersistsToDisk(t *testing.T) {
 	var loaded Version
 	require.NoError(t, json.Unmarshal(data, &loaded))
 	assert.Equal(t, v.VersionID, loaded.VersionID)
+	assert.True(t, loaded.Timestamp.Equal(v.Timestamp))
 	assert.Equal(t, true, loaded.Config["persisted"])
 }
 
@@ -84,7 +84,7 @@ func TestVersionManager_GetVersionRejectsTraversal(t *testing.T) {
 
 func TestVersionManager_GetVersionRejectsSymlinkEscape(t *testing.T) {
 	dir := t.TempDir()
-	const versionID = "0123456789abcdef"
+	const versionID = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
 	outside := filepath.Join(filepath.Dir(dir), "outside-version.json")
 	record := &Version{VersionID: versionID, Config: map[string]any{"escaped": true}}
 	data, err := json.Marshal(record)
@@ -104,7 +104,6 @@ func TestVersionManager_GetVersionFromDisk(t *testing.T) {
 	v, err := vm.SaveVersion(map[string]any{"disk": "load"}, nil)
 	require.NoError(t, err)
 
-	// Create a fresh manager that has no in-memory versions.
 	vm2 := NewVersionManager(dir, 100)
 	got := vm2.GetVersion(v.VersionID)
 	require.NotNil(t, got)
@@ -116,8 +115,7 @@ func TestVersionManager_GetVersionInvalidJSON(t *testing.T) {
 	dir := t.TempDir()
 	vm := NewVersionManager(dir, 100)
 
-	// Write an invalid JSON file.
-	const versionID = "badbadbadbadbad0"
+	const versionID = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
 	require.NoError(t, os.WriteFile(filepath.Join(dir, versionID+".json"), []byte("{invalid"), 0644))
 
 	got := vm.GetVersion(versionID)
@@ -129,16 +127,16 @@ func TestVersionManager_ListVersionsOrder(t *testing.T) {
 	vm := NewVersionManager(dir, 100)
 
 	_, _ = vm.SaveVersion(map[string]any{"v": 1}, nil)
-	time.Sleep(10 * time.Millisecond) // ensure different timestamps
+	time.Sleep(10 * time.Millisecond)
 	_, _ = vm.SaveVersion(map[string]any{"v": 2}, nil)
 	time.Sleep(10 * time.Millisecond)
 	_, _ = vm.SaveVersion(map[string]any{"v": 3}, nil)
 
 	versions := vm.ListVersions()
 	require.Len(t, versions, 3)
-	// Newest first: timestamps should be descending.
-	assert.True(t, versions[0].Timestamp >= versions[1].Timestamp)
-	assert.True(t, versions[1].Timestamp >= versions[2].Timestamp)
+
+	assert.False(t, versions[0].Timestamp.Before(versions[1].Timestamp))
+	assert.False(t, versions[1].Timestamp.Before(versions[2].Timestamp))
 }
 
 func TestVersionManager_ListVersionsEmpty(t *testing.T) {
@@ -160,19 +158,16 @@ func TestVersionManager_LatestVersionEmpty(t *testing.T) {
 func TestVersionManager_ScanDiskLoadsVersions(t *testing.T) {
 	dir := t.TempDir()
 
-	// Create version files on disk directly.
 	for i := 0; i < 3; i++ {
 		v := &Version{
-			VersionID: "000000000000000" + string(rune('0'+i)),
+			VersionID: []string{"01ARZ3NDEKTSV4RRFFQ69G5FAV", "01ARZ3NDEKTSV4RRFFQ69G5FAW", "01ARZ3NDEKTSV4RRFFQ69G5FAX"}[i],
 			Config:    map[string]any{"index": i},
-			Timestamp: float64(1000 + i),
-			DateTime:  "2026-01-01T00:00:00Z",
+			Timestamp: time.Unix(int64(1000+i), 0).UTC(),
 		}
 		data, _ := json.MarshalIndent(v, "", "  ")
 		_ = os.WriteFile(filepath.Join(dir, v.VersionID+".json"), data, 0644)
 	}
 
-	// Create a fresh manager and list to trigger scanDisk.
 	vm := NewVersionManager(dir, 100)
 	versions := vm.ListVersions()
 	assert.Len(t, versions, 3)
@@ -181,13 +176,12 @@ func TestVersionManager_ScanDiskLoadsVersions(t *testing.T) {
 func TestVersionManager_ScanDiskSkipsNonJSON(t *testing.T) {
 	dir := t.TempDir()
 
-	// Write a non-JSON file and a valid JSON version.
 	_ = os.WriteFile(filepath.Join(dir, "readme.txt"), []byte("not json"), 0644)
-	const versionID = "abcdef0123456789"
+	const versionID = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
 	v := &Version{
 		VersionID: versionID,
 		Config:    map[string]any{"ok": true},
-		Timestamp: 1000,
+		Timestamp: time.Unix(1000, 0).UTC(),
 	}
 	data, _ := json.MarshalIndent(v, "", "  ")
 	_ = os.WriteFile(filepath.Join(dir, versionID+".json"), data, 0644)
@@ -201,7 +195,7 @@ func TestVersionManager_ScanDiskSkipsNonJSON(t *testing.T) {
 func TestVersionManager_ScanDiskSkipsInvalidJSON(t *testing.T) {
 	dir := t.TempDir()
 
-	_ = os.WriteFile(filepath.Join(dir, "deadbeefdeadbeef.json"), []byte("{invalid json"), 0644)
+	_ = os.WriteFile(filepath.Join(dir, "01ARZ3NDEKTSV4RRFFQ69G5FAV.json"), []byte("{invalid json"), 0644)
 
 	vm := NewVersionManager(dir, 100)
 	versions := vm.ListVersions()
@@ -210,10 +204,10 @@ func TestVersionManager_ScanDiskSkipsInvalidJSON(t *testing.T) {
 
 func TestVersionManager_ScanDiskSkipsMismatchedVersionID(t *testing.T) {
 	dir := t.TempDir()
-	record := &Version{VersionID: "1111111111111111", Config: map[string]any{"ok": false}}
+	record := &Version{VersionID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Config: map[string]any{"ok": false}}
 	data, err := json.Marshal(record)
 	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "2222222222222222.json"), data, 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "01ARZ3NDEKTSV4RRFFQ69G5FAW.json"), data, 0600))
 
 	vm := NewVersionManager(dir, 100)
 	assert.Empty(t, vm.ListVersions())
@@ -235,11 +229,9 @@ func TestVersionManager_EvictRemovesOldest(t *testing.T) {
 	_, _ = vm.SaveVersion(map[string]any{"v": 2}, nil)
 	_, _ = vm.SaveVersion(map[string]any{"v": 3}, nil)
 
-	// v1 should have been evicted (oldest by timestamp).
 	got := vm.GetVersion(v1.VersionID)
 	assert.Nil(t, got)
 
-	// Disk file should also be removed.
 	_, err := os.Stat(filepath.Join(dir, v1.VersionID+".json"))
 	assert.True(t, os.IsNotExist(err))
 
@@ -257,17 +249,17 @@ func TestVersionManager_DiffVersions_Modified(t *testing.T) {
 	diffs, err := vm.DiffVersions(v1.VersionID, v2.VersionID)
 	require.NoError(t, err)
 
-	// host changed, port stayed the same.
-	var hostDiff map[string]any
+	var hostDiff *diff.ConfigDiff
 	for _, d := range diffs {
-		if d["path"] == "host" {
-			hostDiff = d
+		if d.Path == "host" {
+			copy := d
+			hostDiff = &copy
 		}
 	}
 	require.NotNil(t, hostDiff)
-	assert.Equal(t, "modified", hostDiff["type"])
-	assert.Equal(t, "localhost", hostDiff["old_value"])
-	assert.Equal(t, "prod-db", hostDiff["new_value"])
+	assert.Equal(t, diff.Modified, hostDiff.Type)
+	assert.Equal(t, "localhost", hostDiff.OldValue)
+	assert.Equal(t, "prod-db", hostDiff.NewValue)
 }
 
 func TestVersionManager_DiffVersions_AddedAndRemoved(t *testing.T) {
@@ -282,7 +274,7 @@ func TestVersionManager_DiffVersions_AddedAndRemoved(t *testing.T) {
 
 	types := make(map[string]string)
 	for _, d := range diffs {
-		types[d["path"].(string)] = d["type"].(string)
+		types[d.Path] = string(d.Type)
 	}
 	assert.Equal(t, "removed", types["old_key"])
 	assert.Equal(t, "added", types["new_key"])
@@ -302,14 +294,19 @@ func TestVersionManager_DiffVersions_NestedMaps(t *testing.T) {
 	diffs, err := vm.DiffVersions(v1.VersionID, v2.VersionID)
 	require.NoError(t, err)
 
-	var hostDiff map[string]any
+	var hostDiff *diff.ConfigDiff
 	for _, d := range diffs {
-		if d["path"] == "db.host" {
-			hostDiff = d
+		if d.Path == "db" {
+			for _, nested := range d.NestedDiffs {
+				if nested.Path == "db.host" {
+					copy := nested
+					hostDiff = &copy
+				}
+			}
 		}
 	}
 	require.NotNil(t, hostDiff)
-	assert.Equal(t, "modified", hostDiff["type"])
+	assert.Equal(t, diff.Modified, hostDiff.Type)
 }
 
 func TestVersionManager_DiffVersions_NoDifferences(t *testing.T) {
@@ -327,25 +324,22 @@ func TestVersionManager_DiffVersions_NoDifferences(t *testing.T) {
 func TestVersionManager_ScanDiskWithUnreadableFile(t *testing.T) {
 	dir := t.TempDir()
 
-	// Create a valid version file and an unreadable one.
 	v := &Version{
-		VersionID: "0123456789abcdef",
+		VersionID: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
 		Config:    map[string]any{"ok": true},
-		Timestamp: 1000,
+		Timestamp: time.Unix(1000, 0).UTC(),
 	}
 	data, _ := json.MarshalIndent(v, "", "  ")
 	_ = os.WriteFile(filepath.Join(dir, v.VersionID+".json"), data, 0644)
 
-	// Create unreadable file.
-	unreadablePath := filepath.Join(dir, "fedcba9876543210.json")
-	_ = os.WriteFile(unreadablePath, []byte(`{"version_id":"fedcba9876543210"}`), 0000)
+	unreadablePath := filepath.Join(dir, "01ARZ3NDEKTSV4RRFFQ69G5FAW.json")
+	_ = os.WriteFile(unreadablePath, []byte(`{"version_id":"01ARZ3NDEKTSV4RRFFQ69G5FAW"}`), 0000)
 
 	vm := NewVersionManager(dir, 100)
 	versions := vm.ListVersions()
-	// The readable version should be loaded; the unreadable one should be skipped.
+
 	assert.GreaterOrEqual(t, len(versions), 1)
 
-	// Cleanup: make the file writable again so TempDir cleanup succeeds.
 	_ = os.Chmod(unreadablePath, 0644)
 }
 

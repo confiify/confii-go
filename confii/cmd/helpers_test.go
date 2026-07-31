@@ -6,15 +6,42 @@ package cmd
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
-	"github.com/confiify/confii-go/selfconfig"
+	"github.com/confiify/confii-go/v2/selfconfig"
 )
 
-// chdirForHelpers switches CWD to dir, clears the selfconfig cache, and
-// registers a cleanup that restores the prior CWD and re-clears the
-// cache. Equivalent to the helper used in the top-level builder tests
-// but lives here so the cmd-package tests can use it directly.
+func TestCreateLoaderUsesCanonicalTypeNames(t *testing.T) {
+	for _, tt := range []struct {
+		typeName string
+		source   string
+	}{
+		{"yaml", "config.yml"},
+		{"json", "config.json"},
+		{"toml", "config.toml"},
+		{"ini", "config.cfg"},
+		{"dotenv", ".env.local"},
+		{"environment", "APP"},
+	} {
+		t.Run(tt.typeName, func(t *testing.T) {
+			got, err := createLoader(tt.typeName, tt.source)
+			if err != nil || got == nil {
+				t.Fatalf("createLoader(%q) = %v, %v", tt.typeName, got, err)
+			}
+		})
+	}
+
+	for _, alias := range []string{"yml", "cfg", "env", "envfile", "env_file", "env-vars"} {
+		t.Run("reject/"+alias, func(t *testing.T) {
+			_, err := createLoader(alias, "value")
+			if err == nil || !strings.Contains(err.Error(), "unknown loader type") {
+				t.Fatalf("createLoader(%q) error = %v", alias, err)
+			}
+		})
+	}
+}
+
 func chdirForHelpers(t *testing.T, dir string) {
 	t.Helper()
 	orig, err := os.Getwd()
@@ -31,15 +58,10 @@ func chdirForHelpers(t *testing.T, dir string) {
 	selfconfig.ClearCache()
 }
 
-// TestBuildConfig_NoLoaders_AllowsSelfConfigDefaults verifies the G05
-// CLI fix: when the user invokes a confii subcommand without -l flags,
-// buildConfig must not call WithLoaders([]). Doing so would mark
-// "loaders" as explicitly set with zero entries, suppressing
-// `default_files` declared in the project's confii.yaml.
 func TestBuildConfig_NoLoaders_AllowsSelfConfigDefaults(t *testing.T) {
 	dir := t.TempDir()
 
-	confiiYAML := "default_files:\n  - selfconfig.yaml\n"
+	confiiYAML := "sources:\n  - type: yaml\n    path: selfconfig.yaml\n"
 	if err := os.WriteFile(filepath.Join(dir, "confii.yaml"), []byte(confiiYAML), 0644); err != nil {
 		t.Fatalf("write confii.yaml: %v", err)
 	}
@@ -56,20 +78,14 @@ func TestBuildConfig_NoLoaders_AllowsSelfConfigDefaults(t *testing.T) {
 	}
 
 	if !cfg.Has("from_selfconfig") {
-		t.Errorf("expected self-config default_files to be honored when no -l flags were supplied")
+		t.Errorf("expected self-config sources to be honored when no -l flags were supplied")
 	}
 }
 
-// TestBuildConfig_WithLoaders_TakesPrecedence verifies that when the
-// user supplies an explicit -l flag, the loader list is taken as
-// authoritative and self-config `default_files` are NOT appended.
-// Explicit code wins over self-config (G05).
 func TestBuildConfig_WithLoaders_TakesPrecedence(t *testing.T) {
 	dir := t.TempDir()
 
-	// Self-config wants to add an extra loader that would, if appended,
-	// inject `from_selfconfig: true`.
-	confiiYAML := "default_files:\n  - selfconfig.yaml\n"
+	confiiYAML := "sources:\n  - type: yaml\n    path: selfconfig.yaml\n"
 	if err := os.WriteFile(filepath.Join(dir, "confii.yaml"), []byte(confiiYAML), 0644); err != nil {
 		t.Fatalf("write confii.yaml: %v", err)
 	}
@@ -77,7 +93,6 @@ func TestBuildConfig_WithLoaders_TakesPrecedence(t *testing.T) {
 		t.Fatalf("write selfconfig.yaml: %v", err)
 	}
 
-	// Caller-supplied YAML — explicit loader argument.
 	explicitPath := filepath.Join(dir, "explicit.yaml")
 	if err := os.WriteFile(explicitPath, []byte("from_explicit: true\n"), 0644); err != nil {
 		t.Fatalf("write explicit.yaml: %v", err)
@@ -94,6 +109,6 @@ func TestBuildConfig_WithLoaders_TakesPrecedence(t *testing.T) {
 		t.Errorf("expected explicit loader's keys to be present")
 	}
 	if cfg.Has("from_selfconfig") {
-		t.Errorf("self-config default_files leaked through despite explicit -l loader")
+		t.Errorf("self-config sources leaked through despite explicit -l loader")
 	}
 }

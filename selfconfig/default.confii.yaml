@@ -3,6 +3,10 @@
 
 # Confii self-configuration
 #
+# Environment-specific control-plane overrides may be added as
+# .confii.<environment>.yaml. Confii loads this base first and recursively
+# overlays the file selected by env_switcher (or default_environment).
+#
 # This file is safe to use unchanged. Every top-level setting supported by
 # Confii is present so that project behavior is explicit and discoverable.
 # Application code still has final authority:
@@ -21,10 +25,8 @@ env_switcher: ""
 # Environment variable integration. env_prefix installs the final
 # OS-environment source after declarative sources, using PREFIX_KEY /
 # PREFIX_NESTED__KEY names. An explicitly supplied equivalent loader keeps its
-# caller-selected position. default_prefix is the fallback alias retained for
-# compatibility; prefer env_prefix in new projects.
+# caller-selected position.
 env_prefix: ""
-default_prefix: ""
 sysenv_fallback: false
 
 # Environment models:
@@ -37,14 +39,10 @@ environment_strategy: auto
 # Used only by hybrid mode: error | warn | last_wins.
 environment_conflict_policy: last_wins
 
-# Simple ordered files loaded before any entries in sources. Prefer one style
-# within a project unless the extra precedence layer is deliberate. Supported
-# extensions are .yaml, .yml, .json, .toml, .ini, .cfg, and .env.
-default_files: []
-
 # Ordered declarative sources. Later sources have higher precedence.
-# Core source types are environment_files, yaml, yml, json, toml, ini, cfg,
-# envfile, env (file path or OS prefix), environment, and env-vars. Optional
+# Core source types are environment_files, yaml, json, toml, ini, dotenv, and
+# environment. Declarative type names are canonical; filename extensions may
+# still use .yml for YAML and .cfg for INI. Optional
 # loader/cloud registration adds git, s3, ssm, azure_blob, gcs, and ibm_cos
 # when the containing binary imports that module with the matching build tag.
 sources: []
@@ -56,21 +54,19 @@ sources: []
 #     environment_file: "{environment}.yaml"
 #     default_required: false
 #     environment_required: true
-#   - type: env
+#   - type: environment
 #     prefix: APP
 
-# Merge behavior. deep_merge controls the standard merger. Setting
-# merge_strategy activates the advanced merger with one of:
-# replace | merge | append | prepend | intersection | union.
-deep_merge: true
-merge_strategy: ""
-
-# Per-key-path advanced merge overrides. Paths use dotted notation.
-merge_strategy_map: {}
+# Merge behavior. Paths use dotted notation.
+merge:
+  default: deep_merge
+  paths: {}
 # Example:
-# merge_strategy_map:
-#   features: union
-#   servers: append
+# merge:
+#   default: deep_merge
+#   paths:
+#     features: union
+#     servers: append
 
 # Value processing.
 use_env_expander: true
@@ -79,13 +75,41 @@ use_type_casting: true
 # Validation. schema_path points to a JSON Schema document. Typed Go configs
 # can also use struct validation tags without a schema file.
 validate_on_load: false
-strict_validation: false
+strict_validation: true
 schema_path: ""
 
 # Runtime lifecycle. dynamic_reloading and freeze_on_load are intentionally
 # mutually exclusive.
 dynamic_reloading: false
+# Trailing-edge delay used to collapse editor write bursts into one automatic
+# reload. Set 0s for immediate watcher-driven reloads. Explicit Reload calls
+# are never delayed.
+reload_debounce: 150ms
 freeze_on_load: false
+
+# Additional dot-separated paths that must be redacted even when their values
+# come from custom loaders or hooks instead of ${secret...} references. A
+# parent path protects all descendants.
+sensitive_paths: []
+# Example:
+# sensitive_paths:
+#   - database.password
+#   - integrations.payment.api_key
+
+# Overall ceiling for startup source loading, secret materialization, hooks,
+# and validation when the caller does not provide a context deadline. Use 0s
+# to disable Confii's fallback deadline.
+startup:
+  timeout: 60s
+
+# Deadline for context-free runtime APIs and watcher-triggered reloads. Use 0s
+# to require callers to supply explicit contexts without a library fallback.
+runtime:
+  timeout: 30s
+
+# Maximum number of top-level configuration branches whose secret references
+# are resolved concurrently during startup and explicit refresh.
+secret_resolution_concurrency: 4
 
 # Diagnostics and error handling.
 debug_mode: false
@@ -102,10 +126,6 @@ log_level: ""
 # Core providers are env, dict, and file. Build-tagged cloud registration adds
 # aws, azure, gcp, and vault. Never commit literal production secrets.
 secrets: {}
-# Example:
-# secrets:
-#   provider: env
-#   prefix: SECRET_
 # Named providers support mixed backends and environment-specific defaults.
 # Unqualified ${secret:key} references use the active default; an explicit
 # ${secret@shared:key} reference always uses that named provider.

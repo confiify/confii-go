@@ -11,9 +11,9 @@ import (
 	"context"
 	"log"
 
-	confii "github.com/confiify/confii-go"
-	loadercloud "github.com/confiify/confii-go/loader/cloud"
-	secretcloud "github.com/confiify/confii-go/secret/cloud"
+	loadercloud "github.com/confiify/confii-go/loader/cloud/v2"
+	secretcloud "github.com/confiify/confii-go/secret/cloud/v2"
+	confii "github.com/confiify/confii-go/v2"
 )
 
 func main() {
@@ -22,7 +22,7 @@ func main() {
 		"https://myaccount.blob.core.windows.net/configs",
 		"production/app.yaml",
 	)
-	cfg, err := confii.New[any](ctx, confii.WithLoaders(blob))
+	cfg, err := confii.NewWithContext[any](ctx, confii.WithLoaders(blob))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -33,6 +33,10 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	_, _ = store.GetSecret(ctx, "database-password")
-	_, _ = cfg.Get("database.host")
+	if _, err := store.GetSecret(ctx, "database-password"); err != nil {
+		log.Fatal(err)
+	}
+	if _, err := cfg.Get("database.host"); err != nil {
+		log.Fatal(err)
+	}
 }

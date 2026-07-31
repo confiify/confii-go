@@ -4,6 +4,7 @@
 package hook
 
 import (
+	"context"
 	"os"
 	"regexp"
 )
@@ -13,10 +14,10 @@ var envVarPattern = regexp.MustCompile(`\$\{([^}:]+)\}`)
 // NewEnvExpanderHook returns a hook that replaces ${VAR} placeholders
 // with values from os.Environ. Unknown variables are left unchanged.
 func NewEnvExpanderHook() Func {
-	return func(_ string, value any) any {
+	return func(_ context.Context, _ string, value any) (any, error) {
 		s, ok := value.(string)
 		if !ok {
-			return value
+			return value, nil
 		}
 		return envVarPattern.ReplaceAllStringFunc(s, func(match string) string {
 			groups := envVarPattern.FindStringSubmatch(match)
@@ -27,6 +28,6 @@ func NewEnvExpanderHook() Func {
 				return v
 			}
 			return match
-		})
+		}), nil
 	}
 }

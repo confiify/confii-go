@@ -24,10 +24,10 @@ import (
 	"log"
 	"os"
 
-	confii "github.com/confiify/confii-go"
-	"github.com/confiify/confii-go/loader/cloud"
-	"github.com/confiify/confii-go/secret"
-	secretcloud "github.com/confiify/confii-go/secret/cloud"
+	"github.com/confiify/confii-go/loader/cloud/v2"
+	secretcloud "github.com/confiify/confii-go/secret/cloud/v2"
+	confii "github.com/confiify/confii-go/v2"
+	"github.com/confiify/confii-go/v2/secret"
 )
 
 func main() {
@@ -38,9 +38,12 @@ func main() {
 	// ========================================
 
 	// AWS S3 (this file: -tags aws)
-	s3Loader, _ := cloud.NewS3("s3://my-bucket/config.yaml",
+	s3Loader, err := cloud.NewS3("s3://my-bucket/config.yaml",
 		cloud.WithS3Region("us-west-2"),
 	)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	// AWS SSM Parameter Store (this file: -tags aws)
 	ssmLoader := cloud.NewSSM("/myapp/production/")
@@ -57,18 +60,21 @@ func main() {
 	// ========================================
 
 	// AWS Secrets Manager (this file: -tags aws)
-	awsStore, _ := secretcloud.NewAWSSecretsManager(ctx,
+	awsStore, err := secretcloud.NewAWSSecretsManager(ctx,
 		secretcloud.WithAWSRegion("us-east-1"),
 	)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	// Multi-store fallback chain — extend with stores from other providers
 	// by adding their build tags (e.g. `-tags "aws,vault"`).
 	multi := secret.NewMultiStore([]confii.SecretStore{awsStore})
 
 	resolver := secret.NewResolver(multi)
-	cfg, err := confii.New[any](ctx,
+	cfg, err := confii.NewWithContext[any](ctx,
 		confii.WithLoaders(s3Loader, ssmLoader, gitLoader),
-		confii.WithDeepMerge(true),
+		confii.WithMergeStrategy(confii.StrategyMerge),
 		confii.WithSecretResolver(resolver),
 	)
 	if err != nil {
@@ -76,6 +82,9 @@ func main() {
 	}
 
 	// Already resolved during New; this is an in-memory read.
-	val, _ := cfg.Get("some.key")
+	val, err := cfg.Get("some.key")
+	if err != nil {
+		log.Fatal(err)
+	}
 	fmt.Println(val)
 }

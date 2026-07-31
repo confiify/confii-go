@@ -4,11 +4,24 @@
 package observe
 
 import (
+	"context"
 	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
+
+func TestEventEmitter_ContextListenerReceivesOperationContext(t *testing.T) {
+	e := NewEventEmitter(nil)
+	type contextKey struct{}
+	ctx := context.WithValue(context.Background(), contextKey{}, "trace")
+	var received any
+	e.OnWithContext("reload", func(callbackCtx context.Context, _ ...any) {
+		received = callbackCtx.Value(contextKey{})
+	})
+	e.EmitWithContext(ctx, "reload")
+	assert.Equal(t, "trace", received)
+}
 
 func TestEventEmitter_OnAndEmit(t *testing.T) {
 	e := NewEventEmitter(nil)
@@ -50,7 +63,7 @@ func TestEventEmitter_PanicRecovery(t *testing.T) {
 		recovered = true
 	})
 
-	e.Emit("crash") // should not panic
+	e.Emit("crash")
 	assert.True(t, recovered)
 }
 
@@ -60,7 +73,23 @@ func TestEventEmitter_Off(t *testing.T) {
 	e.On("event", func(_ ...any) { count++ })
 	e.On("event", func(_ ...any) { count++ })
 
-	e.Off("event") // remove last listener
+	e.Off("event")
 	e.Emit("event")
-	assert.Equal(t, 1, count) // only first listener fires
+	assert.Equal(t, 1, count)
+}
+
+func TestEventEmitter_OffWithContext(t *testing.T) {
+	e := NewEventEmitter(nil)
+	count := 0
+	e.OnWithContext("event", func(context.Context, ...any) { count++ })
+	e.OnWithContext("event", func(context.Context, ...any) { count++ })
+
+	e.OffWithContext("event")
+	e.EmitWithContext(context.Background(), "event")
+	assert.Equal(t, 1, count)
+
+	e.OffWithContext("event")
+	e.OffWithContext("unknown")
+	e.EmitWithContext(context.Background(), "event")
+	assert.Equal(t, 1, count)
 }

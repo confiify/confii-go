@@ -11,10 +11,10 @@ import (
 
 // NormalizeKeys walks a value graph (typically the output of a YAML
 // decoder) and returns an equivalent graph in which every map is
-// map[string]any. gopkg.in/yaml.v3 emits map[interface{}]interface{}
+// map[string]any. go.yaml.in/yaml/v3 emits map[interface{}]interface{}
 // for any map containing a non-string key, which is incompatible with
 // the rest of the library's data model (dot-path access, JSON export,
-// mapstructure decoding all assume map[string]any).
+// typed configuration decoding all assume map[string]any).
 //
 // Keys are coerced via [coerceMapKey] using canonical per-type
 // encodings: string passthrough, bool → "true" / "false", integer

@@ -70,7 +70,7 @@ technical justification instead of silently discarding the finding.
 
 The following are in scope:
 
-- The `confii-go` library code (`github.com/confiify/confii-go`)
+- The `confii-go` library code (`github.com/confiify/confii-go/v2`)
 - Secret store integrations (credential handling, caching, resolution)
 - Configuration parsing (injection via crafted config files)
 - The CLI tool (`confii`)
@@ -240,23 +240,17 @@ consumers go dark.
 > `invokeChangeCallback`, which logs the panic value, the affected
 > key, the callback registration index, and `runtime/debug.Stack()`
 > at error level on `c.logger`. Sibling callbacks continue
-> regardless. `_ = recover()` is treated as a code smell across the
-> codebase.
+> regardless. Silent panic recovery is prohibited.
 
 ### Verification
 
-- `go test ./...` — full suite passes.
-- `go test ./... -race` — full suite passes across all 21 packages
-  with no detected races.
-- 48 negative tests pin the threat-mitigation contracts above and
-  would fail against pre-mitigation code. Test files are named
-  `*_v23_test.go` / `*_v24_test.go` adjacent to the source they
-  pin.
+- `go test ./...` verifies functional behavior.
+- `go test ./... -race` verifies concurrent behavior.
+- Security regression tests exercise the threat-mitigation contracts above.
 
 ### Reporting a regression
 
 Treat a regression of any threat above as a security report and
 follow the disclosure process at the top of this document. Each
-mitigation is pinned by a regression test; if a regression slipped
-past CI, the pin is missing or weakened, which is itself a bug
-worth reporting.
+mitigation is covered by regression tests. A regression that reaches a release
+is itself a security-relevant test gap.

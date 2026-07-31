@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://pkg.go.dev/github.com/confiify/confii-go"><img src="https://pkg.go.dev/badge/github.com/confiify/confii-go.svg" alt="Go Reference"></a>
+  <a href="https://pkg.go.dev/github.com/confiify/confii-go/v2"><img src="https://pkg.go.dev/badge/github.com/confiify/confii-go/v2.svg" alt="Go Reference"></a>
   <a href="https://github.com/confiify/confii-go/releases/latest"><img src="https://img.shields.io/github/v/release/confiify/confii-go?sort=semver" alt="Latest Release"></a>
   <a href="https://github.com/confiify/confii-go/actions/workflows/ci.yaml"><img src="https://github.com/confiify/confii-go/actions/workflows/ci.yaml/badge.svg" alt="CI"></a>
   <a href="https://codecov.io/gh/confiify/confii-go"><img src="https://codecov.io/gh/confiify/confii-go/branch/main/graph/badge.svg" alt="Coverage"></a>
@@ -41,10 +41,10 @@
   - [Configuration Sources](#configuration-sources) — files, env vars, HTTP, cloud
   - [Configuration Composition](#configuration-composition) — `_include`, `_defaults`
   - [Environment Resolution](#environment-resolution) — `default` + env-specific merging
-  - [Merge Strategies](#merge-strategies) — 6 strategies with per-path overrides
+  - [Merge Strategies](#merge-strategies) — selectable strategies with per-path overrides
 - **Working with Values**
   - [Accessing Values](#accessing-values) — `Get`, typed getters, `Typed()`
-  - [Hooks & Transformation](#hooks--transformation) — 4 hook types, `${VAR}` expansion
+  - [Hooks & Transformation](#hooks--transformation) — key, value, condition, and global hooks
   - [Validation](#validation) — struct tags, JSON Schema
   - [Secret Management](#secret-management) — `${secret:key}`, cloud stores
 - **Runtime & Operations**
@@ -73,7 +73,7 @@ Go has several configuration libraries, but none provides a complete configurati
 | File formats (YAML/JSON/TOML/INI/.env) | All 5 | All 5 | 4 | Partial |
 | Cloud sources (S3, SSM, Azure, GCS, IBM, Git) | All 6 | etcd/Consul | S3, etcd | Limited |
 | Secret stores (Vault, AWS, Azure, GCP) | All 4 + env | No | Vault | Limited |
-| Per-path merge strategies (6 strategies) | Yes | No | Global only | No |
+| Per-path merge strategies | Yes | No | Global only | No |
 | Config composition (`_include`/`_defaults`) | Yes | No | No | No |
 | Type-safe generics (`Config[T]`) | Yes | No | No | No |
 | `${secret:key}` placeholder resolution | Yes | No | No | No |
@@ -81,10 +81,10 @@ Go has several configuration libraries, but none provides a complete configurati
 | Config diff / drift detection | Yes | No | No | No |
 | Versioning with rollback | Yes | No | No | No |
 | Observability (metrics, events) | Yes | No | No | No |
-| Hook/middleware system (4 types) | Yes | No | No | No |
+| Hook/middleware system | Yes | No | No | No |
 | File watching + incremental reload | Yes | Yes | Yes | Partial |
 | JSON Schema validation | Yes | No | No | No |
-| CLI tool (14 commands) | Yes | No | No | No |
+| CLI tool | Yes | No | No | No |
 | Thread-safe (RWMutex) | Yes | [No](https://github.com/spf13/viper/issues/268) | Partial | Varies |
 
 <!-- markdownlint-disable MD033 -->
@@ -92,9 +92,9 @@ Go has several configuration libraries, but none provides a complete configurati
 <summary><strong>What Confii solves that others don't</strong></summary>
 <!-- markdownlint-enable MD033 -->
 
-**1. The multi-source merge problem.** Viper's deep merge has [known limitations](https://github.com/spf13/viper/issues/181) with slices and nested maps. Confii provides 6 merge strategies with per-path overrides — so `database` can use `replace` while `features` uses `append` in the same merge.
+**1. The multi-source merge problem.** Viper's deep merge has [known limitations](https://github.com/spf13/viper/issues/181) with slices and nested maps. Confii provides selectable merge strategies with per-path overrides — so `database` can use `replace` while `features` uses `append` in the same merge.
 
-**2. Secret management as a first-class concern.** Confii natively resolves `${secret:db/password}` placeholders from AWS Secrets Manager, Azure Key Vault, GCP Secret Manager, HashiCorp Vault, and OpenBao — with caching, TTL, and a pluggable store interface. The Vault-compatible integration implements nine authentication flows; CI live-tests Token and AppRole against OpenBao, while the remaining flows have protocol-level tests and require provider-side identity configuration.
+**2. Secret management as a first-class concern.** Confii natively resolves `${secret:db/password}` placeholders from AWS Secrets Manager, Azure Key Vault, GCP Secret Manager, HashiCorp Vault, and OpenBao — with caching, TTL, and a pluggable store interface. The Vault-compatible integration exposes nine auth adapters, using official HashiCorp packages where available; CI live-tests Token and AppRole against OpenBao, while the remaining adapters have protocol-level tests and require provider-side identity configuration.
 
 **3. Environment-aware configuration.** Confii supports both recommended named files (`config/default.yaml` + `config/{environment}.yaml`) and a single file with `default` + environment sections. Teams choose one primary model; explicit hybrid mode exists for controlled migrations.
 
@@ -139,10 +139,10 @@ changing the current project.
 
 ```bash
 # From the root of an existing Go module
-go get github.com/confiify/confii-go@latest
+go get github.com/confiify/confii-go/v2@latest
 
 # From any directory
-go install github.com/confiify/confii-go/confii@latest
+go install github.com/confiify/confii-go/v2/confii@latest
 confii --version
 ```
 
@@ -178,8 +178,8 @@ provider SDK versions:
 
 ```bash
 # Example: AWS
-go get github.com/confiify/confii-go/loader/cloud@latest
-go get github.com/confiify/confii-go/secret/cloud@latest
+go get github.com/confiify/confii-go/loader/cloud/v2@latest
+go get github.com/confiify/confii-go/secret/cloud/v2@latest
 go build -tags aws ./...
 
 # Other providers
@@ -203,8 +203,8 @@ recommended separate-file environment layout:
 mkdir my-service
 cd my-service
 go mod init example.com/my-service
-go get github.com/confiify/confii-go@latest
-go install github.com/confiify/confii-go/confii@latest
+go get github.com/confiify/confii-go/v2@latest
+go install github.com/confiify/confii-go/v2/confii@latest
 confii --version
 confii init
 ```
@@ -217,28 +217,27 @@ production override files. Load them without hard-coded paths:
 package main
 
 import (
-    "context"
     "fmt"
     "log"
 
-    confii "github.com/confiify/confii-go"
+    confii "github.com/confiify/confii-go/v2"
 )
 
 type AppConfig struct {
     App struct {
-        Name string `mapstructure:"name"`
-    } `mapstructure:"app"`
+        Name string `confii:"name"`
+    } `confii:"app"`
     Server struct {
-        Host string `mapstructure:"host"`
-        Port int    `mapstructure:"port"`
-    } `mapstructure:"server"`
+        Host string `confii:"host"`
+        Port int    `confii:"port"`
+    } `confii:"server"`
     Log struct {
-        Level string `mapstructure:"level"`
-    } `mapstructure:"log"`
+        Level string `confii:"level"`
+    } `confii:"log"`
 }
 
 func main() {
-    cfg, err := confii.New[AppConfig](context.Background())
+    cfg, err := confii.New[AppConfig]()
     if err != nil {
         log.Fatal(err)
     }
@@ -250,6 +249,21 @@ func main() {
         values.App.Name, values.Server.Host, values.Server.Port, values.Log.Level)
 }
 ```
+
+`New` supplies a background context and applies Confii's 60-second startup
+timeout to source loading, secret resolution, hooks, and validation. Applications
+that need startup to inherit cancellation, context values, or a custom deadline
+can use `confii.NewWithContext[AppConfig](ctx)` instead. Configure the fallback with
+`startup.timeout` in `.confii.yaml` or `confii.WithStartupTimeout`; an existing
+caller deadline always wins.
+
+Runtime context-aware APIs include `SetWithContext`, `OverrideWithContext`,
+`Reload`, `Extend`, `RefreshSecrets`, `TypedWithContext`, and `DiffWithContext`. Reload and
+Extend perform remote work on private candidates so readers retain the last
+complete snapshot. Call `cfg.Close()` to stop watchers and release owned
+provider/loader resources. Every paired explicit-context operation uses the
+`OperationWithContext` spelling; Confii does not mix `Ctx` and `SetContext`
+variants. See the [context lifecycle guide](docs/context.md).
 
 ```bash
 # Preview the exact layers before starting the application
@@ -270,7 +284,8 @@ runtime overrides, the single-file alternative, and expected output.
 
 ## Configuring Confii
 
-Before diving into features, it's important to understand the three ways to configure a Confii instance and what options are available. This determines how your config is loaded, merged, validated, and accessed.
+Confii supports three construction styles. Each style controls how
+configuration is loaded, merged, validated, and accessed.
 
 ### Creating a Config Instance
 
@@ -279,8 +294,9 @@ There are three ways to create a `Config[T]` instance, listed from simplest to m
 **1. Self-configuration file** (zero-code defaults) — Confii auto-discovers a `.confii.yaml` (or `.json`/`.toml`) file and applies settings *before* any code runs. This is the best place for project-wide defaults that every developer shares.
 
 Bootstrap a project interactively. Confii asks whether to use separate
-environment files or one sectioned file, then creates the complete,
-commented self-configuration and a loadable starter layout:
+environment files or one sectioned file, and whether its self-config should be
+YAML, JSON, or TOML. It then creates the complete, commented control plane and
+a loadable starter layout:
 
 ```bash
 confii init
@@ -296,16 +312,19 @@ confii init --non-interactive --strategy named-files
 confii init --non-interactive --strategy sectioned
 ```
 
+Add `--format yaml`, `--format json`, or `--format toml` for deterministic
+automation. YAML is the non-interactive default.
+
 Initialization is idempotent. Confii detects every supported self-config
 filename, reports an already initialized project without changing it, rejects
 ambiguous initialization, rejects malformed existing configuration unless
-`--force` is deliberately recovering the canonical `.confii.yaml`, and
+`--force` is deliberately recovering the selected format, and
 preflights every planned output before writing. Use `--dry-run` to inspect the
 plan and `--force` only for an
 intentional replacement. `--force` replaces only the selected plan and never
 deletes files from an older layout, so review obsolete files manually.
 Application source is not generated or edited; the
-runtime integration remains `confii.New[YourConfig](ctx)`.
+runtime integration remains `confii.NewWithContext[YourConfig](ctx)`.
 
 ```yaml
 # .confii.yaml — auto-discovered from CWD or ~/.config/confii/
@@ -313,7 +332,9 @@ default_environment: development
 env_switcher: APP_ENV
 env_prefix: APP
 environment_strategy: named_files
-deep_merge: true
+merge:
+  default: deep_merge
+  paths: {}
 sources:
   - type: environment_files
     search_paths: [config]
@@ -345,17 +366,17 @@ top-level environment sections is rejected to prevent accidental mixed-model
 precedence. Deliberate migrations can select `hybrid` with an explicit
 `environment_conflict_policy` of `error`, `warn`, or `last_wins`.
 
-Settings apply with 3-tier priority: **explicit code argument > self-config file > built-in default**. Search order: CWD (`confii.*`, `.confii.*`), then `~/.config/confii/`.
+Settings apply with 3-tier priority: **explicit code argument > self-config file > built-in default**. Hidden `.confii.<format>` files are preferred; visible `confii.<format>` files are the fallback. Mixed families or formats are rejected. A matching `.confii.<environment>.<format>` overlays the base.
 
 > **Full example:** [`examples/self-config/`](examples/self-config/main.go)
 
 **2. Constructor with options** — Pass `With*` option functions directly:
 
 ```go
-cfg, err := confii.New[AppConfig](ctx,
+cfg, err := confii.NewWithContext[AppConfig](ctx,
     confii.WithLoaders(loader.NewYAML("config.yaml")),
     confii.WithEnv("production"),
-    confii.WithDeepMerge(true),
+    confii.WithMergeStrategy(confii.StrategyMerge),
     confii.WithValidateOnLoad(true),
 )
 ```
@@ -367,9 +388,9 @@ cfg, err := confii.NewBuilder[AppConfig]().
     WithEnv("production").
     AddLoader(loader.NewYAML("base.yaml")).
     AddLoader(loader.NewYAML("prod.yaml")).
-    EnableDeepMerge().
+    WithMergeStrategy(confii.StrategyMerge).
     EnableFreezeOnLoad().
-    Build(ctx)
+    BuildWithContext(ctx)
 ```
 
 > **Full example:** [`examples/builder/`](examples/builder/main.go)
@@ -384,16 +405,19 @@ cfg, err := confii.NewBuilder[AppConfig]().
 | `WithEnvironmentStrategy(strategy)` | Select `Auto`, `Sectioned`, `NamedFiles`, or explicit `Hybrid` behavior | `Auto` |
 | `WithEnvironmentConflictPolicy(policy)` | Control cross-model conflicts in hybrid mode | `LastWins` |
 | `WithEnvPrefix(prefix)` | Auto-add an `EnvironmentLoader` with this prefix | none |
-| `WithDeepMerge(bool)` | Enable recursive merge of nested maps | `true` |
-| `WithMergeStrategyOption(strategy)` | Default merge strategy | `Merge` |
+| `WithMergeStrategy(strategy)` | Default merge strategy | `Merge` |
 | `WithMergeStrategyMap(map)` | Per-path merge strategy overrides | none |
 | `WithValidateOnLoad(bool)` | Validate struct tags after loading | `false` |
-| `WithStrictValidation(bool)` | Treat validation warnings as errors | `false` |
+| `WithStrictValidation(bool)` | Treat validation failures as errors when enabled | `true` |
+| `WithValidator(validator)` | Add a transactional validation rule and enable validation | none |
+| `WithExporter(exporter)` | Add or replace an export format serializer | JSON/YAML/TOML built in |
 | `WithSchema(schema)` / `WithSchemaPath(path)` | JSON Schema for validation | none |
 | `WithEnvExpander(bool)` | Enable `${VAR}` expansion in values | `true` |
 | `WithTypeCasting(bool)` | Auto-convert strings to bool/int/float | `true` |
-| `WithSysenvFallback(bool)` | Fall back to OS env vars on missing keys | `false` |
+| `WithSysenvFallback(bool)` | Dynamically consult OS env vars for missing `Get`/`Has` paths without changing the published snapshot | `false` |
 | `WithDynamicReloading(bool)` | Enable fsnotify file watching | `false` |
+| `WithReloadDebounce(duration)` | Coalesce filesystem event bursts before automatic reload | `150ms` |
+| `WithSensitivePaths(paths...)` | Redact application-defined paths in diagnostics and version comparisons | none |
 | `WithFreezeOnLoad(bool)` | Make config immutable after load | `false` |
 | `WithDebugMode(bool)` | Enable full source tracking | `false` |
 | `WithOnError(policy)` | `ErrorPolicyRaise`, `Warn`, or `Ignore` | `Raise` |
@@ -464,7 +488,7 @@ production:
 ```
 
 ```go
-cfg, _ := confii.New[any](ctx,
+cfg, _ := confii.NewWithContext[any](ctx,
     confii.WithLoaders(loader.NewYAML("config.yaml")),
     confii.WithEnv("production"),         // explicit
     // confii.WithEnvSwitcher("APP_ENV"), // or from OS variable
@@ -530,7 +554,7 @@ cfg.GetFloat64("threshold")                  // (float64, error)
 **Typed struct access** with Go generics:
 
 ```go
-cfg, err := confii.New[AppConfig](ctx,
+cfg, err := confii.NewWithContext[AppConfig](ctx,
     confii.WithLoaders(loader.NewYAML("config.yaml")),
     confii.WithValidateOnLoad(true),
 )
@@ -539,15 +563,29 @@ model, _ := cfg.Typed()              // *AppConfig — IDE autocomplete works
 fmt.Println(model.Database.Host)
 ```
 
+Use Confii's own `confii` struct tag when a configuration key differs from its
+Go field name:
+
+```go
+LogLevel string `confii:"log_level"`
+```
+
+The supported mapping options include `-`, `squash`, and `remain`; see [Struct
+Tags](docs/access.md#struct-tags).
+
 **Other access methods:**
 
 ```go
 cfg.Has("database.host")    // bool — key existence
 cfg.Keys()                  // []string — all leaf keys
 cfg.Keys("database")        // []string — keys under prefix
-cfg.ToDict()                // map[string]any — raw map
+cfg.ToDict()                // (map[string]any, error) — materialized snapshot
 cfg.Set("key", "value")     // set a value
 ```
+
+The `GetOr` helpers intentionally return their default for any read or
+conversion error. Use the corresponding error-returning getter when the
+application must distinguish a missing key from a failed transformation.
 
 > **Full example:** [`examples/basic/`](examples/basic/main.go) | [`examples/typed/`](examples/typed/main.go)
 
@@ -555,29 +593,31 @@ cfg.Set("key", "value")     // set a value
 
 ### Hooks & Transformation
 
-Hooks transform values at access time. Four types, evaluated in order: key → value → condition → global.
+Hooks transform values while Confii materializes a candidate snapshot. Four
+types execute in order: key → value → condition → global. All read APIs then
+observe the same published values without rerunning hooks.
 
 | Hook Type | Fires When |
 | --- | --- |
 | **Key hook** | Key exactly matches a registered path |
 | **Value hook** | Value exactly matches a registered value |
 | **Condition hook** | Custom condition function returns `true` |
-| **Global hook** | Every value access |
+| **Global hook** | Every leaf while a candidate snapshot is materialized |
 
 ```go
-hp := cfg.HookProcessor()
-
-// Key hook: uppercase a specific key's value
-hp.RegisterKeyHook("app.name", func(key string, value any) any {
-    return strings.ToUpper(value.(string))
-})
-
-// Global hook: mask passwords
-hp.RegisterGlobalHook(func(key string, value any) any {
-    if strings.Contains(key, "password") { return "****" }
-    return value
-})
+cfg, err := confii.New[AppConfig](
+    confii.WithLoaders(loader.NewYAML("config.yaml")),
+    confii.WithKeyHook("app.name", func(ctx context.Context, key string, value any) (any, error) {
+        return strings.ToUpper(value.(string)), nil
+    }),
+)
 ```
+
+`Typed()` decodes the already-materialized map, so a key hook registered
+for `server.host` is reflected in `model.Server.Host`. Direct field access after
+`Typed()` returns is ordinary Go access and does not execute hooks again.
+The hook plan is frozen once construction succeeds. Mutations and reloads use
+that same plan transactionally. See [Hook System](docs/hooks.md).
 
 **Built-in hooks** (enabled via options):
 
@@ -594,14 +634,14 @@ hp.RegisterGlobalHook(func(key string, value any) any {
 
 ```go
 type Config struct {
-    Host string `mapstructure:"host" validate:"required,hostname"`
-    Port int    `mapstructure:"port" validate:"required,min=1,max=65535"`
+    Host string `confii:"host" validate:"required,hostname"`
+    Port int    `confii:"port" validate:"required,min=1,max=65535"`
 }
 
-cfg, err := confii.New[Config](ctx,
+cfg, err := confii.NewWithContext[Config](ctx,
     confii.WithLoaders(loader.NewYAML("config.yaml")),
     confii.WithValidateOnLoad(true),
-    confii.WithStrictValidation(true),  // treat warnings as errors
+    confii.WithStrictValidation(true),  // reject typed validation failures
 )
 // Returns error at construction time if validation fails
 ```
@@ -610,7 +650,10 @@ cfg, err := confii.New[Config](ctx,
 
 ```go
 v, _ := validate.NewJSONSchemaValidatorFromFile("schema.json")
-err := v.Validate(cfg.ToDict())
+snapshot, err := cfg.ToDict()
+if err == nil {
+    err = v.Validate(snapshot)
+}
 ```
 
 > **Full example:** [`examples/validation/`](examples/validation/main.go)
@@ -630,7 +673,7 @@ resolver := secret.NewResolver(store,
     secret.WithCacheTTL(5 * time.Minute),
 )
 
-cfg, err := confii.New[any](ctx,
+cfg, err := confii.NewWithContext[any](ctx,
     confii.WithLoaders(loader.NewYAML("config.yaml")),
     confii.WithSecretResolver(resolver),
 )
@@ -643,7 +686,7 @@ password, _ := cfg.Get("database.password") // in-memory read
 _ = password
 
 // Rotation is deliberate and preserves the last known-good snapshot on error.
-err = cfg.RefreshSecrets(ctx)
+err = cfg.RefreshSecretsWithContext(ctx)
 ```
 
 **Placeholder formats:** `${secret:key}`, `${secret:key:json_path}`,
@@ -682,19 +725,20 @@ multi := secret.NewMultiStore([]confii.SecretStore{awsStore, vaultStore, envStor
 
 ## Runtime & Operations
 
-Once your config is loaded and values are flowing, these features help you manage it in a running application.
+The runtime API manages an initialized configuration throughout the
+application lifecycle.
 
 ### Lifecycle Management
 
 ```go
 // Reload from sources
-cfg.Reload(ctx)
-cfg.Reload(ctx, confii.WithIncremental(true))  // changed files only; remote sources refresh
-cfg.Reload(ctx, confii.WithDryRun(true))        // validate without applying
-cfg.Reload(ctx, confii.WithReloadValidate(true)) // override validate-on-load
+cfg.ReloadWithContext(ctx)
+cfg.ReloadWithContext(ctx, confii.WithIncremental(true))  // changed files only; remote sources refresh
+cfg.ReloadWithContext(ctx, confii.WithDryRun(true))        // validate without applying
+cfg.ReloadWithContext(ctx, confii.WithReloadValidate(true)) // override validate-on-load
 
 // Extend at runtime — add a new source without reloading everything
-cfg.Extend(ctx, loader.NewJSON("extra.json"))
+cfg.ExtendWithContext(ctx, loader.NewJSON("extra.json"))
 
 // Temporary override (scoped) — useful for tests
 restore, _ := cfg.Override(map[string]any{"database.host": "test-db"})
@@ -723,11 +767,12 @@ cfg.OnChange(func(key string, old, new any) {
 File watching via fsnotify. Config automatically reloads when source files change on disk:
 
 ```go
-cfg, _ := confii.New[any](ctx,
+cfg, _ := confii.NewWithContext[any](ctx,
     confii.WithLoaders(loader.NewYAML("config.yaml")),
     confii.WithDynamicReloading(true),
+    confii.WithReloadDebounce(150*time.Millisecond),
 )
-// Config auto-reloads when files change
+// Config auto-reloads once after a burst of file changes
 
 cfg.OnChange(func(key string, old, new any) { /* react */ })
 cfg.StopWatching() // stop when done
@@ -742,13 +787,13 @@ cfg.StopWatching() // stop when done
 Track access patterns, react to events:
 
 ```go
-cfg.EnableObservability()
-emitter := cfg.EnableEvents()
+metrics := cfg.EnableObservability() // read-only metrics view
+events := cfg.EnableEvents()         // subscription-only event view
 
-emitter.On("reload", func(args ...any) { log.Println("reloaded") })
-emitter.On("change", func(args ...any) { log.Println("changed") })
+events.On("reload", func(args ...any) { log.Println("reloaded") })
+events.On("change", func(args ...any) { log.Println("changed") })
 
-stats := cfg.GetMetrics()
+stats := metrics.Statistics()
 // total_keys, accessed_keys, access_rate, reload_count, change_count, top_accessed_keys
 ```
 
@@ -790,8 +835,8 @@ Enable `WithDebugMode(true)` for complete override history tracking.
 Compare two configs or detect unintended changes against an intended baseline:
 
 ```go
-diffs := cfg1.Diff(cfg2)                   // compare two Config instances
-drifts := cfg.DetectDrift(intendedConfig)   // detect unintended changes
+diffs, err := cfg1.Diff(cfg2)                  // compare two Config instances
+drifts, err := cfg.DetectDrift(intendedConfig) // detect unintended changes
 summary := diff.Summary(diffs)              // {total: 3, added: 1, removed: 1, modified: 1}
 jsonStr, _ := diff.ToJSON(diffs)            // serialize for reporting
 ```
@@ -805,16 +850,20 @@ jsonStr, _ := diff.ToJSON(diffs)            // serialize for reporting
 Snapshot config state, compare versions over time, and rollback:
 
 ```go
-vm := cfg.EnableVersioning("/tmp/config-versions", 100)
+versions := cfg.EnableVersioning("/tmp/config-versions", 100) // read-only history
 
 v1, _ := cfg.SaveVersion(map[string]any{"author": "deploy-bot", "env": "prod"})
 // ... config changes ...
 v2, _ := cfg.SaveVersion(nil)
 
-diffs, _ := vm.DiffVersions(v1.VersionID, v2.VersionID)
-versions := vm.ListVersions()   // all snapshots, newest first
+diffs, _ := versions.DiffVersions(v1.VersionID, v2.VersionID)
+history := versions.ListVersions() // all snapshots, newest first
 cfg.RollbackToVersion(v1.VersionID)
 ```
+
+Rollback validates before publication, restores version-based source
+attribution, and emits the same change callbacks, metrics, and lifecycle events
+as other snapshot mutations.
 
 > **Full example:** [`examples/versioning/`](examples/versioning/main.go)
 
@@ -847,12 +896,12 @@ jsonDocs, _ := cfg.GenerateDocs("json")
 ## CLI Tool
 
 ```bash
-go install github.com/confiify/confii-go/confii@latest
+go install github.com/confiify/confii-go/v2/confii@latest
 ```
 
 | Command | Description |
 | --- | --- |
-| `confii init` | Safely scaffold `.confii.yaml` and the selected environment layout |
+| `confii init` | Safely scaffold `.confii.<format>` and the selected environment layout |
 | `confii env` | Show the effective environment; list or safely change the configured default |
 | `confii connections test` | Perform value-safe reads against configured sources and secret providers |
 | `confii load` | Load and display configuration |
@@ -953,6 +1002,7 @@ github.com/confiify/confii-go/
   ├── config_*.go            # Access, mutation, reload, override, hooks, validation, etc.
   ├── builder.go             # Fluent builder API
   ├── errors.go              # Sentinel errors + ConfigError
+  ├── configmap/             # Public dot-path operations for custom integrations
   ├── loader/                # File & env loaders (YAML, JSON, TOML, INI, .env, HTTP)
   │   └── cloud/             # Cloud loaders (S3, SSM, Azure Blob, GCS, IBM COS, Git)
   ├── secret/                # Secret stores (env, dict, multi) + resolver
@@ -960,7 +1010,7 @@ github.com/confiify/confii-go/
   ├── merge/                 # Merge strategies (default + advanced with per-path overrides)
   ├── compose/               # Configuration composition (_include, _defaults)
   ├── envhandler/            # Environment resolution (default + env sections)
-  ├── hook/                  # Hook processor (4 types: key, value, condition, global)
+  ├── hook/                  # Key, value, condition, and global hooks
   ├── validate/              # Struct tag + JSON Schema validation
   ├── observe/               # Metrics, events, versioning with rollback
   ├── diff/                  # Diff + drift detection
@@ -971,7 +1021,7 @@ github.com/confiify/confii-go/
   ├── internal/              # Internal utilities (dictutil, typecoerce, formatparse)
   ├── integration/           # End-to-end integration tests
   ├── examples/              # Runnable examples
-  └── confii/                # CLI tool (14 commands)
+  └── confii/                # CLI tool
 ```
 
 ## Requirements
@@ -1029,24 +1079,20 @@ func TestDeepCopyValue_ByteSlice_NotAliased(t *testing.T) {
     cp := DeepCopyValue(src).([]byte)
     src[0] = 'X'
     if string(cp) != "hello" {
-        t.Fatalf("V-03 byte-slice aliasing: cp = %q, want %q", string(cp), "hello")
+        t.Fatalf("copied byte slice changed: got %q, want %q", string(cp), "hello")
     }
 }
 ```
 
-The test deliberately mutates the source after the operation under
-test and asserts the operation's output is unchanged. Run it against
-the pre-fix code and it fails; run it against the post-fix code and
-it passes. That asymmetry is the whole value of a negative test.
+The test mutates the source after copying and asserts that the copied value
+remains isolated. Security regression tests should verify externally visible
+invariants rather than implementation structure.
 
-### Audit-pin tests live alongside the code
+### Security regression tests live alongside the code
 
-Negative tests for audit-closed vulnerabilities are conventionally
-named `TestVNN_<scenario>` and live in `*_v23_test.go` or
-`*_v24_test.go` files next to the implementation. Do not move them.
-They are not "extra coverage" that can be deleted in a future
-refactor — they are the load-bearing pins that prevent re-regression
-of paid-for bugs.
+Negative tests for resolved security and correctness defects live next to the
+implementation they protect. They are part of the maintained regression suite
+and must remain when the affected code is refactored.
 
 ### Running the suite
 
@@ -1057,8 +1103,8 @@ go test ./...
 # Full suite under -race (matches CI; required before opening a PR):
 go test ./... -race
 
-# Just the audit pins (Wave 23 + Wave 24):
-go test ./... -run 'TestV0[1-9]_|TestV10_|TestDeepCopyValue_|TestNormalizeKeys_'
+# Focused security and data-integrity regression tests:
+go test ./... -run 'TestDeepCopyValue_|TestNormalizeKeys_|TestOverride_|TestVaultAuth_'
 
 # Run all 11 native fuzz targets:
 make fuzz FUZZTIME=30s

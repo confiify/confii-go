@@ -6,18 +6,15 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
 
-	confii "github.com/confiify/confii-go"
-	"github.com/confiify/confii-go/loader"
+	confii "github.com/confiify/confii-go/v2"
+	"github.com/confiify/confii-go/v2/loader"
 )
 
 func main() {
-	cfg, err := confii.New[any](context.Background(),
-		confii.WithLoaders(loader.NewYAML("../basic/config.yaml")),
-	)
+	cfg, err := confii.New[any](confii.WithLoaders(loader.NewYAML("../basic/config.yaml")))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -35,13 +32,15 @@ func main() {
 	})
 
 	// Simulate some access patterns
-	_, _ = cfg.Get("database.host")
-	_, _ = cfg.Get("database.port")
-	_, _ = cfg.Get("database.host") // accessed twice
-	_, _ = cfg.Get("app.name")
+	_ = cfg.MustGet("database.host")
+	_ = cfg.MustGet("database.port")
+	_ = cfg.MustGet("database.host") // accessed twice
+	_ = cfg.MustGet("app.name")
 
 	// Trigger a change event
-	_ = cfg.Set("app.debug", false)
+	if err := cfg.Set("app.debug", false); err != nil {
+		log.Fatal(err)
+	}
 
 	// View metrics
 	stats := cfg.GetMetrics()

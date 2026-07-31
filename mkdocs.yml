@@ -56,11 +56,13 @@ nav:
     - Merging: merging.md
     - Composition: composition.md
     - Accessing Values: access.md
+    - Error Handling: errors.md
     - Hooks: hooks.md
     - Validation: validation.md
     - Secrets: secrets.md
   - Operations:
     - Lifecycle: lifecycle.md
+    - Context & Cancellation: context.md
     - Dynamic Reloading: reloading.md
     - Introspection: introspection.md
     - Diff & Drift: diff.md
@@ -81,6 +83,7 @@ nav:
   - Documentation Hosting: HOSTING.md
   - Maintainer Continuity: CONTINUITY.md
   - Changelog: changelog.md
+  - Migrate to v2: v2-migration.md
   - Releasing: RELEASING.md
 
 plugins:

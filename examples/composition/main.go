@@ -7,35 +7,32 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
 
-	confii "github.com/confiify/confii-go"
-	"github.com/confiify/confii-go/loader"
+	confii "github.com/confiify/confii-go/v2"
+	"github.com/confiify/confii-go/v2/loader"
 )
 
 func main() {
-	cfg, err := confii.New[any](context.Background(),
-		confii.WithLoaders(loader.NewYAML("app.yaml")),
-	)
+	cfg, err := confii.New[any](confii.WithLoaders(loader.NewYAML("app.yaml")))
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	// Values from _defaults
-	timeout, _ := cfg.Get("timeout")
+	timeout := cfg.MustGet("timeout")
 	fmt.Println("Timeout:", timeout) // 30
 
 	// Values from _include: shared/logging.yaml
-	logLevel, _ := cfg.Get("logging.level")
+	logLevel := cfg.MustGet("logging.level")
 	fmt.Println("Log level:", logLevel) // info
 
 	// Values from _include: shared/database.yaml
-	dbHost, _ := cfg.Get("database.host")
+	dbHost := cfg.MustGet("database.host")
 	fmt.Println("DB host:", dbHost) // localhost
 
 	// Values from the main file
-	appName, _ := cfg.Get("app.name")
+	appName := cfg.MustGet("app.name")
 	fmt.Println("App:", appName) // my-service
 }

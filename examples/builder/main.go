@@ -10,33 +10,36 @@ import (
 	"fmt"
 	"log"
 
-	confii "github.com/confiify/confii-go"
-	"github.com/confiify/confii-go/loader"
+	confii "github.com/confiify/confii-go/v2"
+	"github.com/confiify/confii-go/v2/loader"
 )
 
 type AppConfig struct {
 	App struct {
-		Name  string `mapstructure:"name"`
-		Debug bool   `mapstructure:"debug"`
-	} `mapstructure:"app"`
+		Name  string `confii:"name"`
+		Debug bool   `confii:"debug"`
+	} `confii:"app"`
 	Database struct {
-		Host string `mapstructure:"host"`
-		Port int    `mapstructure:"port"`
-	} `mapstructure:"database"`
+		Host string `confii:"host"`
+		Port int    `confii:"port"`
+	} `confii:"database"`
 }
 
 func main() {
 	cfg, err := confii.NewBuilder[AppConfig]().
 		WithEnv("production").
 		AddLoader(loader.NewYAML("../environment/config.yaml")).
-		EnableDeepMerge().
+		WithMergeStrategy(confii.StrategyMerge).
 		EnableFreezeOnLoad().
-		Build(context.Background())
+		BuildWithContext(context.Background())
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	model, _ := cfg.Typed()
+	model, err := cfg.Typed()
+	if err != nil {
+		log.Fatal(err)
+	}
 	fmt.Println("App:", model.App.Name)
 	fmt.Println("Frozen:", cfg.IsFrozen())
 }

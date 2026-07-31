@@ -4,6 +4,7 @@
 package hook
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -30,7 +31,8 @@ func TestEnvExpanderHook(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := h("key", tt.input)
+			got, err := h(context.Background(), "key", tt.input)
+			assert.NoError(t, err)
 			assert.Equal(t, tt.want, got)
 		})
 	}

@@ -8,7 +8,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/confiify/confii-go/internal/dictutil"
+	"github.com/confiify/confii-go/v2/internal/dictutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -35,7 +35,7 @@ func TestEagerSetAndOverrideRejectResolutionFailure(t *testing.T) {
 	assert.Equal(t, "ready", cfg.GetStringOr("stable", ""))
 }
 
-func TestEagerMutationsSupportLegacyMissingRawSnapshot(t *testing.T) {
+func TestEagerMutationsRecoverMissingRawSnapshot(t *testing.T) {
 	cfg := newTestConfig(t, map[string]any{"stable": "ready"})
 	cfg.mu.Lock()
 	cfg.unresolvedEnvConfig = nil
@@ -50,7 +50,7 @@ func TestEagerMutationsSupportLegacyMissingRawSnapshot(t *testing.T) {
 	cfg.mu.Lock()
 	cfg.unresolvedEnvConfig = nil
 	cfg.mu.Unlock()
-	require.NoError(t, cfg.Extend(context.Background(), &refactorCoverageLoader{
+	require.NoError(t, cfg.ExtendWithContext(context.Background(), &refactorCoverageLoader{
 		source: "extension", data: map[string]any{"extended": true},
 	}))
 	assert.True(t, cfg.GetBoolOr("extended", false))
@@ -58,7 +58,7 @@ func TestEagerMutationsSupportLegacyMissingRawSnapshot(t *testing.T) {
 
 func TestEagerExtendRollsBackResolutionFailure(t *testing.T) {
 	cfg := newTestConfig(t, map[string]any{"stable": "ready"}, WithSecretHook(failSelectedSecret))
-	err := cfg.Extend(context.Background(), &refactorCoverageLoader{
+	err := cfg.ExtendWithContext(context.Background(), &refactorCoverageLoader{
 		source: "extension", data: map[string]any{"new_secret": "${secret:fail}"},
 	})
 	require.Error(t, err)
@@ -117,9 +117,9 @@ func TestSecretBackedInspectionFallbackBranches(t *testing.T) {
 	cfg := newTestConfig(t, map[string]any{"plain": "value"})
 	cfg.mu.Lock()
 	cfg.unresolvedEnvConfig = nil
-	assert.False(t, cfg.secretBackedPathLocked("plain"))
+	assert.False(t, cfg.sensitivePathLocked("plain"))
 	cfg.unresolvedEnvConfig = map[string]any{"other": "value"}
-	assert.False(t, cfg.secretBackedPathLocked("plain"))
+	assert.False(t, cfg.sensitivePathLocked("plain"))
 	cfg.mu.Unlock()
 }
 
@@ -141,15 +141,15 @@ func TestSecretBackedExplainRedactsHistory(t *testing.T) {
 	assert.Equal(t, redactedSecretValue, explanation["current_value"])
 }
 
-func TestOverrideReplayLegacyFrameUsesRawPayload(t *testing.T) {
+func TestOverrideReplayFrameWithoutMaterializedPayloadUsesRawValue(t *testing.T) {
 	cfg := newTestConfig(t, map[string]any{"key": "base"})
 	restoreFirst, err := cfg.Override(map[string]any{"first": true})
 	require.NoError(t, err)
-	legacy := &overrideFrame{id: 999, payload: map[string]any{"key": "legacy"}, applied: true}
+	frame := &overrideFrame{id: 999, payload: map[string]any{"key": "fallback"}, applied: true}
 	cfg.mu.Lock()
-	cfg.overrideStack = append(cfg.overrideStack, legacy)
+	cfg.overrideStack = append(cfg.overrideStack, frame)
 	cfg.mu.Unlock()
 	restoreFirst()
-	assert.Equal(t, "legacy", cfg.GetStringOr("key", ""))
-	assert.Equal(t, "legacy", dictutil.DeepCopy(cfg.unresolvedEnvConfig)["key"])
+	assert.Equal(t, "fallback", cfg.GetStringOr("key", ""))
+	assert.Equal(t, "fallback", dictutil.DeepCopy(cfg.unresolvedEnvConfig)["key"])
 }

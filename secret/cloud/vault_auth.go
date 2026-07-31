@@ -14,29 +14,13 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"time"
 
-	confii "github.com/confiify/confii-go"
+	confii "github.com/confiify/confii-go/v2"
 	"github.com/hashicorp/vault/api"
 	"github.com/pkg/browser"
 )
-
-// ErrVaultAuthUnsupported is returned by Vault auth methods that require a
-// credential or assertion the consumer must construct out-of-band (signed
-// STS request for AWS IAM, Azure AD JWT from IMDS, or signed JWT for GCP).
-// These flows deliberately accept pre-built credentials so
-// the Vault auth API is not coupled to provider-specific signing clients.
-//
-// Wrap this with [confii.ErrVaultAuth] when surfacing to higher layers; the
-// returned errors below already do so.
-var ErrVaultAuthUnsupported = errors.New("vault auth method requires a consumer-prepared credential")
-
-// defaultK8sServiceAccountTokenPath is where Kubernetes mounts the projected
-// service-account JWT inside a pod. The Vault SDK does NOT auto-discover
-// this for you; KubernetesAuth reads it directly when JWT is empty.
-const defaultK8sServiceAccountTokenPath = "/var/run/secrets/kubernetes.io/serviceaccount/token"
 
 // TokenAuth authenticates with a static token.
 //
@@ -51,7 +35,10 @@ type TokenAuth struct {
 }
 
 // Authenticate returns the static token directly without contacting Vault.
-func (a *TokenAuth) Authenticate(client *api.Client) (string, error) {
+func (a *TokenAuth) Authenticate(ctx context.Context, _ *api.Client) (string, error) {
+	if err := vaultAuthContextError(ctx); err != nil {
+		return "", err
+	}
 	if a.Token == "" {
 		return "", fmt.Errorf("%w: TokenAuth.Token is empty", confii.ErrVaultAuth)
 	}
@@ -60,37 +47,32 @@ func (a *TokenAuth) Authenticate(client *api.Client) (string, error) {
 
 // AppRoleAuth authenticates via AppRole.
 //
-// Required fields: RoleID and SecretID. MountPoint defaults to "approle".
-// The login is performed against `auth/<MountPoint>/login`.
+// RoleID and exactly one SecretID source are required. MountPoint defaults to
+// "approle". The login is performed against `auth/<MountPoint>/login`.
 type AppRoleAuth struct {
 	// RoleID identifies the AppRole. Required.
 	RoleID string
-	// SecretID is the secret credential bound to the role. Required.
+	// SecretID is an inline secret credential bound to the role.
 	SecretID string
+	// SecretIDFile reads the SecretID at login time from a file. Use exactly
+	// one of SecretID, SecretIDFile, or SecretIDEnv.
+	SecretIDFile string
+	// SecretIDEnv reads the SecretID at login time from an environment variable.
+	SecretIDEnv string
+	// WrappingToken treats the selected SecretID source as a response-wrapping
+	// token and asks Vault to unwrap it before login.
+	WrappingToken bool
 	// MountPoint overrides the auth method mount path (default "approle").
 	MountPoint string
 }
 
 // Authenticate logs in to Vault using the AppRole auth method with the configured role ID and secret ID.
-func (a *AppRoleAuth) Authenticate(client *api.Client) (string, error) {
-	if a.RoleID == "" || a.SecretID == "" {
-		return "", fmt.Errorf("%w: AppRoleAuth requires RoleID and SecretID", confii.ErrVaultAuth)
-	}
-	mp := a.MountPoint
-	if mp == "" {
-		mp = "approle"
-	}
-	secret, err := client.Logical().Write(fmt.Sprintf("auth/%s/login", mp), map[string]any{
-		"role_id":   a.RoleID,
-		"secret_id": a.SecretID,
-	})
+func (a *AppRoleAuth) Authenticate(ctx context.Context, client *api.Client) (string, error) {
+	method, err := newOfficialAppRoleMethod(a)
 	if err != nil {
 		return "", err
 	}
-	if secret == nil || secret.Auth == nil {
-		return "", fmt.Errorf("%w: AppRole login returned no auth payload", confii.ErrVaultAuth)
-	}
-	return secret.Auth.ClientToken, nil
+	return authenticateOfficialVaultMethod(ctx, client, method)
 }
 
 // LDAPAuth authenticates via LDAP.
@@ -106,13 +88,16 @@ type LDAPAuth struct {
 	// Password is the LDAP password. Required if PasswordProvider is nil.
 	Password string
 	// PasswordProvider is invoked lazily when Password is empty.
-	PasswordProvider func() (string, error)
+	PasswordProvider func(context.Context) (string, error)
 	// MountPoint overrides the auth method mount path (default "ldap").
 	MountPoint string
 }
 
 // Authenticate logs in to Vault using LDAP credentials, optionally obtaining the password from a provider function.
-func (a *LDAPAuth) Authenticate(client *api.Client) (string, error) {
+func (a *LDAPAuth) Authenticate(ctx context.Context, client *api.Client) (string, error) {
+	if err := vaultAuthContextError(ctx); err != nil {
+		return "", err
+	}
 	if a.Username == "" {
 		return "", fmt.Errorf("%w: LDAPAuth.Username is empty", confii.ErrVaultAuth)
 	}
@@ -123,15 +108,15 @@ func (a *LDAPAuth) Authenticate(client *api.Client) (string, error) {
 	password := a.Password
 	if password == "" && a.PasswordProvider != nil {
 		var err error
-		password, err = a.PasswordProvider()
+		password, err = a.PasswordProvider(ctx)
 		if err != nil {
-			return "", fmt.Errorf("%w: ldap password provider: %v", confii.ErrVaultAuth, err)
+			return "", fmt.Errorf("%w: ldap password provider: %w", confii.ErrVaultAuth, err)
 		}
 	}
 	if password == "" {
 		return "", fmt.Errorf("%w: LDAPAuth requires Password or PasswordProvider", confii.ErrVaultAuth)
 	}
-	secret, err := client.Logical().Write(fmt.Sprintf("auth/%s/login/%s", mp, a.Username), map[string]any{
+	secret, err := client.Logical().WriteWithContext(ctx, fmt.Sprintf("auth/%s/login/%s", mp, a.Username), map[string]any{
 		"password": password,
 	})
 	if err != nil {
@@ -146,7 +131,7 @@ func (a *LDAPAuth) Authenticate(client *api.Client) (string, error) {
 // JWTAuth authenticates via the generic JWT/OIDC auth method (HCL: jwt).
 //
 // Required fields: Role and JWT. The JWT must be a serialized OIDC ID token
-// or comparable bearer JWT — this auth method does NOT mint the JWT for you.
+// or comparable bearer JWT. This auth method does not mint the JWT.
 // MountPoint defaults to "jwt"; for the OIDC variant the consumer typically
 // sets it to "oidc" along with the role configured in Vault.
 type JWTAuth struct {
@@ -159,7 +144,10 @@ type JWTAuth struct {
 }
 
 // Authenticate logs in to Vault using a JWT token and the configured role.
-func (a *JWTAuth) Authenticate(client *api.Client) (string, error) {
+func (a *JWTAuth) Authenticate(ctx context.Context, client *api.Client) (string, error) {
+	if err := vaultAuthContextError(ctx); err != nil {
+		return "", err
+	}
 	if a.Role == "" || a.JWT == "" {
 		return "", fmt.Errorf("%w: JWTAuth requires Role and JWT", confii.ErrVaultAuth)
 	}
@@ -167,7 +155,7 @@ func (a *JWTAuth) Authenticate(client *api.Client) (string, error) {
 	if mp == "" {
 		mp = "jwt"
 	}
-	secret, err := client.Logical().Write(fmt.Sprintf("auth/%s/login", mp), map[string]any{
+	secret, err := client.Logical().WriteWithContext(ctx, fmt.Sprintf("auth/%s/login", mp), map[string]any{
 		"role": a.Role,
 		"jwt":  a.JWT,
 	})
@@ -182,9 +170,9 @@ func (a *JWTAuth) Authenticate(client *api.Client) (string, error) {
 
 // KubernetesAuth authenticates via the Kubernetes service-account JWT.
 //
-// Required fields: Role. The JWT field is optional — if empty, Authenticate
-// reads the projected service-account token from TokenPath (or, if TokenPath
-// is empty, from the canonical in-pod path
+// Role is required. Select at most one inline JWT, token file, or environment
+// source. With none selected, Authenticate reads the token from the canonical
+// in-pod path
 // `/var/run/secrets/kubernetes.io/serviceaccount/token`). MountPoint
 // defaults to "kubernetes".
 //
@@ -195,249 +183,101 @@ func (a *JWTAuth) Authenticate(client *api.Client) (string, error) {
 type KubernetesAuth struct {
 	// Role is the Vault Kubernetes role to log in against. Required.
 	Role string
-	// JWT is the service-account JWT. If empty, falls back to TokenPath.
+	// JWT is an inline service-account JWT.
 	JWT string
-	// TokenPath overrides the projected SA token path. If empty, the
-	// canonical in-pod path is used.
+	// TokenPath reads the projected service-account token from a file.
 	TokenPath string
+	// TokenEnv reads the service-account token from an environment variable.
+	// Use at most one of JWT, TokenPath, or TokenEnv.
+	TokenEnv string
 	// MountPoint overrides the auth method mount path (default "kubernetes").
 	MountPoint string
 }
 
-// Authenticate logs in to Vault using a Kubernetes service account JWT
-// token and the configured role. When JWT is empty the projected token
-// file is read from disk on each invocation.
-func (a *KubernetesAuth) Authenticate(client *api.Client) (string, error) {
-	if a.Role == "" {
-		return "", fmt.Errorf("%w: KubernetesAuth.Role is empty", confii.ErrVaultAuth)
-	}
-	jwt := a.JWT
-	if jwt == "" {
-		path := a.TokenPath
-		if path == "" {
-			path = defaultK8sServiceAccountTokenPath
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return "", fmt.Errorf("%w: read service account token %q: %v", confii.ErrVaultAuth, path, err)
-		}
-		jwt = strings.TrimSpace(string(data))
-		if jwt == "" {
-			return "", fmt.Errorf("%w: service account token %q is empty", confii.ErrVaultAuth, path)
-		}
-	}
-	mp := a.MountPoint
-	if mp == "" {
-		mp = "kubernetes"
-	}
-	secret, err := client.Logical().Write(fmt.Sprintf("auth/%s/login", mp), map[string]any{
-		"role": a.Role,
-		"jwt":  jwt,
-	})
+// Authenticate logs in to Vault using a Kubernetes service-account token and
+// configured role. The selected file or environment source is read on each
+// invocation so rotated credentials are observed.
+func (a *KubernetesAuth) Authenticate(ctx context.Context, client *api.Client) (string, error) {
+	method, err := newOfficialKubernetesMethod(a)
 	if err != nil {
 		return "", err
 	}
-	if secret == nil || secret.Auth == nil {
-		return "", fmt.Errorf("%w: Kubernetes login returned no auth payload", confii.ErrVaultAuth)
-	}
-	return secret.Auth.ClientToken, nil
+	return authenticateOfficialVaultMethod(ctx, client, method)
 }
 
-// AWSIAMAuth authenticates via AWS IAM signed STS GetCallerIdentity.
-//
-// The consumer is responsible for constructing and signing the STS request
-// using the AWS SDK; this struct simply forwards the resulting components
-// to Vault. This keeps signing policy and credential discovery in the
-// application that owns them.
-//
-// Required fields:
-//
-//   - Role
-//   - IAMHTTPRequestMethod (typically "POST")
-//   - IAMHTTPRequestURL    (base64-encoded https://sts.amazonaws.com/)
-//   - IAMHTTPRequestBody   (base64-encoded "Action=GetCallerIdentity&Version=2011-06-15")
-//   - IAMHTTPRequestHeaders (base64-encoded JSON object of signed headers,
-//     including X-Amz-Date, X-Amz-Security-Token if applicable, and
-//     Authorization)
-//
-// MountPoint defaults to "aws". If the consumer has not yet wired the AWS
-// SDK to sign the request, Authenticate returns [ErrVaultAuthUnsupported]
-// wrapped with [confii.ErrVaultAuth].
-//
-// See https://developer.hashicorp.com/vault/docs/auth/aws#iam-authentication-method
-// for how to construct the four base64-encoded parameters.
+// AWSIAMAuth authenticates through Vault's official AWS IAM auth module. The
+// module discovers credentials from the standard AWS environment, shared
+// credentials file, or instance metadata, signs STS GetCallerIdentity, and
+// submits the Vault login request. Role may be empty when Vault can infer it
+// from the IAM principal.
 type AWSIAMAuth struct {
-	// Role is the Vault AWS role to log in against. Required.
+	// Role is the optional Vault AWS role to log in against.
 	Role string
 	// IAMServerIDHeader is the optional X-Vault-AWS-IAM-Server-ID header
 	// value that must match the role's bound_iam_server_id_header_value.
-	// When set, the consumer MUST also include the same value in the
-	// signed request headers.
 	IAMServerIDHeader string
-	// IAMHTTPRequestMethod is the HTTP method used to sign the STS request.
-	// Required.
-	IAMHTTPRequestMethod string
-	// IAMHTTPRequestURL is the base64-encoded STS endpoint URL. Required.
-	IAMHTTPRequestURL string
-	// IAMHTTPRequestBody is the base64-encoded STS request body. Required.
-	IAMHTTPRequestBody string
-	// IAMHTTPRequestHeaders is the base64-encoded JSON of the signed STS
-	// request headers (Authorization, X-Amz-Date, etc). Required.
-	IAMHTTPRequestHeaders string
+	// Region selects the AWS region used to sign the STS request. The official
+	// Vault client defaults to us-east-1.
+	Region string
 	// MountPoint overrides the auth method mount path (default "aws").
 	MountPoint string
 }
 
-// Authenticate logs in to Vault using AWS IAM authentication. The consumer
-// is expected to have already signed the STS GetCallerIdentity request and
-// populated the IAMHTTPRequest* fields.
-func (a *AWSIAMAuth) Authenticate(client *api.Client) (string, error) {
-	if a.Role == "" {
-		return "", fmt.Errorf("%w: AWSIAMAuth.Role is empty", confii.ErrVaultAuth)
-	}
-	if a.IAMHTTPRequestMethod == "" || a.IAMHTTPRequestURL == "" ||
-		a.IAMHTTPRequestBody == "" || a.IAMHTTPRequestHeaders == "" {
-		return "", fmt.Errorf("AWSIAMAuth requires a signed STS GetCallerIdentity request "+
-			"(populate IAMHTTPRequestMethod/URL/Body/Headers using the AWS SDK): %w",
-			errors.Join(confii.ErrVaultAuth, ErrVaultAuthUnsupported))
-	}
-	mp := a.MountPoint
-	if mp == "" {
-		mp = "aws"
-	}
-	data := map[string]any{
-		"role":                    a.Role,
-		"iam_http_request_method": a.IAMHTTPRequestMethod,
-		"iam_request_url":         a.IAMHTTPRequestURL,
-		"iam_request_body":        a.IAMHTTPRequestBody,
-		"iam_request_headers":     a.IAMHTTPRequestHeaders,
-	}
-	if a.IAMServerIDHeader != "" {
-		data["iam_server_id_header_value"] = a.IAMServerIDHeader
-	}
-	secret, err := client.Logical().Write(fmt.Sprintf("auth/%s/login", mp), data)
+// Authenticate discovers AWS credentials, signs the IAM request, and logs in
+// through the official Vault AWS auth module.
+func (a *AWSIAMAuth) Authenticate(ctx context.Context, client *api.Client) (string, error) {
+	method, err := newOfficialAWSMethod(a)
 	if err != nil {
 		return "", err
 	}
-	if secret == nil || secret.Auth == nil {
-		return "", fmt.Errorf("%w: AWS IAM login returned no auth payload", confii.ErrVaultAuth)
-	}
-	return secret.Auth.ClientToken, nil
+	return authenticateOfficialVaultMethod(ctx, client, method)
 }
 
-// AzureAuth authenticates via the Azure auth method using an Azure AD JWT.
-//
-// The consumer is responsible for obtaining the JWT — typically from the
-// Instance Metadata Service (IMDS) at
-// http://169.254.169.254/metadata/identity/oauth2/token, or by exchanging
-// a workload identity federated token via the Azure SDK.
-//
-// Required fields: Role and JWT. The optional VMName/VMSSName/SubscriptionID/
-// ResourceGroupName fields, when set, are forwarded to Vault for additional
-// resource-binding checks. MountPoint defaults to "azure".
+// AzureAuth authenticates through Vault's official Azure auth module. It
+// obtains the managed-identity token and instance metadata from Azure IMDS,
+// then submits them to the configured Vault auth mount.
 type AzureAuth struct {
 	// Role is the Vault Azure role to log in against. Required.
 	Role string
-	// JWT is the Azure AD access token (typically resource = vault). Required.
-	JWT string
-	// Resource overrides the AAD resource the JWT was minted for; informational
-	// only — Vault validates the audience claim itself.
+	// Resource overrides the Azure resource/audience requested from IMDS.
 	Resource string
-	// VMName binds the login to a specific VM (optional).
-	VMName string
-	// VMSSName binds the login to a specific VM Scale Set (optional).
-	VMSSName string
-	// SubscriptionID binds the login to a subscription (optional).
-	SubscriptionID string
-	// ResourceGroupName binds the login to a resource group (optional).
-	ResourceGroupName string
 	// MountPoint overrides the auth method mount path (default "azure").
 	MountPoint string
 }
 
-// Authenticate logs in to Vault using an Azure AD JWT and the configured role.
-func (a *AzureAuth) Authenticate(client *api.Client) (string, error) {
-	if a.Role == "" {
-		return "", fmt.Errorf("%w: AzureAuth.Role is empty", confii.ErrVaultAuth)
-	}
-	if a.JWT == "" {
-		return "", fmt.Errorf("AzureAuth requires JWT (acquire via IMDS or azidentity): %w",
-			errors.Join(confii.ErrVaultAuth, ErrVaultAuthUnsupported))
-	}
-	mp := a.MountPoint
-	if mp == "" {
-		mp = "azure"
-	}
-	data := map[string]any{
-		"role": a.Role,
-		"jwt":  a.JWT,
-	}
-	if a.Resource != "" {
-		data["resource"] = a.Resource
-	}
-	if a.VMName != "" {
-		data["vm_name"] = a.VMName
-	}
-	if a.VMSSName != "" {
-		data["vmss_name"] = a.VMSSName
-	}
-	if a.SubscriptionID != "" {
-		data["subscription_id"] = a.SubscriptionID
-	}
-	if a.ResourceGroupName != "" {
-		data["resource_group_name"] = a.ResourceGroupName
-	}
-	secret, err := client.Logical().Write(fmt.Sprintf("auth/%s/login", mp), data)
+// Authenticate obtains Azure managed-identity credentials and logs in through
+// the official Vault Azure auth module.
+func (a *AzureAuth) Authenticate(ctx context.Context, client *api.Client) (string, error) {
+	method, err := newOfficialAzureMethod(a)
 	if err != nil {
 		return "", err
 	}
-	if secret == nil || secret.Auth == nil {
-		return "", fmt.Errorf("%w: Azure login returned no auth payload", confii.ErrVaultAuth)
-	}
-	return secret.Auth.ClientToken, nil
+	return authenticateOfficialVaultMethod(ctx, client, method)
 }
 
-// GCPAuth authenticates via GCP using a signed JWT (IAM or GCE).
-//
-// The consumer must produce a signed JWT using the GCP IAM API
-// (projects.serviceAccounts.signJwt) or the GCE metadata server's
-// service-accounts/<email>/identity endpoint.
-//
-// Required fields: Role and JWT. MountPoint defaults to "gcp".
+// GCPAuth authenticates through Vault's official GCP auth module. GCE mode
+// obtains an identity JWT from the metadata service. IAM mode signs a JWT
+// through IAM Credentials using application default credentials.
 type GCPAuth struct {
 	// Role is the Vault GCP role to log in against. Required.
 	Role string
-	// JWT is the signed JWT minted by IAM signJwt or the GCE identity
-	// endpoint. Required.
-	JWT string
+	// AuthType selects gce (default) or iam for the official Vault GCP auth
+	// implementation.
+	AuthType string
+	// ServiceAccountEmail is required when AuthType is iam.
+	ServiceAccountEmail string
 	// MountPoint overrides the auth method mount path (default "gcp").
 	MountPoint string
 }
 
-// Authenticate logs in to Vault using GCP IAM or GCE-issued JWT.
-func (a *GCPAuth) Authenticate(client *api.Client) (string, error) {
-	if a.Role == "" {
-		return "", fmt.Errorf("%w: GCPAuth.Role is empty", confii.ErrVaultAuth)
-	}
-	if a.JWT == "" {
-		return "", fmt.Errorf("GCPAuth requires JWT (mint via IAM signJwt or GCE identity endpoint): %w",
-			errors.Join(confii.ErrVaultAuth, ErrVaultAuthUnsupported))
-	}
-	mp := a.MountPoint
-	if mp == "" {
-		mp = "gcp"
-	}
-	secret, err := client.Logical().Write(fmt.Sprintf("auth/%s/login", mp), map[string]any{
-		"role": a.Role,
-		"jwt":  a.JWT,
-	})
+// Authenticate discovers or signs the GCP identity and logs in through the
+// official Vault GCP auth module.
+func (a *GCPAuth) Authenticate(ctx context.Context, client *api.Client) (string, error) {
+	method, err := newOfficialGCPMethod(a)
 	if err != nil {
 		return "", err
 	}
-	if secret == nil || secret.Auth == nil {
-		return "", fmt.Errorf("%w: GCP login returned no auth payload", confii.ErrVaultAuth)
-	}
-	return secret.Auth.ClientToken, nil
+	return authenticateOfficialVaultMethod(ctx, client, method)
 }
 
 // OIDCAuth authenticates through Vault's browser-based OIDC authorization
@@ -470,11 +310,14 @@ type OIDCAuth struct {
 	// CallbackProvider replaces the built-in loopback HTTP listener. The
 	// returned string must be the complete callback URL, including state,
 	// nonce, and code query parameters.
-	CallbackProvider func(authorizationURL string) (callbackURL string, err error)
+	CallbackProvider func(ctx context.Context, authorizationURL string) (callbackURL string, err error)
 }
 
 // Authenticate completes Vault's OIDC auth_url and callback protocol.
-func (a *OIDCAuth) Authenticate(client *api.Client) (string, error) {
+func (a *OIDCAuth) Authenticate(ctx context.Context, client *api.Client) (string, error) {
+	if err := vaultAuthContextError(ctx); err != nil {
+		return "", err
+	}
 	if client == nil {
 		return "", fmt.Errorf("%w: OIDCAuth requires a Vault client", confii.ErrVaultAuth)
 	}
@@ -495,11 +338,11 @@ func (a *OIDCAuth) Authenticate(client *api.Client) (string, error) {
 	if clientNonce == "" {
 		clientNonce, err = randomOIDCNonce()
 		if err != nil {
-			return "", fmt.Errorf("%w: generate OIDC client nonce: %v", confii.ErrVaultAuth, err)
+			return "", fmt.Errorf("%w: generate OIDC client nonce: %w", confii.ErrVaultAuth, err)
 		}
 	}
 
-	var callbackURL func(string) (string, error)
+	var callbackURL func(context.Context, string) (string, error)
 	var listener net.Listener
 	if a.CallbackProvider != nil {
 		callbackURL = a.CallbackProvider
@@ -518,9 +361,9 @@ func (a *OIDCAuth) Authenticate(client *api.Client) (string, error) {
 	if a.Role != "" {
 		payload["role"] = a.Role
 	}
-	authURLSecret, err := client.Logical().Write(fmt.Sprintf("auth/%s/oidc/auth_url", mp), payload)
+	authURLSecret, err := client.Logical().WriteWithContext(ctx, fmt.Sprintf("auth/%s/oidc/auth_url", mp), payload)
 	if err != nil {
-		return "", fmt.Errorf("%w: request OIDC authorization URL: %v", confii.ErrVaultAuth, err)
+		return "", fmt.Errorf("%w: request OIDC authorization URL: %w", confii.ErrVaultAuth, err)
 	}
 	authURL, ok := secretString(authURLSecret, "auth_url")
 	if !ok {
@@ -538,7 +381,7 @@ func (a *OIDCAuth) Authenticate(client *api.Client) (string, error) {
 
 	var returnedURL string
 	if callbackURL != nil {
-		returnedURL, err = callbackURL(authURL)
+		returnedURL, err = callbackURL(ctx, authURL)
 	} else {
 		timeout := a.CallbackTimeout
 		if timeout <= 0 {
@@ -548,14 +391,14 @@ func (a *OIDCAuth) Authenticate(client *api.Client) (string, error) {
 		if opener == nil {
 			opener = browser.OpenURL
 		}
-		returnedURL, err = receiveOIDCCallback(listener, redirect.Path, authURL, opener, timeout)
+		returnedURL, err = receiveOIDCCallback(ctx, listener, redirect.Path, authURL, opener, timeout)
 	}
 	if err != nil {
-		return "", fmt.Errorf("%w: OIDC callback: %v", confii.ErrVaultAuth, err)
+		return "", fmt.Errorf("%w: OIDC callback: %w", confii.ErrVaultAuth, err)
 	}
 	callback, err := url.Parse(returnedURL)
 	if err != nil {
-		return "", fmt.Errorf("%w: invalid OIDC callback URL: %v", confii.ErrVaultAuth, err)
+		return "", fmt.Errorf("%w: invalid OIDC callback URL: %w", confii.ErrVaultAuth, err)
 	}
 	if callback.Scheme != redirect.Scheme || callback.Host != redirect.Host || callback.Path != redirect.Path {
 		return "", fmt.Errorf("%w: OIDC callback URL did not match RedirectURI", confii.ErrVaultAuth)
@@ -571,7 +414,7 @@ func (a *OIDCAuth) Authenticate(client *api.Client) (string, error) {
 		return "", fmt.Errorf("%w: OIDC callback omitted authorization code", confii.ErrVaultAuth)
 	}
 
-	secret, err := client.Logical().ReadWithData(fmt.Sprintf("auth/%s/oidc/callback", mp), map[string][]string{
+	secret, err := client.Logical().ReadWithDataWithContext(ctx, fmt.Sprintf("auth/%s/oidc/callback", mp), map[string][]string{
 		"state": {q.Get("state")},
 		// OIDC providers return state and code to the redirect URI. The nonce
 		// is retained from Vault's auth_url response and supplied during the
@@ -581,7 +424,7 @@ func (a *OIDCAuth) Authenticate(client *api.Client) (string, error) {
 		"client_nonce": {clientNonce},
 	})
 	if err != nil {
-		return "", fmt.Errorf("%w: exchange OIDC callback: %v", confii.ErrVaultAuth, err)
+		return "", fmt.Errorf("%w: exchange OIDC callback: %w", confii.ErrVaultAuth, err)
 	}
 	if secret == nil || secret.Auth == nil || secret.Auth.ClientToken == "" {
 		return "", fmt.Errorf("%w: OIDC callback returned no auth token", confii.ErrVaultAuth)
@@ -619,12 +462,12 @@ func listenOIDCCallback(redirect *url.URL) (net.Listener, error) {
 	}
 	listener, err := net.Listen("tcp", redirect.Host)
 	if err != nil {
-		return nil, fmt.Errorf("%w: listen for OIDC callback: %v", confii.ErrVaultAuth, err)
+		return nil, fmt.Errorf("%w: listen for OIDC callback: %w", confii.ErrVaultAuth, err)
 	}
 	return listener, nil
 }
 
-func receiveOIDCCallback(listener net.Listener, callbackPath, authURL string, opener func(string) error, timeout time.Duration) (string, error) {
+func receiveOIDCCallback(ctx context.Context, listener net.Listener, callbackPath, authURL string, opener func(string) error, timeout time.Duration) (string, error) {
 	result := make(chan string, 1)
 	server := &http.Server{ReadHeaderTimeout: 5 * time.Second}
 	server.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -650,7 +493,11 @@ func receiveOIDCCallback(listener net.Listener, callbackPath, authURL string, op
 	})
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- server.Serve(listener) }()
-	defer server.Shutdown(context.Background())
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = server.Shutdown(shutdownCtx)
+	}()
 
 	if err := opener(authURL); err != nil {
 		return "", fmt.Errorf("open browser: %w", err)
@@ -667,5 +514,14 @@ func receiveOIDCCallback(listener net.Listener, callbackPath, authURL string, op
 		return "", err
 	case <-timer.C:
 		return "", fmt.Errorf("timed out after %s", timeout)
+	case <-ctx.Done():
+		return "", ctx.Err()
 	}
+}
+
+func vaultAuthContextError(ctx context.Context) error {
+	if ctx == nil {
+		return fmt.Errorf("%w: nil context", confii.ErrVaultAuth)
+	}
+	return ctx.Err()
 }

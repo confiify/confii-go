@@ -7,18 +7,19 @@
 package main
 
 import (
-	"context"
 	"log"
 
-	confii "github.com/confiify/confii-go"
-	loadercloud "github.com/confiify/confii-go/loader/cloud"
+	loadercloud "github.com/confiify/confii-go/loader/cloud/v2"
+	confii "github.com/confiify/confii-go/v2"
 )
 
 func main() {
 	cos := loadercloud.NewIBMCOS("my-config-bucket", "production/app.yaml")
-	cfg, err := confii.New[any](context.Background(), confii.WithLoaders(cos))
+	cfg, err := confii.New[any](confii.WithLoaders(cos))
 	if err != nil {
 		log.Fatal(err)
 	}
-	_, _ = cfg.Get("database.host")
+	if _, err := cfg.Get("database.host"); err != nil {
+		log.Fatal(err)
+	}
 }

@@ -12,43 +12,55 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type selfConfigStoreFunc func(context.Context, string) (any, error)
 
-func (f selfConfigStoreFunc) GetSecret(ctx context.Context, key string) (any, error) {
-	return f(ctx, key)
+func (f selfConfigStoreFunc) ReadSecret(ctx context.Context, request SecretRequest) (any, error) {
+	return f(ctx, request.Key)
 }
 
-type selfConfigRequestStoreFunc func(context.Context, SelfConfigSecretRequest) (any, error)
+type selfConfigRequestStoreFunc func(context.Context, SecretRequest) (any, error)
 
-func (f selfConfigRequestStoreFunc) GetSecret(ctx context.Context, key string) (any, error) {
-	return f(ctx, SelfConfigSecretRequest{Key: key})
-}
-
-func (f selfConfigRequestStoreFunc) GetSecretRequest(ctx context.Context, request SelfConfigSecretRequest) (any, error) {
+func (f selfConfigRequestStoreFunc) ReadSecret(ctx context.Context, request SecretRequest) (any, error) {
 	return f(ctx, request)
 }
 
 func TestSelfConfigSecretProvider_RegistrationAndBuildErrors(t *testing.T) {
-	RegisterSelfConfigSecretProvider("ignored-nil", nil)
+	assert.Panics(t, func() { RegisterSelfConfigSecretProvider("ignored-nil", nil) })
 	if _, ok := LookupSelfConfigSecretProvider("ignored-nil"); ok {
 		t.Fatal("nil provider factory must not be registered")
 	}
+	assert.Panics(t, func() {
+		RegisterSelfConfigSecretProvider("", func(context.Context, map[string]any) (SecretReader, error) { return nil, nil })
+	})
+	duplicateName := "test-secret-duplicate-registration"
+	factory := func(context.Context, map[string]any) (SecretReader, error) { return nil, nil }
+	RegisterSelfConfigSecretProvider(duplicateName, factory)
+	assert.Panics(t, func() {
+		RegisterSelfConfigSecretProvider("  TEST-SECRET-DUPLICATE-REGISTRATION  ", factory)
+	})
 
-	if _, err := buildSelfConfigSecretHook(map[string]any{}); !errors.Is(err, ErrConfigLoad) {
+	if _, err := buildSelfConfigSecretHook(context.Background(), map[string]any{}); !errors.Is(err, ErrConfigLoad) {
 		t.Fatalf("missing provider error = %v", err)
 	}
-	if _, err := buildSelfConfigSecretHook(map[string]any{"provider": "does-not-exist"}); !errors.Is(err, ErrConfigLoad) || !strings.Contains(err.Error(), "registered:") {
+	if _, err := buildSelfConfigSecretHook(context.Background(), map[string]any{"providers": map[string]any{"missing": map[string]any{"type": "does-not-exist"}}}); !errors.Is(err, ErrConfigLoad) || !strings.Contains(err.Error(), "registered:") {
 		t.Fatalf("unknown provider error = %v", err)
 	}
 
 	const name = "coverage-build-error"
-	RegisterSelfConfigSecretProvider(name, func(map[string]any) (SelfConfigSecretStore, error) {
+	RegisterSelfConfigSecretProvider(name, func(context.Context, map[string]any) (SecretReader, error) {
 		return nil, errors.New("factory failed")
 	})
 	t.Cleanup(func() { selfConfigSecretProviders.Delete(name) })
-	if _, err := buildSelfConfigSecretHook(map[string]any{"provider": name}); !errors.Is(err, ErrConfigLoad) || !strings.Contains(err.Error(), "factory failed") {
+	h, err := buildSelfConfigSecretHook(context.Background(), map[string]any{"default_provider": "test", "providers": map[string]any{"test": map[string]any{"type": name}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h(context.Background(), "key", "${secret:key}"); !errors.Is(err, ErrSecretAccess) || !strings.Contains(err.Error(), "factory failed") {
 		t.Fatalf("factory error = %v", err)
 	}
 }
@@ -76,8 +88,8 @@ func TestRegisteredSelfConfigProviderNames_EmptyAndSorted(t *testing.T) {
 		t.Fatalf("empty registry names = %q", got)
 	}
 	selfConfigSecretProviders.Store(42, "ignored non-string key")
-	RegisterSelfConfigSecretProvider("zeta", func(map[string]any) (SelfConfigSecretStore, error) { return nil, nil })
-	RegisterSelfConfigSecretProvider("alpha", func(map[string]any) (SelfConfigSecretStore, error) { return nil, nil })
+	RegisterSelfConfigSecretProvider("zeta", func(context.Context, map[string]any) (SecretReader, error) { return nil, nil })
+	RegisterSelfConfigSecretProvider("alpha", func(context.Context, map[string]any) (SecretReader, error) { return nil, nil })
 	if got := registeredSelfConfigProviderNames(); got != "alpha, zeta" {
 		t.Fatalf("sorted registry names = %q", got)
 	}
@@ -88,14 +100,44 @@ func TestSelfConfigEnvStore_OptionsAndMissingValue(t *testing.T) {
 	exact := newSelfConfigEnvStore(map[string]any{
 		"prefix": "PRE_", "suffix": "_SUF", "transform_key": false,
 	})
-	got, err := exact.GetSecret(context.Background(), "raw.key")
+	got, err := exact.ReadSecret(context.Background(), SecretRequest{Key: "raw.key"})
 	if err != nil || got != "exact" {
 		t.Fatalf("exact env lookup = %v, %v", got, err)
 	}
 
 	transformed := newSelfConfigEnvStore(nil)
-	if _, err := transformed.GetSecret(context.Background(), "missing/key-name"); !errors.Is(err, ErrSecretNotFound) {
+	if _, err := transformed.ReadSecret(context.Background(), SecretRequest{Key: "missing/key-name"}); !errors.Is(err, ErrSecretNotFound) {
 		t.Fatalf("missing env error = %v", err)
+	}
+}
+
+func TestBuiltInSelfConfigReadersHonorRequestFields(t *testing.T) {
+	t.Setenv("CONFII_STRUCTURED", `{"credentials":{"password":"env-secret"}}`)
+	envStore := newSelfConfigEnvStore(map[string]any{
+		"prefix": "CONFII_",
+	})
+	got, err := envStore.ReadSecret(context.Background(), SecretRequest{
+		Key:   "structured",
+		Field: "credentials.password",
+	})
+	if err != nil || got != "env-secret" {
+		t.Fatalf("environment field = %v, %v", got, err)
+	}
+
+	dictStore, err := newSelfConfigDictStore(map[string]any{
+		"entries": map[string]any{
+			"service": map[string]any{"credentials": map[string]any{"password": "dict-secret"}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err = dictStore.ReadSecret(context.Background(), SecretRequest{
+		Key:   "service",
+		Field: "credentials.password",
+	})
+	if err != nil || got != "dict-secret" {
+		t.Fatalf("dictionary field = %v, %v", got, err)
 	}
 }
 
@@ -109,14 +151,14 @@ func TestSelfConfigFileStore_ReadAndOpenErrors(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.GetSecret(context.Background(), "directory"); err == nil || !strings.Contains(err.Error(), "read") {
+	if _, err := store.ReadSecret(context.Background(), SecretRequest{Key: "directory"}); err == nil || !strings.Contains(err.Error(), "read") {
 		t.Fatalf("directory read error = %v", err)
 	}
 
 	if err := os.WriteFile(filepath.Join(base, "plain"), []byte("  value\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	got, err := store.GetSecret(context.Background(), "plain")
+	got, err := store.ReadSecret(context.Background(), SecretRequest{Key: "plain"})
 	if err != nil || got != "value" {
 		t.Fatalf("trimmed file secret = %q, %v", got, err)
 	}
@@ -162,9 +204,9 @@ func TestSelfConfigNamedProviders_RouteExplicitAndEnvironmentDefault(t *testing.
 	var alphaBuilds, betaBuilds atomic.Int32
 	var requests []string
 	register := func(name string, builds *atomic.Int32) {
-		RegisterSelfConfigSecretProvider(name, func(cfg map[string]any) (SelfConfigSecretStore, error) {
+		RegisterSelfConfigSecretProvider(name, func(_ context.Context, cfg map[string]any) (SecretReader, error) {
 			builds.Add(1)
-			return selfConfigRequestStoreFunc(func(_ context.Context, request SelfConfigSecretRequest) (any, error) {
+			return selfConfigRequestStoreFunc(func(_ context.Context, request SecretRequest) (any, error) {
 				requests = append(requests, name+":"+request.Key+":"+request.Version)
 				return map[string]any{"credentials": map[string]any{"password": name + "-secret"}}, nil
 			}), nil
@@ -174,7 +216,7 @@ func TestSelfConfigNamedProviders_RouteExplicitAndEnvironmentDefault(t *testing.
 	register("route-alpha", &alphaBuilds)
 	register("route-beta", &betaBuilds)
 
-	h, defaultProvider, providers, err := buildSelfConfigSecretHookForEnvironment(map[string]any{
+	h, defaultProvider, providers, err := buildSelfConfigSecretHookForEnvironment(context.Background(), map[string]any{
 		"default_provider": "shared",
 		"environment_defaults": map[string]any{
 			"production": "production",
@@ -218,11 +260,11 @@ func TestSelfConfigNamedProviders_ValidationAndRoutingErrors(t *testing.T) {
 		want string
 	}{
 		{"providers-not-map", map[string]any{"providers": "dict"}, "non-empty map"},
-		{"mixed-shapes", map[string]any{"provider": "dict", "providers": map[string]any{"one": validProvider}}, "cannot be combined"},
+		{"mixed-shapes", map[string]any{"provider": "dict", "providers": map[string]any{"one": validProvider}}, "unsupported secrets field"},
 		{"provider-not-map", map[string]any{"providers": map[string]any{"one": "dict"}}, "must be a map"},
 		{"invalid-alias", map[string]any{"providers": map[string]any{"bad alias": validProvider}}, "invalid provider alias"},
 		{"duplicate-alias", map[string]any{"providers": map[string]any{"ONE": validProvider, "one": validProvider}}, "duplicated"},
-		{"invalid-type", map[string]any{"providers": map[string]any{"one": map[string]any{"type": 42}}}, "type` must be"},
+		{"invalid-type", map[string]any{"providers": map[string]any{"one": map[string]any{"type": 42}}}, "requires a non-empty `type`"},
 		{"unknown-type", map[string]any{"providers": map[string]any{"one": map[string]any{"type": "missing-type"}}}, "unsupported type"},
 		{"defaults-not-map", map[string]any{"providers": map[string]any{"one": validProvider}, "environment_defaults": "one"}, "must be a map"},
 		{"invalid-default-type", map[string]any{"providers": map[string]any{"one": validProvider}, "default_provider": 42}, "must be a non-empty"},
@@ -234,14 +276,14 @@ func TestSelfConfigNamedProviders_ValidationAndRoutingErrors(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, _, _, err := buildSelfConfigSecretHookForEnvironment(tt.cfg, "production")
+			_, _, _, err := buildSelfConfigSecretHookForEnvironment(context.Background(), tt.cfg, "production")
 			if !errors.Is(err, ErrConfigLoad) || !strings.Contains(err.Error(), tt.want) {
 				t.Fatalf("error = %v, want %q", err, tt.want)
 			}
 		})
 	}
 
-	h, _, _, err := buildSelfConfigSecretHookForEnvironment(map[string]any{
+	h, _, _, err := buildSelfConfigSecretHookForEnvironment(context.Background(), map[string]any{
 		"providers": map[string]any{"one": validProvider},
 	}, "")
 	if err != nil {
@@ -254,18 +296,14 @@ func TestSelfConfigNamedProviders_ValidationAndRoutingErrors(t *testing.T) {
 		t.Fatalf("unknown alias error = %v", err)
 	}
 
-	// Omitting type uses the alias as the provider type.
-	h, defaultProvider, providers, err := buildSelfConfigSecretHookForEnvironment(map[string]any{
+	_, _, _, err = buildSelfConfigSecretHookForEnvironment(context.Background(), map[string]any{
 		"default_provider": "dict",
 		"providers": map[string]any{
 			"dict": map[string]any{"entries": map[string]any{"key": "inferred"}},
 		},
 	}, "")
-	if err != nil || defaultProvider != "dict" || strings.Join(providers, ",") != "dict" {
-		t.Fatalf("inferred provider = %q %v, %v", defaultProvider, providers, err)
-	}
-	if got, err := h(context.Background(), "key", "${secret:key}"); err != nil || got != "inferred" {
-		t.Fatalf("inferred provider resolution = %v, %v", got, err)
+	if !errors.Is(err, ErrConfigLoad) || !strings.Contains(err.Error(), "requires a non-empty `type`") {
+		t.Fatalf("missing type error = %v", err)
 	}
 }
 
@@ -275,14 +313,16 @@ func TestSelfConfigNamedProviders_LazyFactoryAndPathFailures(t *testing.T) {
 		factory SelfConfigSecretProviderFactory
 		want    string
 	}{
-		{"factory-error", func(map[string]any) (SelfConfigSecretStore, error) { return nil, errors.New("build failed") }, "build failed"},
-		{"nil-store", func(map[string]any) (SelfConfigSecretStore, error) { return nil, nil }, "nil store"},
+		{"factory-error", func(context.Context, map[string]any) (SecretReader, error) {
+			return nil, errors.New("build failed")
+		}, "build failed"},
+		{"nil-store", func(context.Context, map[string]any) (SecretReader, error) { return nil, nil }, "nil store"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			providerType := "route-" + tt.name
 			RegisterSelfConfigSecretProvider(providerType, tt.factory)
 			t.Cleanup(func() { selfConfigSecretProviders.Delete(providerType) })
-			h, _, _, err := buildSelfConfigSecretHookForEnvironment(map[string]any{
+			h, _, _, err := buildSelfConfigSecretHookForEnvironment(context.Background(), map[string]any{
 				"default_provider": "primary",
 				"providers":        map[string]any{"primary": map[string]any{"type": providerType}},
 			}, "")
@@ -309,21 +349,43 @@ func TestSelfConfigNamedProviders_LazyFactoryAndPathFailures(t *testing.T) {
 	if _, err := h(context.Background(), "key", "${secret:mapping:missing}"); !errors.Is(err, ErrSecretValidation) || !strings.Contains(err.Error(), "not found") {
 		t.Fatalf("missing path error = %v", err)
 	}
-	if _, err := h(context.Background(), "key", "${secret:scalar::v1}"); !errors.Is(err, ErrSecretValidation) || !strings.Contains(err.Error(), "versioned") {
-		t.Fatalf("unsupported version error = %v", err)
-	}
+}
+
+func TestSelfConfigNamedProvider_RetriesTransientInitializationFailure(t *testing.T) {
+	providerType := "retryable-provider"
+	var attempts atomic.Int32
+	RegisterSelfConfigSecretProvider(providerType, func(context.Context, map[string]any) (SecretReader, error) {
+		if attempts.Add(1) == 1 {
+			return nil, context.DeadlineExceeded
+		}
+		return selfConfigStoreFunc(func(context.Context, string) (any, error) { return "ready", nil }), nil
+	})
+	t.Cleanup(func() { selfConfigSecretProviders.Delete(providerType) })
+	h, _, _, err := buildSelfConfigSecretHookForEnvironment(context.Background(), map[string]any{
+		"default_provider": "primary",
+		"providers": map[string]any{
+			"primary": map[string]any{"type": providerType},
+		},
+	}, "")
+	require.NoError(t, err)
+	_, err = h(context.Background(), "key", "${secret:key}")
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	value, err := h(context.Background(), "key", "${secret:key}")
+	require.NoError(t, err)
+	assert.Equal(t, "ready", value)
+	assert.Equal(t, int32(2), attempts.Load())
 }
 
 func TestSelfConfigNamedProviders_InitializeOnceUnderConcurrency(t *testing.T) {
 	const providerType = "route-concurrent"
 	var builds atomic.Int32
-	RegisterSelfConfigSecretProvider(providerType, func(map[string]any) (SelfConfigSecretStore, error) {
+	RegisterSelfConfigSecretProvider(providerType, func(context.Context, map[string]any) (SecretReader, error) {
 		builds.Add(1)
 		return selfConfigStoreFunc(func(context.Context, string) (any, error) { return "resolved", nil }), nil
 	})
 	t.Cleanup(func() { selfConfigSecretProviders.Delete(providerType) })
 
-	h, _, _, err := buildSelfConfigSecretHookForEnvironment(map[string]any{
+	h, _, _, err := buildSelfConfigSecretHookForEnvironment(context.Background(), map[string]any{
 		"default_provider": "primary",
 		"providers": map[string]any{
 			"primary": map[string]any{"type": providerType},

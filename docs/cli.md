@@ -1,7 +1,7 @@
 # CLI Tool
 
-Confii includes a command-line tool with 14 commands for initializing,
-loading, inspecting, validating, exporting, and comparing configurations.
+Confii includes a command-line tool for initializing, loading, inspecting,
+validating, exporting, and comparing configurations.
 
 ---
 
@@ -11,7 +11,7 @@ This installs the standalone CLI and may run from any directory. It does not
 add the Confii library to an application's `go.mod`:
 
 ```bash
-go install github.com/confiify/confii-go/confii@latest
+go install github.com/confiify/confii-go/v2/confii@latest
 ```
 
 Verify:
@@ -35,11 +35,14 @@ Most commands accept one or more `--loader` (or `-l`) flags in the format `type:
 | JSON | `json:path` | `-l json:config.json` |
 | TOML | `toml:path` | `-l toml:config.toml` |
 | INI | `ini:path` | `-l ini:config.ini` |
-| .env file | `env_file:path` | `-l env_file:.env` |
-| Environment vars | `env:PREFIX` | `-l env:APP` |
+| .env file | `dotenv:path` | `-l dotenv:.env` |
+| Environment vars | `environment:PREFIX` | `-l environment:APP` |
 | HTTP | `http:url` | `-l http:https://example.com/config.json` |
 
-You can pass multiple loaders. Later loaders override earlier ones with deep merge.
+Multiple loaders may be supplied. Later loaders override earlier loaders using
+deep merge.
+CLI loader types use the same canonical vocabulary as self-config: use
+`dotenv`, not `env_file` or `envfile`, and `environment`, not `env`.
 
 ---
 
@@ -59,11 +62,13 @@ By default, Confii asks you to select one of three layouts:
    `config/{environment}.yaml` override per environment.
 2. One sectioned file: `config/application.yaml` containing `default` and
    named environment sections.
-3. Self-configuration only: the complete `.confii.yaml` without starter data.
+3. Self-configuration only: the complete self-config without starter data.
 
-The generated `.confii.yaml` still includes every supported setting, with
+Confii then asks whether the self-config should be YAML (recommended), JSON,
+or TOML and creates `.confii.yaml`, `.confii.json`, or `.confii.toml`
+accordingly. The generated self-config includes every supported setting, with
 comments explaining its default and available choices. The generated starter
-configuration is immediately loadable with `confii.New[YourConfig](ctx)`;
+configuration is immediately loadable with `confii.NewWithContext[YourConfig](ctx)`;
 Confii does not edit `go.mod` or invent application source files.
 
 Initialize another directory, creating it when necessary:
@@ -77,18 +82,19 @@ Make initialization deterministic in scripts or CI:
 ```bash
 confii init --non-interactive \
   --strategy named-files \
+  --format yaml \
   --default-environment development \
   --environments development,staging,production \
   --env-switcher APP_ENV \
   --config-dir config
 ```
 
-Confii checks all eight supported project self-config names before prompting.
+Confii checks every supported hidden and visible base filename before prompting.
 If one valid self-config already exists, `init` succeeds without changing any
 file. Multiple self-configs are rejected because discovery would be ambiguous;
 an invalid existing self-config is reported rather than hidden (unless
-`--force` is deliberately being used to recover the canonical
-`.confii.yaml`). Before a new project is written, every planned target is checked so a collision leaves no
+`--force` is deliberately being used to recover the selected self-config
+format). Before a new project is written, every planned target is checked so a collision leaves no
 partial initialization. A failed multi-file write is rolled back.
 
 Preview the exact plan without creating even the target directory:
@@ -113,11 +119,12 @@ instead tells you to declare sources in `.confii.yaml` before running
 | Flag | Description | Default |
 |------|-------------|---------|
 | `--strategy` | `named-files` or `sectioned`; otherwise prompt in a terminal | `named-files` when non-interactive |
+| `--format` | Self-config format: `yaml`, `json`, or `toml` | Prompt; `yaml` when non-interactive |
 | `--environments` | Environment override files/sections to scaffold | `development,production` |
 | `--default-environment` | Fallback environment | `development` |
 | `--env-switcher` | OS variable selecting the environment | `APP_ENV` |
 | `--config-dir` | Project-relative starter configuration directory | `config` |
-| `--minimal` | Create only the complete `.confii.yaml` | `false` |
+| `--minimal` | Create only the complete self-config in the selected format | `false` |
 | `--non-interactive` | Suppress layout prompting | `false` |
 | `--dry-run` | Print the plan without filesystem changes | `false` |
 | `-f, --force` | Replace every file in the selected plan | `false` |
@@ -212,9 +219,9 @@ import (
     "fmt"
     "os"
 
-    "github.com/confiify/confii-go/confii/cmd"
-    _ "github.com/confiify/confii-go/loader/cloud"
-    _ "github.com/confiify/confii-go/secret/cloud"
+    "github.com/confiify/confii-go/v2/confii/cmd"
+    _ "github.com/confiify/confii-go/loader/cloud/v2"
+    _ "github.com/confiify/confii-go/secret/cloud/v2"
 )
 
 func main() {
@@ -279,7 +286,7 @@ confii load -l yaml:config.yaml -l env:APP
 Retrieve a single configuration value by key path.
 
 ```bash
-confii get [env] <key> -l type:source [...]
+confii get <key> [-e environment] -l type:source [...]
 ```
 
 **Examples:**
@@ -288,12 +295,12 @@ confii get [env] <key> -l type:source [...]
 # Use .confii.yaml's default_environment / env_switcher
 confii get database.host
 
-# Get a scalar value
-confii get production database.host -l yaml:config.yaml
+# Get a scalar value from an explicit environment
+confii get database.host -e production -l yaml:config.yaml
 # Output: prod-db.example.com
 
 # Get a nested object (printed as indented JSON)
-confii get production database -l yaml:config.yaml
+confii get database -e production -l yaml:config.yaml
 # Output:
 # {
 #   "host": "prod-db.example.com",
@@ -581,7 +588,11 @@ confii migrate <source-type> <config-file> [-o output] [--target-format format]
 | `-o, --output` | Output file path | stdout |
 | `--target-format` | Target format (`yaml`, `json`, `toml`) | `yaml` |
 
-**Supported source types:** `auto`, `dotenv`, `env`, `yaml`, `yml`, `dynaconf`, `hydra`, `omegaconf`. Dynaconf accepts YAML, TOML, or JSON by extension. Hydra and OmegaConf accept standalone/materialized YAML; resolve config groups and executable custom resolvers in the source tool before migration.
+**Supported source types:** `dotenv`, `yaml`, `dynaconf`, `hydra`, and
+`omegaconf`. `yaml` accepts `.yaml` and `.yml` files. Dynaconf accepts YAML,
+TOML, or JSON by extension. Hydra and OmegaConf accept
+standalone/materialized YAML; resolve config groups and executable custom
+resolvers in the source tool before migration.
 
 **Examples:**
 

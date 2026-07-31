@@ -6,7 +6,7 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/confiify/confii-go/diff"
+	"github.com/confiify/confii-go/v2/diff"
 	"github.com/spf13/cobra"
 )
 
@@ -27,17 +27,20 @@ func NewDiffCmd() *cobra.Command {
 				loaders2 = loaders1
 			}
 
-			cfg1, err := buildConfig(env1, loaders1)
+			cfg1, err := buildConfigWithContext(c.Context(), env1, loaders1)
 			if err != nil {
 				return fmt.Errorf("config1: %w", err)
 			}
 
-			cfg2, err := buildConfig(env2, loaders2)
+			cfg2, err := buildConfigWithContext(c.Context(), env2, loaders2)
 			if err != nil {
 				return fmt.Errorf("config2: %w", err)
 			}
 
-			diffs := diff.Diff(cfg1.ToDict(), cfg2.ToDict())
+			diffs, err := cfg1.DiffWithContext(c.Context(), cfg2)
+			if err != nil {
+				return fmt.Errorf("compare configurations: %w", err)
+			}
 
 			if len(diffs) == 0 {
 				fmt.Println("No differences found.")
@@ -46,7 +49,10 @@ func NewDiffCmd() *cobra.Command {
 
 			switch format {
 			case "json":
-				s, _ := diff.ToJSON(diffs)
+				s, err := diff.ToJSON(diffs)
+				if err != nil {
+					return fmt.Errorf("encode diff: %w", err)
+				}
 				fmt.Println(s)
 			default:
 				for _, d := range diffs {
@@ -61,8 +67,8 @@ func NewDiffCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringSliceVar(&loaders1, "loader1", nil, "Loaders for first config (type:source)")
-	cmd.Flags().StringSliceVar(&loaders2, "loader2", nil, "Loaders for second config (type:source)")
+	cmd.Flags().StringSliceVar(&loaders1, "loader1", nil, "Loaders for first config in canonical TYPE:SOURCE form")
+	cmd.Flags().StringSliceVar(&loaders2, "loader2", nil, "Loaders for second config in canonical TYPE:SOURCE form")
 	cmd.Flags().StringVarP(&format, "format", "f", "unified", "Output format (unified, json)")
 	return cmd
 }

@@ -24,8 +24,10 @@ cfg.Get("database.primary.port")  // 5432
 cfg.Get("database.primary")       // map[string]any{"host": ..., "port": ...}
 ```
 
-!!! note "Maps are returned without hook processing"
-    When `Get` returns a map (non-leaf value), hooks are **not** applied. Hooks only transform leaf (scalar) values. This prevents unintended transformations on intermediate map nodes.
+!!! note "Map and slice values are isolated snapshots"
+    When `Get` returns a map or slice, Confii returns a deep copy of the
+    already-materialized value. Mutating that copy cannot alter live Config
+    state, and no transformation hook is rerun during the read.
 
 ---
 
@@ -33,21 +35,26 @@ cfg.Get("database.primary")       // map[string]any{"host": ..., "port": ...}
 
 ### Get
 
-Returns the raw value and an error if the key does not exist.
+Returns the effective, already-materialized value and an error if the key does not
+exist. Constructor-supplied secret references have already been resolved into
+the in-memory effective configuration before this call.
 
 ```go
 val, err := cfg.Get("database.host")
 if err != nil {
-    // Key not found -- err is a *NotFoundError with suggestions
+    // Key not found -- err is a *ConfigError with Code
+    // config_not_found; detect it with
+    // errors.Is(err, confii.ErrConfigNotFound).
     log.Fatal(err)
 }
 fmt.Println(val) // "prod-db.example.com"
 ```
 
-The error includes the requested key and a list of available keys, which helps catch typos:
+The error includes the requested key and a bounded, sorted list of available
+keys, which helps catch typos:
 
 ```text
-key "databse.host" not found; available keys: [database.host, database.port, ...]
+Get: key "databse.host": config key not found [available_keys=[database.host, database.port, ...]]
 ```
 
 ### GetOr
@@ -145,12 +152,19 @@ dbKeys := cfg.Keys("database")
 
 Keys are returned sorted alphabetically.
 
+The `GetOr` and typed `Get*Or` helpers return their supplied default when the
+underlying read or type conversion fails. Use the corresponding
+error-returning getter when failure details must be observed.
+
 ### ToDict
 
-Get the entire configuration as a raw `map[string]any`:
+Get the entire effective, already-materialized configuration as a `map[string]any`:
 
 ```go
-raw := cfg.ToDict()
+raw, err := cfg.ToDict()
+if err != nil {
+    log.Fatal(err)
+}
 // map[string]any{
 //   "database": map[string]any{
 //     "host": "prod-db.example.com",
@@ -161,7 +175,9 @@ raw := cfg.ToDict()
 ```
 
 !!! note "ToDict returns a snapshot"
-    `ToDict()` applies the hook pipeline and returns a deep copy. Mutating the returned map does not alter live configuration; use `Set()` for intentional runtime changes.
+    `ToDict()` applies the hook pipeline and returns a deep copy. Hook failures
+    are returned to the caller. Mutating the returned map does not alter live
+    configuration; use `Set()` for intentional runtime changes.
 
 ---
 
@@ -221,36 +237,36 @@ For full type safety with IDE autocomplete, use `Config[T]` with a struct type p
 
 ```go
 type AppConfig struct {
-    App      AppSection      `mapstructure:"app"`
-    Database DatabaseSection `mapstructure:"database"`
-    Cache    CacheSection    `mapstructure:"cache"`
+    App      AppSection      `confii:"app"`
+    Database DatabaseSection `confii:"database"`
+    Cache    CacheSection    `confii:"cache"`
 }
 
 type AppSection struct {
-    Name     string `mapstructure:"name"     validate:"required"`
-    Port     int    `mapstructure:"port"     validate:"required,min=1,max=65535"`
-    LogLevel string `mapstructure:"log_level"`
+    Name     string `confii:"name"     validate:"required"`
+    Port     int    `confii:"port"     validate:"required,min=1,max=65535"`
+    LogLevel string `confii:"log_level"`
 }
 
 type DatabaseSection struct {
-    Host     string `mapstructure:"host"     validate:"required,hostname"`
-    Port     int    `mapstructure:"port"     validate:"required,min=1,max=65535"`
-    Name     string `mapstructure:"name"     validate:"required"`
-    PoolSize int    `mapstructure:"pool_size" validate:"min=1,max=100"`
-    SSL      bool   `mapstructure:"ssl"`
+    Host     string `confii:"host"     validate:"required,hostname"`
+    Port     int    `confii:"port"     validate:"required,min=1,max=65535"`
+    Name     string `confii:"name"     validate:"required"`
+    PoolSize int    `confii:"pool_size" validate:"min=1,max=100"`
+    SSL      bool   `confii:"ssl"`
 }
 
 type CacheSection struct {
-    Driver string `mapstructure:"driver" validate:"required,oneof=memory redis"`
-    URL    string `mapstructure:"url"`
-    TTL    int    `mapstructure:"ttl"    validate:"min=0"`
+    Driver string `confii:"driver" validate:"required,oneof=memory redis"`
+    URL    string `confii:"url"`
+    TTL    int    `confii:"ttl"    validate:"min=0"`
 }
 ```
 
 ### Creating and Using Config[T]
 
 ```go
-cfg, err := confii.New[AppConfig](ctx,
+cfg, err := confii.NewWithContext[AppConfig](ctx,
     confii.WithLoaders(loader.NewYAML("config.yaml")),
     confii.WithValidateOnLoad(true),
 )
@@ -271,27 +287,72 @@ fmt.Println(model.Cache.Driver)     // string
 ```
 
 !!! tip "Typed() caches the result"
-    The decoded and validated struct is cached internally. Subsequent calls to `Typed()` return the cached value unless the config has been modified (via `Set`, `Reload`, or `Override`).
+    Hooks already ran while the immutable snapshot was materialized, using full
+    paths such as `database.host`. `Typed()` decodes and caches that snapshot.
+    Register hooks through constructor options; the hook plan cannot be mutated
+    after construction. See [Hook System](hooks.md).
+
+    `TypedWithContext(ctx)` has the same shared-cache ownership as `Typed()`;
+    the context controls cancellation and deadlines, not whether the result is
+    copied. Use `TypedCopy()` or `TypedCopyWithContext(ctx)` when the caller
+    must own an independent typed value.
+
+!!! note "Typed fields are ordinary Go fields"
+    After `Typed()` returns, expressions such as `model.Database.Host` do not
+    execute hooks. The field contains the result of the hook pass performed
+    before decoding. Per-access side effects require a Confii getter rather
+    than direct struct-field access.
+
+    Mutating the pointer returned by `Typed()` changes that cached typed view
+    for callers that receive the same pointer, but never writes back to the
+    published map snapshot. Prefer treating it as read-only. Use `Set` for a
+    configuration mutation and `TypedCopy` for a caller-owned mutable model.
 
 ### Struct Tags
 
-Confii uses two struct tag systems:
+Confii owns the mapping directive used by typed configuration and uses the
+standard validator directive for validation:
 
 | Tag | Library | Purpose |
 |---|---|---|
-| `mapstructure` | [mitchellh/mapstructure](https://github.com/mitchellh/mapstructure) | Maps config keys to struct fields |
+| `confii` | Confii | Maps configuration keys to Go struct fields |
 | `validate` | [go-playground/validator](https://github.com/go-playground/validator) | Validates field values |
 
-The `mapstructure` tag controls how YAML/JSON keys map to Go struct fields. The `validate` tag defines validation rules checked by `Typed()` and `WithValidateOnLoad`. See [Validation](validation.md) for details.
+The `confii` tag controls how source keys map to Go fields across every loader
+format. The `validate` tag defines rules checked by `Typed()` and
+`WithValidateOnLoad`. `mapstructure` is an internal decoding dependency, not a
+supported public struct-tag directive.
+
+```go
+type ServerConfig struct {
+    Host     string         `confii:"host" validate:"required,hostname"`
+    LogLevel string         `confii:"log_level"`
+    Ignored  string         `confii:"-"`
+    Extra    map[string]any `confii:",remain"`
+}
+```
+
+Supported mapping forms are:
+
+| Form | Meaning |
+|---|---|
+| `confii:"name"` | Bind the field to `name` |
+| `confii:"-"` | Ignore the field during typed decoding |
+| `confii:",squash"` | Flatten an embedded struct into its parent |
+| `confii:",remain"` | Capture otherwise-unused keys in a map field |
+
+Untagged fields continue to match their Go field names case-insensitively. Use
+an explicit `confii` tag for snake_case or otherwise renamed keys. See
+[Validation](validation.md) for validation rules.
 
 ---
 
 ## Combining Untyped and Typed Access
 
-You can use both approaches on the same `Config[T]` instance:
+Both approaches may be used on the same `Config[T]` instance:
 
 ```go
-cfg, _ := confii.New[AppConfig](ctx,
+cfg, _ := confii.NewWithContext[AppConfig](ctx,
     confii.WithLoaders(loader.NewYAML("config.yaml")),
 )
 
@@ -323,25 +384,25 @@ import (
     "fmt"
     "log"
 
-    "github.com/confiify/confii-go"
-    "github.com/confiify/confii-go/loader"
+    "github.com/confiify/confii-go/v2"
+    "github.com/confiify/confii-go/v2/loader"
 )
 
 type Config struct {
     App struct {
-        Name string `mapstructure:"name" validate:"required"`
-        Port int    `mapstructure:"port" validate:"required,min=1024,max=65535"`
-    } `mapstructure:"app"`
+        Name string `confii:"name" validate:"required"`
+        Port int    `confii:"port" validate:"required,min=1024,max=65535"`
+    } `confii:"app"`
     Database struct {
-        Host string `mapstructure:"host" validate:"required"`
-        Port int    `mapstructure:"port" validate:"required"`
-    } `mapstructure:"database"`
+        Host string `confii:"host" validate:"required"`
+        Port int    `confii:"port" validate:"required"`
+    } `confii:"database"`
 }
 
 func main() {
     ctx := context.Background()
 
-    cfg, err := confii.New[Config](ctx,
+    cfg, err := confii.NewWithContext[Config](ctx,
         confii.WithLoaders(loader.NewYAML("config.yaml")),
         confii.WithEnv("production"),
         confii.WithValidateOnLoad(true),

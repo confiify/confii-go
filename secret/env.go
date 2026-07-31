@@ -10,7 +10,7 @@ import (
 	"os"
 	"strings"
 
-	confii "github.com/confiify/confii-go"
+	confii "github.com/confiify/confii-go/v2"
 )
 
 // EnvStore retrieves secrets from environment variables.
@@ -33,12 +33,15 @@ func WithEnvSuffix(s string) EnvStoreOption {
 	return func(st *EnvStore) { st.suffix = s }
 }
 
-// WithTransformKey controls whether keys are transformed (replace /.-  with _, uppercase).
+// WithTransformKey controls whether "/", ".", and "-" are replaced with "_"
+// and the result uppercased. Transformation is enabled by default.
 func WithTransformKey(v bool) EnvStoreOption {
 	return func(s *EnvStore) { s.transformKey = v }
 }
 
-// NewEnvStore creates a new environment variable secret store.
+// NewEnvStore creates a process-environment store. It offers no encryption and
+// may expose values to child processes or process-inspection tools; use it only
+// where the deployment environment provides appropriate isolation.
 func NewEnvStore(opts ...EnvStoreOption) *EnvStore {
 	s := &EnvStore{transformKey: true}
 	for _, o := range opts {
@@ -47,7 +50,9 @@ func NewEnvStore(opts ...EnvStoreOption) *EnvStore {
 	return s
 }
 
-// GetSecret retrieves a secret from OS environment variables, transforming the key to uppercase with prefix/suffix applied.
+// GetSecret reads the transformed key with configured prefix and suffix. A
+// missing variable wraps [confii.ErrSecretNotFound]. Secret options are
+// ignored because process variables are neither structured nor versioned.
 func (s *EnvStore) GetSecret(_ context.Context, key string, _ ...confii.SecretOption) (any, error) {
 	envKey := s.envKey(key)
 	val, ok := os.LookupEnv(envKey)
@@ -67,7 +72,10 @@ func (s *EnvStore) DeleteSecret(_ context.Context, key string, _ ...confii.Secre
 	return os.Unsetenv(s.envKey(key))
 }
 
-// ListSecrets returns all environment variable names, optionally filtered by prefix.
+// ListSecrets returns raw process-environment variable names beginning with
+// prefix, or every name when prefix is empty. The store's configured key
+// transform, prefix, and suffix are not reversed. Ordering follows os.Environ
+// and should not be relied upon.
 func (s *EnvStore) ListSecrets(_ context.Context, prefix string) ([]string, error) {
 	var keys []string
 	for _, env := range os.Environ() {

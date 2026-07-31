@@ -35,6 +35,17 @@ map[string]any{
 !!! note "Override history requires debug mode"
     The `override_history` field is only populated when `WithDebugMode(true)` is enabled. Without it, you still get the override count but not the history.
 
+!!! note "Secret-backed values are redacted"
+    `Explain`, `Schema`, `GenerateDocs`, `GetSourceInfo`,
+    `GetOverrideHistory`, `GetConflicts`, and the detached tracker returned by
+    `SourceTracker` replace values derived from secret references with a
+    redaction marker. `sensitive_paths` or `WithSensitivePaths` extends this
+    protection to values produced by custom loaders and hooks. Sensitivity
+    survives materialization, runtime mutation,
+    version persistence, and rollback. `PrintDebugInfo` and
+    `ExportDebugReport` are explicit sensitive-data operations and may contain
+    values; protect their output accordingly.
+
 When the key does not exist, `Explain` returns the available keys to help with typos:
 
 ```go
@@ -87,7 +98,7 @@ Source: APP (EnvironmentLoader) - 3 keys
 Enable `WithDebugMode(true)` to track the full override history for every key. Without it, Confii tracks sources and override counts but not the history chain.
 
 ```go
-cfg, err := confii.New[any](ctx,
+cfg, err := confii.NewWithContext[any](ctx,
     confii.WithLoaders(
         loader.NewYAML("base.yaml"),
         loader.NewYAML("prod.yaml"),
@@ -124,6 +135,12 @@ for _, conflict := range plan.Conflicts {
 
 The returned plan is defensively copied. Mutating its layer keys or conflict
 source slices cannot affect the live configuration or subsequent calls.
+
+### SourceTracker
+
+`SourceTracker()` returns a detached, redacted tracker snapshot for advanced
+queries. Calling its mutation methods changes only that detached tracker and
+cannot alter Config introspection or published configuration state.
 
 ### GetSourceInfo
 
@@ -312,14 +329,14 @@ import (
     "fmt"
     "log"
 
-    confii "github.com/confiify/confii-go"
-    "github.com/confiify/confii-go/loader"
+    confii "github.com/confiify/confii-go/v2"
+    "github.com/confiify/confii-go/v2/loader"
 )
 
 func main() {
     ctx := context.Background()
 
-    cfg, err := confii.New[any](ctx,
+    cfg, err := confii.NewWithContext[any](ctx,
         confii.WithLoaders(
             loader.NewYAML("base.yaml"),
             loader.NewYAML("prod.yaml"),

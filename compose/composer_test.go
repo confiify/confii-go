@@ -4,6 +4,7 @@
 package compose
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +13,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestComposeWithContextRejectsCanceledOperation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, _, err := New(t.TempDir()).ComposeWithDependenciesWithContext(ctx, map[string]any{"key": "value"}, "config.yaml")
+	require.ErrorIs(t, err, context.Canceled)
+}
 
 func TestCompose_Include(t *testing.T) {
 	dir := t.TempDir()
@@ -24,7 +32,7 @@ func TestCompose_Include(t *testing.T) {
 	}
 
 	c := New(dir)
-	result, err := c.Compose(config, filepath.Join(dir, "main.yaml"))
+	result, err := c.Compose(config, filepath.Join(dir, "main().yaml"))
 	require.NoError(t, err)
 
 	_, hasInclude := result["_include"]
@@ -70,7 +78,7 @@ func TestCompose_CycleDetection(t *testing.T) {
 	}
 
 	c := New(dir)
-	result, err := c.Compose(config, filepath.Join(dir, "main.yaml"))
+	result, err := c.Compose(config, filepath.Join(dir, "main().yaml"))
 	require.NoError(t, err)
 
 	assert.Equal(t, true, result["from_a"])
@@ -89,7 +97,7 @@ func TestCompose_MaxDepth(t *testing.T) {
 
 	config := map[string]any{"_include": []any{"level0.yaml"}}
 	c := New(dir)
-	_, err := c.Compose(config, filepath.Join(dir, "main.yaml"))
+	_, err := c.Compose(config, filepath.Join(dir, "main().yaml"))
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "max depth")
 }

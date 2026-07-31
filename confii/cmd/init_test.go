@@ -11,7 +11,7 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/confiify/confii-go/selfconfig"
+	"github.com/confiify/confii-go/v2/selfconfig"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -61,7 +61,7 @@ func TestInitCommandReportsDirectoryCreationFailure(t *testing.T) {
 func TestInitCommandPreservesExistingFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, selfConfigFilename)
-	require.NoError(t, os.WriteFile(path, []byte("deep_merge: false\n"), 0o600))
+	require.NoError(t, os.WriteFile(path, []byte("debug_mode: false\n"), 0o600))
 
 	out, err := execCobra(NewInitCmd(), []string{dir})
 	require.NoError(t, err)
@@ -70,7 +70,7 @@ func TestInitCommandPreservesExistingFile(t *testing.T) {
 
 	data, readErr := os.ReadFile(path)
 	require.NoError(t, readErr)
-	assert.Equal(t, "deep_merge: false\n", string(data))
+	assert.Equal(t, "debug_mode: false\n", string(data))
 }
 
 func TestInitCommandForceReplacesExistingFile(t *testing.T) {
@@ -107,13 +107,13 @@ func TestInitCommandRejectsSelfConfigSymlink(t *testing.T) {
 	}
 	dir := t.TempDir()
 	external := filepath.Join(t.TempDir(), "external.yaml")
-	require.NoError(t, os.WriteFile(external, []byte("deep_merge: true\n"), 0o600))
+	require.NoError(t, os.WriteFile(external, []byte("debug_mode: true\n"), 0o600))
 	require.NoError(t, os.Symlink(external, filepath.Join(dir, selfConfigFilename)))
 
 	_, err := execCobra(NewInitCmd(), []string{"--force", dir})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not a regular file")
-	assert.Equal(t, "deep_merge: true\n", readTestFile(t, external))
+	assert.Equal(t, "debug_mode: true\n", readTestFile(t, external))
 }
 
 func TestInitCommandReturnsOutputWriterError(t *testing.T) {

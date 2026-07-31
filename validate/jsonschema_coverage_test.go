@@ -31,20 +31,17 @@ func TestJSONSchemaValidator_ValidateNestedObject(t *testing.T) {
 	v, err := NewJSONSchemaValidator(schema)
 	require.NoError(t, err)
 
-	// Valid.
 	err = v.Validate(map[string]any{
 		"database": map[string]any{"host": "localhost", "port": 5432},
 	})
 	assert.NoError(t, err)
 
-	// Missing nested required field.
 	err = v.Validate(map[string]any{
 		"database": map[string]any{"port": 5432},
 	})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "Schema validation")
 
-	// Missing top-level required field.
 	err = v.Validate(map[string]any{})
 	assert.Error(t, err)
 }
@@ -174,7 +171,7 @@ func TestJSONSchemaValidator_ValidateArrayItems(t *testing.T) {
 }
 
 func TestNewJSONSchemaValidator_UnmarshalableSchema(t *testing.T) {
-	// A schema map that includes a channel, which can't be marshaled to JSON.
+
 	schema := map[string]any{
 		"type":   "object",
 		"broken": make(chan int),

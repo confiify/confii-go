@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	confii "github.com/confiify/confii-go"
+	confii "github.com/confiify/confii-go/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -31,7 +31,6 @@ func TestJSONLoader_Load(t *testing.T) {
 			path: "testdata/simple.json",
 		},
 		{
-			// G07: post-fix the default policy is Raise.
 			name:    "missing file under default policy raises",
 			path:    "testdata/nonexistent.json",
 			wantErr: true,
@@ -71,13 +70,12 @@ func TestJSONLoader_Load(t *testing.T) {
 			db, ok := result["database"].(map[string]any)
 			require.True(t, ok)
 			assert.Equal(t, "localhost", db["host"])
-			// JSON numbers are float64.
+
 			assert.Equal(t, float64(5432), db["port"])
 		})
 	}
 }
 
-// TestJSONLoader_MissingFile_Policies covers G07.
 func TestJSONLoader_MissingFile_Policies(t *testing.T) {
 	missing := "testdata/nonexistent.json"
 
@@ -128,7 +126,6 @@ func TestJSONLoader_MissingFile_Policies(t *testing.T) {
 	})
 }
 
-// TestJSONLoader_DefaultPolicyIsRaise verifies the default-Raise contract.
 func TestJSONLoader_DefaultPolicyIsRaise(t *testing.T) {
 	l := NewJSON("testdata/nonexistent.json")
 	_, err := l.Load(context.Background())
@@ -136,7 +133,6 @@ func TestJSONLoader_DefaultPolicyIsRaise(t *testing.T) {
 	assert.True(t, errors.Is(err, confii.ErrConfigLoad))
 }
 
-// TestJSONLoader_NilLoggerIgnored ensures WithJSONLogger(nil) is a no-op.
 func TestJSONLoader_NilLoggerIgnored(t *testing.T) {
 	l := NewJSON("testdata/nonexistent.json",
 		WithJSONErrorPolicy(confii.ErrorPolicyWarn),
@@ -146,8 +142,6 @@ func TestJSONLoader_NilLoggerIgnored(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestJSONLoader_PresentFileUnaffectedByPolicy confirms the policy only
-// affects error paths.
 func TestJSONLoader_PresentFileUnaffectedByPolicy(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "ok.json")

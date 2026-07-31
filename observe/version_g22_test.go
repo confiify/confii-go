@@ -14,14 +14,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// G22 sub-fix: ListVersions used to mutate m.versions under an RLock.
-// This test runs ListVersions and SaveVersion concurrently; under
-// `go test -race` it must not produce a data-race report.
 func TestManager_ListVersions_NoMutationUnderConcurrentRead(t *testing.T) {
 	dir := t.TempDir()
 	vm := NewVersionManager(dir, 100)
 
-	// Seed a few versions so the readers have something to iterate.
 	for i := 0; i < 3; i++ {
 		_, err := vm.SaveVersion(map[string]any{"i": i}, nil)
 		require.NoError(t, err)
@@ -58,9 +54,6 @@ func TestManager_ListVersions_NoMutationUnderConcurrentRead(t *testing.T) {
 	wg.Wait()
 }
 
-// G22 sub-fix: SaveVersion previously dropped json.Marshal/Unmarshal errors
-// silently. Passing a value that cannot be JSON-encoded (channels are not
-// representable in JSON) must now propagate a non-nil error.
 func TestManager_SaveVersion_PropagatesMarshalErrors(t *testing.T) {
 	dir := t.TempDir()
 	vm := NewVersionManager(dir, 100)
@@ -72,12 +65,13 @@ func TestManager_SaveVersion_PropagatesMarshalErrors(t *testing.T) {
 	assert.Nil(t, v)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "version:")
+
+	v, err = vm.SaveVersion(map[string]any{"valid": true}, map[string]any{"chan": make(chan int)})
+	assert.Nil(t, v)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "marshal metadata")
 }
 
-// G22 sub-fix: NewVersionManager with an empty storage path must NOT create
-// a `.confii/versions/` directory in the working tree. The test changes
-// CWD to a temp directory, exercises the default-construction path, and
-// asserts that no `.confii/` directory is left behind.
 func TestManager_DefaultStorage_NoSourceTreeArtifacts(t *testing.T) {
 	cwd, err := os.Getwd()
 	require.NoError(t, err)
@@ -91,26 +85,21 @@ func TestManager_DefaultStorage_NoSourceTreeArtifacts(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, v.VersionID)
 
-	// In-memory retrieval still works.
 	got := vm.GetVersion(v.VersionID)
 	require.NotNil(t, got)
 	assert.Equal(t, "value", got.Config["key"])
 
-	// No source-tree artifacts.
 	_, statErr := os.Stat(filepath.Join(tmp, ".confii"))
 	assert.True(t, os.IsNotExist(statErr),
 		"default manager must not create .confii/ in the working tree")
 }
 
-// G22 sub-fix: Timestamps used to be one-second-precision and tests allowed
-// ties. With nanosecond monotonic timestamps, back-to-back saves must
-// produce strictly increasing values.
 func TestManager_TimestampOrdering_StrictlyMonotonic(t *testing.T) {
 	dir := t.TempDir()
 	vm := NewVersionManager(dir, 100)
 
 	const n = 50
-	timestamps := make([]float64, 0, n)
+	timestamps := make([]time.Time, 0, n)
 	for i := 0; i < n; i++ {
 		v, err := vm.SaveVersion(map[string]any{"i": i}, nil)
 		require.NoError(t, err)
@@ -118,18 +107,18 @@ func TestManager_TimestampOrdering_StrictlyMonotonic(t *testing.T) {
 	}
 
 	for i := 1; i < len(timestamps); i++ {
-		assert.Greater(t, timestamps[i], timestamps[i-1],
+		assert.True(t, timestamps[i].After(timestamps[i-1]),
 			"timestamp at index %d (%v) is not strictly greater than previous (%v)",
 			i, timestamps[i], timestamps[i-1])
 	}
 }
 
-func TestManager_TimestampOrdering_AdvancesPastFloatPrecisionTie(t *testing.T) {
+func TestManager_TimestampOrdering_AdvancesPastClockTie(t *testing.T) {
 	vm := NewVersionManager("", 100)
-	vm.lastTS = time.Now().UnixNano() + int64(time.Second)
-	vm.lastTimestamp = float64(vm.lastTS) / 1e9
+	previous := time.Now().UTC().Add(time.Second)
+	vm.lastTimestamp = previous
 
 	v, err := vm.SaveVersion(map[string]any{"platform": "coarse-clock"}, nil)
 	require.NoError(t, err)
-	assert.Greater(t, v.Timestamp, float64(vm.lastTS-1)/1e9)
+	assert.True(t, v.Timestamp.After(previous))
 }

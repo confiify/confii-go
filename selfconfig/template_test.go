@@ -5,12 +5,23 @@ package selfconfig
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
+
+func TestDefaultYAMLDocumentsOnlyCanonicalSourceTypes(t *testing.T) {
+	template := string(DefaultYAML())
+	for _, canonical := range []string{"environment_files", "yaml", "json", "toml", "ini", "dotenv", "environment"} {
+		assert.Contains(t, template, canonical)
+	}
+	for _, legacy := range []string{"environment-files", "env-vars", "envfile", "type:env\n"} {
+		assert.False(t, strings.Contains(template, legacy), "template contains legacy source type %q", legacy)
+	}
+}
 
 func TestDefaultYAMLCoversEverySetting(t *testing.T) {
 	var document yaml.Node
@@ -41,11 +52,9 @@ func TestDefaultYAMLIsSafeAndMatchesBuiltInDefaults(t *testing.T) {
 
 	assert.Empty(t, settings.DefaultEnvironment)
 	assert.Empty(t, settings.EnvSwitcher)
-	assert.Empty(t, settings.DefaultFiles)
-	assert.Empty(t, settings.DefaultPrefix)
 	assert.Empty(t, settings.EnvPrefix)
-	assert.Empty(t, settings.MergeStrategy)
-	assert.Empty(t, settings.MergeStrategyMap)
+	assert.Equal(t, "deep_merge", settings.Merge.Default)
+	assert.Empty(t, settings.Merge.Paths)
 	assert.Empty(t, settings.SchemaPath)
 	assert.Empty(t, settings.Sources)
 	assert.Empty(t, settings.Secrets)
@@ -53,9 +62,9 @@ func TestDefaultYAMLIsSafeAndMatchesBuiltInDefaults(t *testing.T) {
 	assert.Equal(t, "last_wins", settings.EnvironmentConflictPolicy)
 	assert.Equal(t, "raise", settings.OnError)
 	assert.Empty(t, settings.LogLevel)
+	assert.Equal(t, "150ms", settings.ReloadDebounce)
+	assert.Empty(t, settings.SensitivePaths)
 
-	require.NotNil(t, settings.DeepMerge)
-	assert.True(t, *settings.DeepMerge)
 	require.NotNil(t, settings.UseEnvExpander)
 	assert.True(t, *settings.UseEnvExpander)
 	require.NotNil(t, settings.UseTypeCasting)
@@ -64,7 +73,6 @@ func TestDefaultYAMLIsSafeAndMatchesBuiltInDefaults(t *testing.T) {
 	for name, value := range map[string]*bool{
 		"sysenv_fallback":   settings.SysenvFallback,
 		"validate_on_load":  settings.ValidateOnLoad,
-		"strict_validation": settings.StrictValidation,
 		"dynamic_reloading": settings.DynamicReloading,
 		"freeze_on_load":    settings.FreezeOnLoad,
 		"debug_mode":        settings.DebugMode,
@@ -72,6 +80,8 @@ func TestDefaultYAMLIsSafeAndMatchesBuiltInDefaults(t *testing.T) {
 		require.NotNil(t, value, "%s must be explicit in the default template", name)
 		assert.False(t, *value, "%s must be disabled in the safe default template", name)
 	}
+	require.NotNil(t, settings.StrictValidation)
+	assert.True(t, *settings.StrictValidation)
 }
 
 func TestDefaultYAMLReturnsIndependentCopies(t *testing.T) {

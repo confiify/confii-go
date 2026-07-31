@@ -16,8 +16,9 @@ Confii follows a **3-tier priority** model:
 explicit code argument  >  self-config file  >  built-in default
 ```
 
-If you pass `confii.WithDeepMerge(false)` in code, it wins over a `deep_merge: true`
-in `.confii.yaml`, which itself wins over the built-in default of `true`.
+If you pass `confii.WithMergeStrategy(confii.StrategyShallowMerge)` in code,
+it wins over `merge.default: deep_merge` in self-config, which itself wins over
+the built-in default.
 
 ---
 
@@ -34,9 +35,11 @@ confii init
 ```
 
 The command asks whether the project prefers separate environment files, a
-single sectioned file, or self-configuration only. The equivalent
+single sectioned file, or self-configuration only, followed by YAML, JSON, or
+TOML for the self-config format. The equivalent
 automation flags are `--strategy named-files`, `--strategy sectioned`, and
-`--minimal`. The generated file contains every self-configurable startup
+`--minimal`; use `--format yaml|json|toml` to choose the format without a
+prompt. The generated file contains every self-configurable startup
 decision and is safe to use unchanged.
 
 Initialization is idempotent and project-scoped. Confii checks every filename
@@ -53,11 +56,20 @@ maintained source template is
 
 #### Search Order
 
-The first file found wins:
+Confii accepts exactly one base format per directory. It prefers the hidden
+family (`.confii.yaml`, `.confii.yml`, `.confii.json`, or `.confii.toml`) and
+uses the visible family (`confii.*`) only when no hidden base exists. A hidden
+and visible base together, or two formats in one family, are ambiguous and fail
+startup.
 
-1. `confii.yaml`, `confii.yml`, `confii.json`, `confii.toml` in the current working directory
-2. `.confii.yaml`, `.confii.yml`, `.confii.json`, `.confii.toml` in the current working directory
-3. Same filenames in `~/.config/confii/`
+After reading the base, Confii selects an environment from an explicit
+`WithEnv`, then `env_switcher`, then `default_environment`, and overlays the
+matching same-family, same-format file, for example
+`.confii.production.yaml`. An explicit empty `WithEnv("")` disables the
+environment-specific self-config overlay. Overlay cache entries are scoped by
+the selected environment and returned settings are detached copies. A
+mismatched family or format fails clearly. If no project file exists, the same
+discovery is attempted under `~/.config/confii/`.
 
 === "YAML"
 
@@ -79,15 +91,21 @@ The first file found wins:
         default_required: true
         environment_required: true
 
-    # Loading behavior (representative controls)
-    deep_merge: true
+    merge:
+      default: deep_merge
+      paths: {}
     use_env_expander: true
     use_type_casting: true
 
     # Validation
     validate_on_load: false
-    strict_validation: false
+    strict_validation: true
     schema_path: schema.json
+
+    # Lifecycle and diagnostics
+    dynamic_reloading: false
+    reload_debounce: 150ms
+    sensitive_paths: [database.password]
 
     # Error handling
     on_error: raise                # raise | warn | ignore
@@ -100,12 +118,14 @@ The first file found wins:
       "default_environment": "development",
       "env_switcher": "APP_ENV",
       "env_prefix": "APP",
-      "deep_merge": true,
+      "merge": {"default": "deep_merge", "paths": {}},
       "use_env_expander": true,
       "use_type_casting": true,
       "validate_on_load": false,
-      "strict_validation": false,
+      "strict_validation": true,
       "dynamic_reloading": false,
+      "reload_debounce": "150ms",
+      "sensitive_paths": ["database.password"],
       "freeze_on_load": false,
       "debug_mode": false,
       "on_error": "raise",
@@ -127,12 +147,14 @@ The first file found wins:
     default_environment = "development"
     env_switcher = "APP_ENV"
     env_prefix = "APP"
-    deep_merge = true
+    merge = { default = "deep_merge", paths = {} }
     use_env_expander = true
     use_type_casting = true
     validate_on_load = false
     strict_validation = false
     dynamic_reloading = false
+    reload_debounce = "150ms"
+    sensitive_paths = ["database.password"]
     freeze_on_load = false
     debug_mode = false
     on_error = "raise"
@@ -145,9 +167,8 @@ The first file found wins:
     environment_file = "{environment}.yaml"
     ```
 
-These are intentionally single-model examples. `default_files` remains
-supported for legacy ordered files, and arbitrary flat sources can be declared
-in `sources`, but normal projects should not combine named and sectioned
+These are intentionally single-model examples. All ordered inputs are declared
+in `sources`; normal projects should not combine named and sectioned
 environment models. Use explicit `hybrid` only for a controlled migration. The
 generated YAML template is the exhaustive inventory of every available
 decision.
@@ -159,26 +180,28 @@ decision.
 | `default_environment` | `string` | `""` | Default active environment name |
 | `env_switcher` | `string` | `""` | OS variable to read environment name from |
 | `env_prefix` | `string` | `""` | Auto-add a final `EnvironmentLoader` with this prefix after declarative sources |
-| `default_prefix` | `string` | `""` | Compatibility alias used only when `env_prefix` is unset; prefer `env_prefix` |
-| `default_files` | `[]string` | `[]` | Ordered list of config files to load |
-| `deep_merge` | `bool` | `true` | Enable recursive merge of nested maps |
-| `merge_strategy` | `string` | `""` | Activate the advanced merger: `replace`, `merge`, `append`, `prepend`, `intersection`, or `union` |
-| `merge_strategy_map` | `map[string]string` | `{}` | Per-dotted-path advanced merge strategy overrides |
+| `merge.default` | `string` | `"deep_merge"` | Default strategy: `replace`, `shallow_merge`, `deep_merge`, `append`, `prepend`, `intersection`, or `union` |
+| `merge.paths` | `map[string]string` | `{}` | Per-dotted-path strategy overrides |
 | `use_env_expander` | `bool` | `true` | Enable `${VAR}` expansion in string values |
 | `use_type_casting` | `bool` | `true` | Auto-convert strings to bool/int/float |
-| `sysenv_fallback` | `bool` | `false` | Fall back to OS env vars on missing keys |
+| `sysenv_fallback` | `bool` | `false` | Opt into dynamic OS-env lookup for missing scalar `Get`/`Has` paths; values are not added to the published snapshot |
 | `validate_on_load` | `bool` | `false` | Validate struct tags after loading |
-| `strict_validation` | `bool` | `false` | Treat validation warnings as errors |
+| `strict_validation` | `bool` | `true` | Treat validation failures as errors when validation is enabled |
 | `schema_path` | `string` | `""` | Path to a JSON Schema file for validation |
 | `dynamic_reloading` | `bool` | `false` | Enable fsnotify file watching |
+| `reload_debounce` | Go duration string | `"150ms"` | Coalesce filesystem event bursts before watcher-driven reload; `"0s"` reloads immediately |
+| `sensitive_paths` | `[]string` | `[]` | Additional dot-separated paths to redact; parent paths protect every descendant |
 | `freeze_on_load` | `bool` | `false` | Make config immutable after load |
+| `startup.timeout` | Go duration string | `"60s"` | Overall initialization fallback when the caller context has no deadline; `"0s"` disables it |
+| `runtime.timeout` | Go duration string | `"30s"` | Fallback for context-free runtime APIs and watcher-driven reloads; `"0s"` disables it |
+| `secret_resolution_concurrency` | `int` | `4` | Bound concurrent eager secret-provider reads during startup and refresh |
 | `debug_mode` | `bool` | `false` | Enable full source tracking and override history |
 | `on_error` | `string` | `"raise"` | Error policy: `raise`, `warn`, or `ignore` |
 | `log_level` | `string` | `""` | Log level for Confii's internal logger |
 | `environment_strategy` | `string` | `"auto"` | Environment model: `auto`, `sectioned`, `named_files`, or explicit `hybrid` |
 | `environment_conflict_policy` | `string` | `"last_wins"` | In hybrid mode: `error`, `warn`, or `last_wins`; it must be explicitly configured |
 | `sources` | `[]map` | `[]` | Ordered declarative source definitions, including `environment_files` and registered opt-in cloud loaders |
-| `secrets` | `map` | `{}` | Declarative single-provider or named multi-provider configuration; after environment selection, all effective references are eagerly resolved before `New` returns. Named providers support `default_provider`, `environment_defaults`, and explicit `${secret@provider:key}` routing |
+| `secrets` | `map` | `{}` | Named provider instances under `providers`; each requires `type`. Supports `default_provider`, `environment_defaults`, and explicit `${secret@provider:key}` routing. |
 
 !!! tip "When to use self-config"
     Self-configuration files are ideal for team-wide defaults that you commit to
@@ -192,6 +215,41 @@ objects likewise remain code-level extension points; their declarative
 counterparts are `schema_path`, `log_level`, `secrets`, and `sources`.
 Cloud source field mappings and provider build tags are listed in
 [Configuration Sources](sources.md#cloud-loaders).
+
+#### Canonical Source Types
+
+Core declarative sources use one unambiguous type name per behavior:
+
+| `type` | Required field | Behavior |
+| --- | --- | --- |
+| `yaml` | `path` | Read YAML; `.yaml` and `.yml` paths are accepted |
+| `json` | `path` | Read JSON from a `.json` path |
+| `toml` | `path` | Read TOML from a `.toml` path |
+| `ini` | `path` | Read INI; `.ini` and `.cfg` paths are accepted |
+| `dotenv` | `path` | Read a dotenv file such as `.env`, `.env.local`, or `secrets.env` |
+| `environment` | `prefix` | Read matching operating-system environment variables |
+| `environment_files` | file-discovery fields | Load a default file followed by the selected environment file |
+
+The declared file type is authoritative and must agree with its path. For
+example, `type: yaml` with `path: config.json` fails during construction instead
+of silently selecting the JSON parser. Filename conventions remain flexible:
+`type: yaml` accepts `.yml`, and `type: ini` accepts `.cfg`.
+
+Content is also parsed strictly according to the selected type. In particular,
+a complete JSON document stored in a `.yaml` or `.yml` source is rejected even
+though JSON is technically a subset of YAML. Confii never retries that content
+with another parser. Auto-detection remains available only to APIs explicitly
+using an unknown format, such as an HTTP response with neither a usable
+Content-Type nor a recognized extension.
+
+The v1 aliases `yml`, `cfg`, `envfile`, `env`, `env-vars`, and
+`environment-files` are not accepted as v2 declarative types. Use `dotenv` for
+files and `environment` for process variables; this removes the former
+shape-dependent meaning of `env`.
+
+This canonicalization applies to core source types only. Names registered by
+optional cloud modules or through `RegisterSelfConfigSourceProvider` remain
+valid extension points and are not rewritten or inferred by Confii.
 
 #### Named Environment Files
 
@@ -279,7 +337,7 @@ This feature does not change existing loading modes:
 
 - `type: yaml` with an `application.yaml` containing top-level `default`,
   `development`, or `production` sections continues to resolve those sections.
-- `default_files`, other declarative sources, explicit `WithLoaders`, and
+- Declarative `sources`, explicit `WithLoaders`, and
   builder-provided loaders retain their existing precedence and behavior.
 - Explicit loaders suppress self-config sources, as before.
 
@@ -290,13 +348,13 @@ This feature does not change existing loading modes:
 Pass functional options directly to `confii.New`:
 
 ```go
-cfg, err := confii.New[AppConfig](ctx,
+cfg, err := confii.New[AppConfig](
     confii.WithLoaders(
         loader.NewYAML("config.yaml"),
         loader.NewEnvironment("APP"),
     ),
     confii.WithEnv("production"),
-    confii.WithDeepMerge(true),
+    confii.WithMergeStrategy(confii.StrategyMerge),
     confii.WithValidateOnLoad(true),
     confii.WithStrictValidation(true),
     confii.WithOnError(confii.ErrorPolicyWarn),
@@ -304,6 +362,24 @@ cfg, err := confii.New[AppConfig](ctx,
 ```
 
 This is the most common approach for application code.
+
+`New` creates an implicit background context and bounds the complete startup
+pipeline with the configured fallback timeout. When startup must inherit a
+caller deadline, cancellation signal, or context values, use the explicit
+variant:
+
+```go
+ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+defer cancel()
+
+cfg, err := confii.NewWithContext[AppConfig](ctx,
+    confii.WithLoaders(loader.NewYAML("config.yaml")),
+)
+```
+
+Confii never replaces or extends an existing context deadline. If
+`NewWithContext` receives a context without a deadline, the same fallback used by
+`New` is applied.
 
 #### Complete Options Reference
 
@@ -313,20 +389,26 @@ This is the most common approach for application code.
 | `WithEnv(name)` | Set the active environment (e.g. `"production"`, `"staging"`). | `""` |
 | `WithEnvironmentStrategy(strategy)` | Select the environment model; explicit options override self-config. | `EnvironmentStrategyAuto` |
 | `WithEnvironmentConflictPolicy(policy)` | Control mixed sectioned/named conflicts in hybrid mode. | `EnvironmentConflictLastWins` |
+| `WithStartupTimeout(duration)` | Set the overall startup fallback when the caller supplies no deadline; `0` disables it. | `60s` |
+| `WithSecretResolutionConcurrency(limit)` | Bound concurrent eager secret-provider reads. | `4` |
+| `WithOperationTimeout(duration)` | Bound context-free runtime APIs and watcher-triggered reloads; `0` disables it. | `30s` |
 | `WithEnvSwitcher(envVar)` | Read the environment name from the given OS variable at startup. | none |
 | `WithEnvPrefix(prefix)` | Auto-add an `EnvironmentLoader` with this prefix (e.g. `"APP"` reads `APP_*` vars). | none |
-| `WithDeepMerge(bool)` | Enable recursive deep merge of nested maps when combining sources. | `true` |
-| `WithMergeStrategyOption(strategy)` | Set the default merge strategy for all paths. | `Merge` |
+| `WithMergeStrategy(strategy)` | Set the default merge strategy for all paths. | `Merge` |
 | `WithMergeStrategyMap(map)` | Set per-path merge strategy overrides (e.g. `"database"` uses `Replace`). | none |
 | `WithEnvExpander(bool)` | Enable `${VAR}` expansion in string values using OS environment variables. | `true` |
 | `WithTypeCasting(bool)` | Auto-convert string values to `bool`/`int`/`float64` when accessed. | `true` |
 | `WithSysenvFallback(bool)` | Fall back to OS environment variables when a key is not found in config. | `false` |
 | `WithValidateOnLoad(bool)` | Validate the typed struct (via `go-playground/validator` tags) immediately after loading. | `false` |
-| `WithStrictValidation(bool)` | Treat validation warnings as errors (requires `WithValidateOnLoad`). | `false` |
+| `WithStrictValidation(bool)` | Treat validation failures as errors (requires `WithValidateOnLoad`). | `true` |
+| `WithValidator(validator)` | Add a transactional validation rule and enable validation. | none |
+| `WithExporter(exporter)` | Add a serializer or replace a built-in export format. | JSON/YAML/TOML built in |
 | `WithSchema(schema)` | Set a validation schema (struct type or JSON Schema dict). | none |
 | `WithSchemaPath(path)` | Set the path to a JSON Schema file for validation. | none |
 | `WithFreezeOnLoad(bool)` | Make the config immutable after initialization. `Set()` returns `ErrConfigFrozen`. | `false` |
 | `WithDynamicReloading(bool)` | Enable fsnotify file watching for automatic reload on change. | `false` |
+| `WithReloadDebounce(duration)` | Coalesce filesystem event bursts before automatic reload. | `150ms` |
+| `WithSensitivePaths(paths...)` | Mark application-defined paths for redaction throughout the snapshot lifecycle. | none |
 | `WithDebugMode(bool)` | Enable full source tracking, override history, and debug reports. | `false` |
 | `WithOnError(policy)` | Set the error handling policy for loader failures. | `ErrorPolicyRaise` |
 | `WithLogger(logger)` | Set a custom `*slog.Logger` for Confii's internal logging. | `slog.Default()` |
@@ -361,10 +443,10 @@ if os.Getenv("APP_ENV") == "production" {
 
 // Chain additional settings
 cfg, err := builder.
-    EnableDeepMerge().
+    WithMergeStrategy(confii.StrategyMerge).
     EnableFreezeOnLoad().
     EnableDebug().
-    Build(ctx)
+    BuildWithContext(ctx)
 ```
 
 #### Builder Methods Reference
@@ -374,8 +456,7 @@ cfg, err := builder.
 | `WithEnv(name)` | Set the active environment |
 | `AddLoader(loader)` | Append a single loader to the source list |
 | `AddLoaders(loaders...)` | Append multiple loaders |
-| `EnableDeepMerge()` | Enable recursive deep merge |
-| `DisableDeepMerge()` | Disable deep merge (shallow merge) |
+| `WithMergeStrategy(strategy)` | Select the default merge policy |
 | `EnableEnvExpander()` | Enable `${VAR}` expansion |
 | `DisableEnvExpander()` | Disable `${VAR}` expansion |
 | `EnableTypeCasting()` | Enable automatic type casting |
@@ -385,10 +466,12 @@ cfg, err := builder.
 | `EnableDebug()` | Enable debug/source tracking mode |
 | `EnableFreezeOnLoad()` | Freeze config after loading |
 | `WithSchemaValidation(schema, strict)` | Set schema, enable validate-on-load, and set strict mode |
-| `Build(ctx)` | Create the `Config` instance (loads all sources) |
+| `Build()` | Create the `Config` with an implicit startup context and fallback timeout |
+| `BuildWithContext(ctx)` | Create the `Config` with an explicit startup context |
 
 !!! tip "Builder vs Constructor"
-    The builder calls the same `confii.New` constructor internally. There is no
+    `Build()` delegates to `confii.New`; `BuildWithContext(ctx)` delegates to
+    `confii.NewWithContext(ctx)`. Apart from context ownership, there is no
     functional difference -- choose whichever style reads better in your code.
     The builder shines when you need to conditionally compose loaders or split
     setup across multiple functions.
@@ -411,7 +494,8 @@ surprises. Confii resolves each setting independently using this priority:
 Given this self-config file:
 
 ```yaml title=".confii.yaml"
-deep_merge: false
+merge:
+  default: shallow_merge
 use_env_expander: true
 default_environment: staging
 ```
@@ -419,8 +503,8 @@ default_environment: staging
 And this constructor call:
 
 ```go
-cfg, err := confii.New[any](ctx,
-    confii.WithDeepMerge(true),   // explicit override
+cfg, err := confii.NewWithContext[any](ctx,
+    confii.WithMergeStrategy(confii.StrategyMerge),   // explicit override
     confii.WithEnv("production"), // explicit override
 )
 ```
@@ -462,7 +546,7 @@ confii.WithOnError(confii.ErrorPolicyIgnore)
 
 ```go
 // Optional local overrides -- warn if missing, don't fail
-cfg, err := confii.New[any](ctx,
+cfg, err := confii.NewWithContext[any](ctx,
     confii.WithLoaders(
         loader.NewYAML("config/base.yaml"),       // required
         loader.NewYAML("config/local.yaml"),       // optional
@@ -490,12 +574,17 @@ When `confii.New` is called, Confii executes these steps in order:
 2. **Read self-config** -- discover and parse `.confii.yaml` (or equivalent), apply non-overridden settings
 3. **Resolve environment** -- if `WithEnvSwitcher` is set, read the OS variable to determine the active environment
 4. **Set up merger** -- configure the merge engine (default or advanced with per-path strategies)
-5. **Register hooks** -- enable env expander and type casting hooks if configured
+5. **Register built-in hooks** -- enable environment expansion, type casting,
+   and a constructor-supplied secret hook when configured
 6. **Load all sources** -- call each loader in order, compose `_include`/`_defaults`, track sources, merge results
 7. **Resolve environment sections** -- merge `default` + active environment section
-8. **Validate** -- if `WithValidateOnLoad` is set, decode and validate the typed struct
-9. **Freeze** -- if `WithFreezeOnLoad` is set, lock the config against further changes
-10. **Start watcher** -- if `WithDynamicReloading` is set, begin watching source files via fsnotify
+8. **Materialize the effective configuration** -- expand environment values,
+   convert built-in scalar types, resolve and deduplicate secret references,
+   and retain the unresolved selected snapshot for refresh/introspection
+9. **Validate** -- if `WithValidateOnLoad` is set, validate JSON Schema and/or
+   apply the access hook pipeline before decoding and validating the typed struct
+10. **Freeze** -- if `WithFreezeOnLoad` is set, lock the config against further changes
+11. **Start watcher** -- if `WithDynamicReloading` is set, begin watching source files via fsnotify
 
 !!! tip "Debug the initialization"
     Enable `WithDebugMode(true)` to get full source tracking. After loading, call

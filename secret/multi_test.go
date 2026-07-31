@@ -10,13 +10,11 @@ import (
 	"strings"
 	"testing"
 
-	confii "github.com/confiify/confii-go"
+	confii "github.com/confiify/confii-go/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// fakeStore is a minimal SecretStore implementation that lets tests pin
-// the result of each method.
 type fakeStore struct {
 	name        string
 	getValue    any
@@ -53,8 +51,6 @@ func (f *fakeStore) ListSecrets(_ context.Context, _ string) ([]string, error) {
 	return f.listValues, f.listErr
 }
 
-// --- legacy regression tests retained from the pre-G25 file -----------------
-
 func TestMultiStore_Fallback(t *testing.T) {
 	primary := NewDictStore(map[string]any{"key1": "from-primary"})
 	secondary := NewDictStore(map[string]any{"key2": "from-secondary"})
@@ -89,7 +85,6 @@ func TestMultiStore_WriteToFirst(t *testing.T) {
 
 	require.NoError(t, multi.SetSecret(ctx, "key", "value"))
 
-	// Should be in primary only.
 	val, _ := primary.GetSecret(ctx, "key")
 	assert.Equal(t, "value", val)
 
@@ -104,10 +99,8 @@ func TestMultiStore_ListSecrets(t *testing.T) {
 	multi := NewMultiStore([]confii.SecretStore{s1, s2})
 	keys, err := multi.ListSecrets(context.Background(), "")
 	require.NoError(t, err)
-	assert.Len(t, keys, 3) // a, b, c (deduplicated)
+	assert.Len(t, keys, 3)
 }
-
-// --- G25 behavior tests ----------------------------------------------------
 
 func TestMultiStore_GetSecret_AllStoresNotFound_ReturnsNotFound(t *testing.T) {
 	notFound1 := fmt.Errorf("%w: %s", confii.ErrSecretNotFound, "k")
@@ -123,7 +116,6 @@ func TestMultiStore_GetSecret_AllStoresNotFound_ReturnsNotFound(t *testing.T) {
 	assert.True(t, errors.Is(err, confii.ErrSecretNotFound),
 		"all-not-found should still satisfy errors.Is(ErrSecretNotFound)")
 
-	// Both stores must have been consulted.
 	assert.Equal(t, 1, s1.getCalls)
 	assert.Equal(t, 1, s2.getCalls)
 }
@@ -140,43 +132,35 @@ func TestMultiStore_GetSecret_RealErrorWithoutSuccess_ReturnsJoinedError(t *test
 	assert.Nil(t, val)
 	require.Error(t, err)
 
-	// Crucial: real backend failure must NOT collapse to ErrSecretNotFound.
 	assert.False(t, errors.Is(err, confii.ErrSecretNotFound),
 		"real backend errors must not be hidden behind ErrSecretNotFound")
 
-	// Both backing errors must be reachable via errors.Is.
 	assert.True(t, errors.Is(err, awsErr), "joined error should expose the AWS error")
 
-	// The rendered message should mention every store and the key.
 	msg := err.Error()
 	assert.Contains(t, msg, "aws unavailable")
-	assert.Contains(t, msg, "secret not found")
 	assert.Contains(t, msg, "store[0]")
-	assert.Contains(t, msg, "store[1]")
 
-	// And the typed form should be reachable via errors.As.
 	var mse *MultiStoreError
 	require.True(t, errors.As(err, &mse))
 	assert.Equal(t, "GetSecret", mse.Op)
 	assert.Equal(t, "k", mse.Key)
-	require.Len(t, mse.Errs, 2)
+	require.Len(t, mse.Errs, 1)
 	assert.Equal(t, "aws", mse.Errs[0].Name)
 	assert.Equal(t, 0, mse.Errs[0].Index)
-	assert.Equal(t, "dict", mse.Errs[1].Name)
-	assert.Equal(t, 1, mse.Errs[1].Index)
 }
 
-func TestMultiStore_GetSecret_PartialSuccessIgnoresOtherErrors(t *testing.T) {
+func TestMultiStore_GetSecret_BackendErrorStopsFallback(t *testing.T) {
 	s1 := &fakeStore{name: "broken", getErr: errors.New("network down")}
 	s2 := &fakeStore{name: "ok", getValue: "the-secret"}
 
 	multi := NewMultiStore([]confii.SecretStore{s1, s2})
 	val, err := multi.GetSecret(context.Background(), "k")
 
-	require.NoError(t, err)
-	assert.Equal(t, "the-secret", val)
+	require.Error(t, err)
+	assert.Nil(t, val)
 	assert.Equal(t, 1, s1.getCalls)
-	assert.Equal(t, 1, s2.getCalls)
+	assert.Equal(t, 0, s2.getCalls)
 }
 
 func TestMultiStore_GetSecret_OrderMatters(t *testing.T) {
@@ -192,24 +176,23 @@ func TestMultiStore_GetSecret_OrderMatters(t *testing.T) {
 	assert.Equal(t, 0, s2.getCalls, "second store must not be queried after first succeeds")
 }
 
-func TestMultiStore_GetSecret_FailOnMissingDisabled_AllNotFound_ReturnsNilNil(t *testing.T) {
-	notFound := fmt.Errorf("%w: %s", confii.ErrSecretNotFound, "k")
+func TestMultiStore_GetSecret_AllNotFoundReturnsTypedError(t *testing.T) {
+	notFound := fmt.Errorf("%w:%s", confii.ErrSecretNotFound, "k")
 	s1 := &fakeStore{name: "s1", getErr: notFound}
 
-	multi := NewMultiStore([]confii.SecretStore{s1}, WithFailOnMissing(false))
+	multi := NewMultiStore([]confii.SecretStore{s1})
 	val, err := multi.GetSecret(context.Background(), "k")
 
-	require.NoError(t, err)
+	require.ErrorIs(t, err, confii.ErrSecretNotFound)
 	assert.Nil(t, val)
 }
 
 func TestMultiStore_GetSecret_FailOnMissingDisabled_RealErrorStillSurfaces(t *testing.T) {
-	// Even when failOnMissing is false, a genuine backend failure must
-	// not be hidden — only the "missing on every store" case is silenced.
+
 	awsErr := errors.New("aws unavailable")
 	s1 := &fakeStore{name: "aws", getErr: awsErr}
 
-	multi := NewMultiStore([]confii.SecretStore{s1}, WithFailOnMissing(false))
+	multi := NewMultiStore([]confii.SecretStore{s1})
 	val, err := multi.GetSecret(context.Background(), "k")
 
 	assert.Nil(t, val)
@@ -265,7 +248,6 @@ func TestMultiStore_ListSecrets_AllStoresFail_NoInventory(t *testing.T) {
 	require.True(t, errors.As(err, &mse))
 	require.Len(t, mse.Errs, 2)
 
-	// Rendered message should reference both stores by index.
 	msg := err.Error()
 	assert.Contains(t, msg, "vault sealed")
 	assert.Contains(t, msg, "aws timeout")
@@ -275,11 +257,10 @@ func TestMultiStore_ListSecrets_AllStoresFail_NoInventory(t *testing.T) {
 
 func TestMultiStoreError_ErrorAndUnwrap_NilSafe(t *testing.T) {
 	var mse *MultiStoreError
-	// nil receiver should not panic and should produce a useful string.
+
 	assert.NotPanics(t, func() { _ = mse.Error() })
 	assert.Nil(t, mse.Unwrap())
 
-	// Empty entries should also be safe.
 	mse = &MultiStoreError{Op: "GetSecret", Key: "k"}
 	assert.Contains(t, mse.Error(), "(no entries)")
 	assert.Empty(t, mse.Unwrap())

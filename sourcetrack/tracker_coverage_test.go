@@ -51,7 +51,6 @@ func TestTrackValue_Override(t *testing.T) {
 	assert.Equal(t, "override.yaml", info.SourceFile)
 	assert.Equal(t, 1, info.OverrideCount)
 
-	// In debug mode, history should be recorded.
 	require.Len(t, info.History, 1)
 	assert.Equal(t, 8080, info.History[0].Value)
 	assert.Equal(t, "config.yaml", info.History[0].Source)
@@ -65,7 +64,7 @@ func TestTrackValue_OverrideNonDebug(t *testing.T) {
 	info := tr.GetSourceInfo("key")
 	require.NotNil(t, info)
 	assert.Equal(t, 1, info.OverrideCount)
-	// No history in non-debug mode.
+
 	assert.Empty(t, info.History)
 }
 
@@ -173,7 +172,7 @@ func TestGetSourceStatistics(t *testing.T) {
 	tr.TrackValue("a", 1, "config.yaml", "yaml", "")
 	tr.TrackValue("b", 2, "config.yaml", "yaml", "")
 	tr.TrackValue("c", 3, "secrets.env", "env", "")
-	// Override a to add an override count.
+
 	tr.TrackValue("a", 10, "secrets.env", "env", "")
 
 	stats := tr.GetSourceStatistics()
@@ -182,7 +181,7 @@ func TestGetSourceStatistics(t *testing.T) {
 
 	sources, ok := stats["sources"].(map[string]int)
 	require.True(t, ok)
-	// After override, "a" is now from secrets.env.
+
 	assert.Equal(t, 1, sources["config.yaml"])
 	assert.Equal(t, 2, sources["secrets.env"])
 
@@ -242,17 +241,11 @@ func TestPrintDebugInfo_AllKeys(t *testing.T) {
 
 	output := tr.PrintDebugInfo("")
 	assert.NotEmpty(t, output)
-	// Both keys should appear.
+
 	assert.True(t, strings.Contains(output, "a") && strings.Contains(output, "b"),
 		"expected both keys in output")
 }
 
-// =========================================================================
-// G14 / D05: Snapshot / Restore for tracker rollback support.
-// =========================================================================
-
-// TestTracker_SnapshotRestore_RoundTrip verifies the basic Snapshot/Restore
-// contract: capture state, mutate, restore, observe pre-mutation state.
 func TestTracker_SnapshotRestore_RoundTrip(t *testing.T) {
 	tr := NewTracker(true)
 	tr.TrackValue("a", 1, "s1", "yaml", "dev")
@@ -260,17 +253,14 @@ func TestTracker_SnapshotRestore_RoundTrip(t *testing.T) {
 
 	snap := tr.Snapshot()
 
-	// Mutate after snapshot.
 	tr.TrackValue("a", 99, "override.yaml", "yaml", "dev")
 	tr.TrackValue("c", 3, "s3", "yaml", "dev")
 
-	// Pre-restore: a is overridden, c exists.
 	require.Equal(t, 99, tr.GetSourceInfo("a").Value)
 	require.NotNil(t, tr.GetSourceInfo("c"))
 
 	tr.Restore(snap)
 
-	// Post-restore: a is back to 1, c is gone, b is unchanged.
 	a := tr.GetSourceInfo("a")
 	require.NotNil(t, a)
 	assert.Equal(t, 1, a.Value)
@@ -284,19 +274,13 @@ func TestTracker_SnapshotRestore_RoundTrip(t *testing.T) {
 		"key added after snapshot must be absent after restore")
 }
 
-// TestTracker_Snapshot_DeepCopy_HistoryNotAliased proves the snapshot is a
-// deep copy: mutating the live tracker's history slice after snapshot
-// does not corrupt the snapshot. Without the deep copy, the per-key
-// History slice would be shared and a tracker that grew History after
-// Snapshot() would mutate the snapshot in place.
 func TestTracker_Snapshot_DeepCopy_HistoryNotAliased(t *testing.T) {
 	tr := NewTracker(true)
 	tr.TrackValue("a", 1, "s1", "yaml", "")
-	tr.TrackValue("a", 2, "s2", "yaml", "") // grows History
+	tr.TrackValue("a", 2, "s2", "yaml", "")
 
 	snap := tr.Snapshot()
 
-	// Mutate live tracker's history further.
 	tr.TrackValue("a", 3, "s3", "yaml", "")
 	tr.TrackValue("a", 4, "s4", "yaml", "")
 
@@ -309,8 +293,6 @@ func TestTracker_Snapshot_DeepCopy_HistoryNotAliased(t *testing.T) {
 	assert.Len(t, a.History, 1, "history length at snapshot time")
 }
 
-// TestTracker_RestoreEmptySnapshot_ClearsTracker pins the documented
-// "zero-value snapshot is a valid empty snapshot" behavior.
 func TestTracker_RestoreEmptySnapshot_ClearsTracker(t *testing.T) {
 	tr := NewTracker(false)
 	tr.TrackValue("a", 1, "s1", "yaml", "")

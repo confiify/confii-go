@@ -10,7 +10,8 @@ import (
 	"strings"
 )
 
-// Sentinel errors for use with errors.Is.
+// Sentinel errors classify failures for use with [errors.Is]. Use [errors.As]
+// to inspect a [ConfigError], its stable code, and its structured fields.
 var (
 	ErrConfigLoad       = errors.New("config load error")
 	ErrConfigFormat     = errors.New("config format error")
@@ -18,13 +19,14 @@ var (
 	ErrConfigNotFound   = errors.New("config key not found")
 	ErrConfigMerge      = errors.New("config merge conflict")
 	ErrConfigFrozen     = errors.New("config is frozen")
+	ErrConfigClosed     = errors.New("config is closed")
 	ErrConfigAccess     = errors.New("config access error")
 	// ErrConfigInvalid is returned when a runtime mutation API ([Config.Set],
 	// [Config.Override]) is invoked with an argument that the config rejects:
 	// most commonly a dot-separated key path that traverses through a
 	// non-map intermediate (e.g. setting "service.host" when "service" is
-	// already bound to a string). Pre-G12 these errors were silently
-	// swallowed, leaving caller and config state out of sync. Wrap with
+	// already bound to a string). These errors must be surfaced rather than
+	// swallowed, which would leave caller and config state out of sync. Wrap with
 	// [NewInvalidError] so callers can detect via [errors.Is].
 	ErrConfigInvalid    = errors.New("config invalid mutation")
 	ErrSecretNotFound   = errors.New("secret not found")
@@ -41,9 +43,70 @@ var (
 // still inspect every candidate programmatically.
 const availableKeysCap = 10
 
-// ConfigError is a structured error that captures the failing operation,
-// the source and key involved, and an underlying sentinel error. Use
-// [errors.Is] or [errors.As] to inspect the chain.
+// ConfigErrorCode is a stable, machine-readable failure category. Error text
+// remains operator-oriented and may evolve; callers that need a durable
+// classification should inspect [ConfigError.Code] or use [errors.Is] with the
+// corresponding sentinel error.
+type ConfigErrorCode string
+
+const (
+	// ConfigErrorCodeLoad identifies source loading, initialization, or
+	// materialization failures.
+	ConfigErrorCodeLoad ConfigErrorCode = "config_load"
+	// ConfigErrorCodeFormat identifies invalid source content or an incompatible
+	// declared source format.
+	ConfigErrorCodeFormat ConfigErrorCode = "config_format"
+	// ConfigErrorCodeValidation identifies schema, typed-model, or custom
+	// validator failures.
+	ConfigErrorCodeValidation ConfigErrorCode = "config_validation"
+	// ConfigErrorCodeNotFound identifies a requested configuration key that is
+	// absent from the effective snapshot.
+	ConfigErrorCodeNotFound ConfigErrorCode = "config_not_found"
+	// ConfigErrorCodeMerge identifies values that cannot be combined under the
+	// selected merge strategy.
+	ConfigErrorCodeMerge ConfigErrorCode = "config_merge"
+	// ConfigErrorCodeFrozen identifies a mutation rejected because the Config is
+	// frozen.
+	ConfigErrorCodeFrozen ConfigErrorCode = "config_frozen"
+	// ConfigErrorCodeClosed identifies an operation rejected after Config.Close.
+	ConfigErrorCodeClosed ConfigErrorCode = "config_closed"
+	// ConfigErrorCodeAccess identifies a value that cannot be represented as the
+	// requested access type.
+	ConfigErrorCodeAccess ConfigErrorCode = "config_access"
+	// ConfigErrorCodeInvalid identifies an invalid operation argument or mutation
+	// path.
+	ConfigErrorCodeInvalid ConfigErrorCode = "config_invalid"
+)
+
+func (code ConfigErrorCode) sentinel() error {
+	switch code {
+	case ConfigErrorCodeLoad:
+		return ErrConfigLoad
+	case ConfigErrorCodeFormat:
+		return ErrConfigFormat
+	case ConfigErrorCodeValidation:
+		return ErrConfigValidation
+	case ConfigErrorCodeNotFound:
+		return ErrConfigNotFound
+	case ConfigErrorCodeMerge:
+		return ErrConfigMerge
+	case ConfigErrorCodeFrozen:
+		return ErrConfigFrozen
+	case ConfigErrorCodeClosed:
+		return ErrConfigClosed
+	case ConfigErrorCodeAccess:
+		return ErrConfigAccess
+	case ConfigErrorCodeInvalid:
+		return ErrConfigInvalid
+	default:
+		return nil
+	}
+}
+
+// ConfigError captures the failing operation, stable category, source, key,
+// concrete cause, and structured diagnostic context. Use [errors.Is] for the
+// category, [errors.As] for this type or the concrete cause, and Code when a
+// serializable machine-facing identifier is required.
 //
 // The Context field carries the full structured payload (e.g. the complete
 // list of available keys for not-found errors); the Error string form is
@@ -51,10 +114,11 @@ const availableKeysCap = 10
 // alphabetically, summarizes nested collections, and caps long key lists.
 // To read the unbounded data, inspect Context directly.
 type ConfigError struct {
-	Op      string // operation that failed (e.g., "Load", "Get", "Set")
-	Source  string // source identifier (e.g., file path, URL)
-	Key     string // config key involved, if applicable
-	Err     error  // underlying error (wraps a sentinel)
+	Op      string          // operation that failed (e.g., "Load", "Get", "Set")
+	Source  string          // source identifier (e.g., file path, URL)
+	Key     string          // config key involved, if applicable
+	Code    ConfigErrorCode // stable failure category
+	Err     error           // concrete operational cause, if any
 	Context map[string]any
 }
 
@@ -66,9 +130,8 @@ type ConfigError struct {
 // across invocations (Go's map iteration order is randomized). Nested maps
 // and slices are summarized as "<map: N entries>" / "<slice: N items>" to
 // keep the message bounded — full structured data is available via the
-// Context field. The legacy prefixes from the sentinel errors
-// (e.g. "config load error:", "config key not found") are preserved so
-// existing log pipelines and substring matchers continue to work.
+// Context field. Message text is operator-oriented, not a machine interface;
+// consumers should use errors.Is/errors.As and the structured fields.
 func (e *ConfigError) Error() string {
 	var b strings.Builder
 	if e.Op != "" {
@@ -81,7 +144,16 @@ func (e *ConfigError) Error() string {
 	if e.Key != "" {
 		fmt.Fprintf(&b, "key %q: ", e.Key)
 	}
+	category := e.Code.sentinel()
+	if category != nil {
+		b.WriteString(category.Error())
+	} else if e.Code != "" {
+		b.WriteString(string(e.Code))
+	}
 	if e.Err != nil {
+		if category != nil || e.Code != "" {
+			b.WriteString(": ")
+		}
 		b.WriteString(e.Err.Error())
 	}
 	if len(e.Context) > 0 {
@@ -91,12 +163,30 @@ func (e *ConfigError) Error() string {
 	return b.String()
 }
 
+// Unwrap returns the concrete operational cause. Category matching is
+// implemented by Is so the error chain contains only one wrapped cause.
 func (e *ConfigError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
 	return e.Err
 }
 
+// Is reports whether target matches this error's stable category or concrete
+// cause. It preserves the standard errors.Is contract without constructing a
+// synthetic multi-error chain.
+func (e *ConfigError) Is(target error) bool {
+	if e == nil {
+		return false
+	}
+	if category := e.Code.sentinel(); category != nil && target == category {
+		return true
+	}
+	return errors.Is(e.Err, target)
+}
+
 // formatContext renders ctx as a deterministic, single-line, comma-separated
-// list of "key=value" pairs wrapped in "[ ... ]". Keys are sorted
+// list of "key=value" pairs wrapped in "[... ]". Keys are sorted
 // alphabetically so output is reproducible. The special key
 // "available_keys" (used by NewNotFoundError) is rendered alphabetically
 // sorted and capped at availableKeysCap entries; overflow is summarized as
@@ -139,11 +229,7 @@ func formatContextValue(_ string, v any) string {
 		return fmt.Sprintf("<map: %d entries>", len(val))
 	}
 
-	// Fall back on reflect-free type detection for the common collection
-	// shapes via fmt verbs — but guard against unbounded expansion by
-	// summarizing any slice / map we recognize through a type switch on the
-	// concrete kinds we care about. For everything else, %v is fine because
-	// it's a scalar-shaped value.
+	// Summarize common collection types to keep error messages bounded.
 	switch val := v.(type) {
 	case []any:
 		return fmt.Sprintf("<slice: %d items>", len(val))
@@ -177,21 +263,27 @@ func formatStringSlice(items []string) string {
 	return "[" + strings.Join(shown, ", ") + fmt.Sprintf(" (%d more...)]", remaining)
 }
 
-// NewLoadError creates a config load error.
+// NewLoadError returns a [ConfigError] categorized as [ErrConfigLoad]. source
+// should be the loader's stable, non-sensitive identifier. The supplied cause
+// remains discoverable with [errors.Is] and [errors.As].
 func NewLoadError(source string, err error) error {
 	return &ConfigError{
 		Op:     "Load",
 		Source: source,
-		Err:    fmt.Errorf("%w: %v", ErrConfigLoad, err),
+		Code:   ConfigErrorCodeLoad,
+		Err:    err,
 	}
 }
 
-// NewFormatError creates a config format/parse error.
+// NewFormatError returns a [ConfigError] categorized as [ErrConfigFormat]. It
+// records source and formatType for diagnostics and preserves err in the error
+// chain.
 func NewFormatError(source, formatType string, err error) error {
 	return &ConfigError{
 		Op:     "Parse",
 		Source: source,
-		Err:    fmt.Errorf("%w: %v", ErrConfigFormat, err),
+		Code:   ConfigErrorCodeFormat,
+		Err:    err,
 		Context: map[string]any{
 			"format_type": formatType,
 		},
@@ -207,42 +299,52 @@ func NewFormatError(source, formatType string, err error) error {
 // Context field.
 func NewNotFoundError(key string, availableKeys []string) error {
 	return &ConfigError{
-		Op:  "Get",
-		Key: key,
-		Err: ErrConfigNotFound,
+		Op:   "Get",
+		Key:  key,
+		Code: ConfigErrorCodeNotFound,
 		Context: map[string]any{
 			"available_keys": availableKeys,
 		},
 	}
 }
 
-// NewValidationError creates a config validation error.
+// NewValidationError returns a [ConfigError] categorized as
+// [ErrConfigValidation]. errs is retained in Context["validation_errors"] for
+// programmatic reporting, while original remains in the error chain.
 func NewValidationError(errs []string, original error) error {
 	return &ConfigError{
-		Op:  "Validate",
-		Err: fmt.Errorf("%w: %v", ErrConfigValidation, original),
+		Op:   "Validate",
+		Code: ConfigErrorCodeValidation,
+		Err:  original,
 		Context: map[string]any{
 			"validation_errors": errs,
 		},
 	}
 }
 
-// NewFrozenError creates an error for operations on frozen config.
+// NewFrozenError returns a [ConfigError] categorized as [ErrConfigFrozen] and
+// records the rejected operation name.
 func NewFrozenError(op string) error {
 	return &ConfigError{
-		Op:  op,
-		Err: ErrConfigFrozen,
+		Op:   op,
+		Code: ConfigErrorCodeFrozen,
 	}
 }
 
-// NewInvalidError creates a typed *ConfigError wrapping [ErrConfigInvalid].
-// Used by [Config.Set] and [Config.Override] (G12) to surface the path
-// errors raised by dictutil.SetNested when a key-path traversal hits a
-// non-map intermediate, instead of silently swallowing them.
+// NewClosedError returns a [ConfigError] categorized as [ErrConfigClosed] for a
+// mutation attempted after [Config.Close].
+func NewClosedError(op string) error {
+	return &ConfigError{Op: op, Code: ConfigErrorCodeClosed}
+}
+
+// NewInvalidError returns a [ConfigError] categorized as [ErrConfigInvalid].
+// op and key identify the rejected operation and key path, while err remains
+// available through the error chain.
 func NewInvalidError(op, key string, err error) error {
 	return &ConfigError{
-		Op:  op,
-		Key: key,
-		Err: fmt.Errorf("%w: %v", ErrConfigInvalid, err),
+		Op:   op,
+		Key:  key,
+		Code: ConfigErrorCodeInvalid,
+		Err:  err,
 	}
 }

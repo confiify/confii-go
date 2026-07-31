@@ -12,46 +12,46 @@ import (
 )
 
 const (
-	rootModule   = "github.com/confiify/confii-go"
-	loaderModule = rootModule + "/loader/cloud"
-	secretModule = rootModule + "/secret/cloud"
-	zeroVersion  = "v0.0.0-00010101000000-000000000000"
+	rootModule   = "github.com/confiify/confii-go/v2"
+	loaderModule = "github.com/confiify/confii-go/loader/cloud/v2"
+	secretModule = "github.com/confiify/confii-go/secret/cloud/v2"
+	zeroVersion  = "v2.0.0-00010101000000-000000000000"
 )
 
 func TestDevConsumerUnlinkDropsSyntheticZeroRequirements(t *testing.T) {
-	consumer, repo := writeConsumerFixture(t, "v1.4.0", zeroVersion, zeroVersion)
+	consumer, repo := writeConsumerFixture(t, "v2.0.0", zeroVersion, zeroVersion)
 	runDevConsumer(t, "unlink", consumer, repo, "all", "")
 
 	mod := readGoMod(t, consumer)
 	assertNotContains(t, mod, "replace "+rootModule)
 	assertNotContains(t, mod, loaderModule+" "+zeroVersion)
 	assertNotContains(t, mod, secretModule+" "+zeroVersion)
-	assertContains(t, mod, rootModule+" v1.4.0")
+	assertContains(t, mod, rootModule+" v2.0.0")
 }
 
 func TestDevConsumerUnlinkPinsRequestedRelease(t *testing.T) {
 	consumer, repo := writeConsumerFixture(t, zeroVersion, zeroVersion, zeroVersion)
-	runDevConsumer(t, "unlink", consumer, repo, "all", "v1.4.0")
+	runDevConsumer(t, "unlink", consumer, repo, "all", "v2.0.0")
 
 	mod := readGoMod(t, consumer)
 	for _, module := range []string{rootModule, loaderModule, secretModule} {
-		assertContains(t, mod, module+" v1.4.0")
+		assertContains(t, mod, module+" v2.0.0")
 		assertNotContains(t, mod, "replace "+module)
 	}
 }
 
 func TestDevConsumerUnlinkCorePinDropsUnselectedZeroRequirements(t *testing.T) {
 	consumer, repo := writeConsumerFixture(t, zeroVersion, zeroVersion, zeroVersion)
-	runDevConsumer(t, "unlink", consumer, repo, "core", "v1.4.0")
+	runDevConsumer(t, "unlink", consumer, repo, "core", "v2.0.0")
 
 	mod := readGoMod(t, consumer)
-	assertContains(t, mod, rootModule+" v1.4.0")
+	assertContains(t, mod, rootModule+" v2.0.0")
 	assertNotContains(t, mod, loaderModule+" "+zeroVersion)
 	assertNotContains(t, mod, secretModule+" "+zeroVersion)
 }
 
 func TestDevConsumerUnlinkRejectsZeroRelease(t *testing.T) {
-	consumer, repo := writeConsumerFixture(t, "v1.4.0", "v1.4.0", "v1.4.0")
+	consumer, repo := writeConsumerFixture(t, "v2.0.0", "v2.0.0", "v2.0.0")
 	cmd := exec.Command("sh", "dev-consumer.sh", "unlink", consumer, repo, "all", zeroVersion)
 	output, err := cmd.CombinedOutput()
 	if err == nil {

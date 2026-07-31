@@ -3,18 +3,6 @@
 
 package observe
 
-// Concurrency tests for observe.Metrics (Gap G36).
-//
-// observe/metrics.go has two unguarded accesses to Metrics.enabled:
-//   - Enable()  / Disable() (lines ~137-140) write the flag without locking.
-//   - RecordAccess() (line ~43) reads the flag outside the mutex.
-//
-// The pre-existing tests in metrics_test.go are sequential and cannot
-// surface that race. The tests below exercise the exact pairing under
-// `go test -race`. If `enabled` becomes properly synchronized in the
-// future these tests still pass; if a future refactor reintroduces an
-// unguarded write to that field, the race detector will catch it here.
-
 import (
 	"sync"
 	"sync/atomic"
@@ -24,28 +12,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestMetrics_ConcurrentEnableDisableAndRecord asserts that Enable,
-// Disable, and RecordAccess can be invoked concurrently without
-// producing a -race report on the `enabled` field. Pattern:
-//   - 1 goroutine flipping Enable/Disable in a loop (1000 iterations).
-//   - 4 goroutines calling RecordAccess (1000 iterations each).
-//   - 2 goroutines calling Statistics (which takes the read lock).
-//
-// Coordination: sync.WaitGroup; no sleeps.
-//
-// REAL RACE DISCOVERED, OWNED BY GAP G21 ("Observability integration
-// is partial and racy"):
-//   - observe/metrics.go:137-140: Enable() and Disable() write
-//     m.enabled = ... outside the m.mu lock.
-//   - observe/metrics.go:43-45: RecordAccess reads m.enabled before
-//     acquiring m.mu.
-//
-// Under `go test -race` this test reproduces the data race in <10ms.
-// The G21 fixer owns the production fix in observe/metrics.go (G36 is
-// purely test addition and the orchestrator placed a write lock on
-// production sources). The G21 fix converted Metrics.enabled to an
-// atomic.Bool so this test now runs unconditionally and asserts
-// race-freedom under -race.
 func TestMetrics_ConcurrentEnableDisableAndRecord(t *testing.T) {
 	m := NewMetrics(50)
 
@@ -67,7 +33,7 @@ func TestMetrics_ConcurrentEnableDisableAndRecord(t *testing.T) {
 				m.Enable()
 			}
 		}
-		// Leave metrics enabled at the end so Statistics is meaningful.
+
 		m.Enable()
 	}()
 
@@ -78,7 +44,7 @@ func TestMetrics_ConcurrentEnableDisableAndRecord(t *testing.T) {
 			for i := 0; i < recordIters; i++ {
 				m.RecordAccess("key.a", time.Microsecond)
 				m.RecordAccess("key.b", time.Microsecond)
-				_ = r // keep referenced
+				_ = r
 			}
 		}()
 	}
@@ -94,8 +60,6 @@ func TestMetrics_ConcurrentEnableDisableAndRecord(t *testing.T) {
 
 	wg.Wait()
 
-	// The exact counts depend on the Enable/Disable interleaving, but
-	// the metric should be in a coherent (non-panicking) state.
 	stats := m.Statistics()
 	assert.NotNil(t, stats)
 	assert.Contains(t, stats, "total_keys")
@@ -132,11 +96,6 @@ func TestMetrics_RecordsLifecycleOutcomes(t *testing.T) {
 	assert.Contains(t, stats, "last_override_restored")
 }
 
-// TestMetrics_ConcurrentReloadAndChangeAndAccess asserts that
-// RecordReload, RecordChange, RecordAccess, Statistics, and Reset can
-// all be called concurrently without producing data races on the
-// per-metric maps and the durations slice. Pattern: 6 goroutines (one
-// per method), 500 iterations each.
 func TestMetrics_ConcurrentReloadAndChangeAndAccess(t *testing.T) {
 	m := NewMetrics(20)
 
@@ -150,9 +109,7 @@ func TestMetrics_ConcurrentReloadAndChangeAndAccess(t *testing.T) {
 		func() { m.RecordAccess("k2", time.Microsecond) },
 		func() { _ = m.Statistics() },
 		func() {
-			// Reset is destructive but must remain safe under
-			// concurrent reads/writes. We only reset every 50th
-			// iteration to avoid completely starving counters.
+
 			m.Reset()
 		},
 	}
@@ -173,23 +130,15 @@ func TestMetrics_ConcurrentReloadAndChangeAndAccess(t *testing.T) {
 
 	wg.Wait()
 
-	// Final Statistics call must not panic and must return a populated
-	// map.
 	stats := m.Statistics()
 	assert.NotNil(t, stats)
 }
 
-// TestMetrics_DisableHonoredEventually verifies the post-Disable
-// invariant: once Disable returns, subsequent RecordAccess calls must
-// not increase accessed_keys. We use atomic counters around a barrier
-// channel rather than time.Sleep to avoid flakiness.
 func TestMetrics_DisableHonoredEventually(t *testing.T) {
 	m := NewMetrics(10)
 
-	// Pre-populate one key so accessed_keys starts at 1.
 	m.RecordAccess("seed", time.Microsecond)
 
-	// Disable, then drive a known number of RecordAccess calls.
 	m.Disable()
 
 	const recorders = 4
@@ -209,31 +158,12 @@ func TestMetrics_DisableHonoredEventually(t *testing.T) {
 	}
 	wg.Wait()
 
-	// Disable was called BEFORE the goroutines launched, so on a
-	// correctly synchronized implementation no recorder should have
-	// incremented the access map. This holds today because Disable's
-	// write is observed by the time the goroutine spawns; after the
-	// race fix it will hold deterministically.
 	stats := m.Statistics()
 	accessed := stats["accessed_keys"].(int)
 	assert.Equal(t, 1, accessed,
 		"Disable must prevent RecordAccess from registering new keys")
 }
 
-// TestMetrics_AtomicEnabledFlag_NoMutexContention exercises the G21
-// atomic-bool conversion of Metrics.enabled. It pounds Enable, Disable,
-// and RecordAccess from many goroutines and confirms that:
-//   - the work completes (no deadlock — disabled-fast-path takes no
-//     mutex);
-//   - the race detector stays silent (the load/store contract on
-//     atomic.Bool is honored at every call site);
-//   - the disabled-state fast path actually short-circuits (when we
-//     leave the tracker disabled at the end and replay a fresh batch
-//     of RecordAccess calls, accessed_keys does not change).
-//
-// The test is intentionally light on assertions about exact counts —
-// the interleaving is non-deterministic — and instead asserts the
-// invariants that must hold regardless of scheduler ordering.
 func TestMetrics_AtomicEnabledFlag_NoMutexContention(t *testing.T) {
 	m := NewMetrics(8)
 
@@ -243,7 +173,6 @@ func TestMetrics_AtomicEnabledFlag_NoMutexContention(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(goroutines * 3)
 
-	// Toggler goroutines: flip Enable/Disable rapidly.
 	for g := 0; g < goroutines; g++ {
 		g := g
 		go func() {
@@ -258,7 +187,6 @@ func TestMetrics_AtomicEnabledFlag_NoMutexContention(t *testing.T) {
 		}()
 	}
 
-	// Recorder goroutines: hammer RecordAccess.
 	for g := 0; g < goroutines; g++ {
 		go func() {
 			defer wg.Done()
@@ -268,7 +196,6 @@ func TestMetrics_AtomicEnabledFlag_NoMutexContention(t *testing.T) {
 		}()
 	}
 
-	// Reader goroutines: take the read lock concurrently.
 	for g := 0; g < goroutines; g++ {
 		go func() {
 			defer wg.Done()
@@ -280,9 +207,6 @@ func TestMetrics_AtomicEnabledFlag_NoMutexContention(t *testing.T) {
 
 	wg.Wait()
 
-	// Phase 2: with the tracker definitively disabled, RecordAccess
-	// must not mutate the access map. This validates the fast-path
-	// short-circuit: a single atomic.Load with no mutex acquisition.
 	m.Disable()
 	stats := m.Statistics()
 	beforeAccessed := stats["accessed_keys"].(int)

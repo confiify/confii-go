@@ -10,16 +10,29 @@ if [ -z "${APIDIFF:-}" ] || [ ! -x "$APIDIFF" ]; then
 fi
 
 repo=$(git rev-parse --show-toplevel)
+current_module=$(awk '$1 == "module" { print $2; exit }' "$repo/go.mod")
+case "$current_module" in
+  */v[2-9]|*/v[1-9][0-9]*) current_major=${current_module##*/v} ;;
+  *) current_major=1 ;;
+esac
 baseline=${API_BASELINE_TAG:-}
 if [ -z "$baseline" ]; then
-  baseline=$(git tag --merged HEAD --list 'v[0-9]*' --sort=-v:refname |
-    grep -E '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' |
-    head -n 1)
+	baseline=$(git tag --merged HEAD --list "v${current_major}.*" --sort=-v:refname |
+		grep -E "^v${current_major}\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$" |
+		head -n 1)
+fi
+
+# A new major intentionally has no compatible predecessor. The first v2 pull
+# request therefore has no same-major API artifact to compare; after v2.0.0 is
+# tagged, every subsequent v2 change is checked against the latest v2 release.
+if [ -z "$baseline" ]; then
+	echo "API compatibility: no released v${current_major} baseline exists (first release of this major)"
+	exit 0
 fi
 
 if ! printf '%s\n' "$baseline" |
-  grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'; then
-  echo "API baseline must be a stable semantic-version tag; got: ${baseline:-<empty>}" >&2
+	grep -Eq "^v${current_major}\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"; then
+	echo "API baseline must be a stable v${current_major} semantic-version tag; got: $baseline" >&2
   exit 2
 fi
 
@@ -57,16 +70,16 @@ mkdir -p "$workspace_dir"
     "$repo/loader/cloud" \
     "$repo/secret/cloud"
 
-  loader_root_version=$(awk '$1 == "github.com/confiify/confii-go" { print $2; exit }' \
+  loader_root_version=$(awk -v module="$current_module" '$1 == module { print $2; exit }' \
     "$repo/loader/cloud/go.mod")
-  secret_root_version=$(awk '$1 == "github.com/confiify/confii-go" { print $2; exit }' \
+  secret_root_version=$(awk -v module="$current_module" '$1 == module { print $2; exit }' \
     "$repo/secret/cloud/go.mod")
   if [ -z "$loader_root_version" ] || [ "$loader_root_version" != "$secret_root_version" ]; then
     echo "Cloud modules must require the same root-module version" >&2
     exit 1
   fi
   go work edit \
-    -replace="github.com/confiify/confii-go@$loader_root_version=$repo"
+    -replace="$current_module@$loader_root_version=$repo"
 )
 current_workspace="$workspace_dir/go.work"
 
@@ -93,7 +106,7 @@ check_module() {
     # Resolve the baseline nested module against the root source extracted
     # from the same signed tag. This keeps compatibility checks independent of
     # module-proxy propagation and changes only the disposable archive copy.
-    old_root_version=$(awk '$1 == "github.com/confiify/confii-go" { print $2; exit }' \
+    old_root_version=$(awk -v module="$current_module" '$1 == module { print $2; exit }' \
       "$old_dir/go.mod")
     if [ -z "$old_root_version" ]; then
       echo "Baseline cloud module does not require the root module: $old_dir" >&2
@@ -102,7 +115,7 @@ check_module() {
     (
       cd "$old_dir"
       GOWORK=off go mod edit \
-        -replace="github.com/confiify/confii-go@$old_root_version=$tmp/old"
+        -replace="$current_module@$old_root_version=$tmp/old"
     )
   fi
 

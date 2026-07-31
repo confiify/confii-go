@@ -6,29 +6,27 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
 
-	confii "github.com/confiify/confii-go"
-	"github.com/confiify/confii-go/loader"
+	confii "github.com/confiify/confii-go/v2"
+	"github.com/confiify/confii-go/v2/loader"
 )
 
 type AppConfig struct {
-	Database DatabaseConfig `mapstructure:"database"`
-	Debug    bool           `mapstructure:"debug"`
+	Database DatabaseConfig `confii:"database"`
+	Debug    bool           `confii:"debug"`
 }
 
 type DatabaseConfig struct {
-	Host     string `mapstructure:"host" validate:"required"`
-	Port     int    `mapstructure:"port" validate:"required,min=1,max=65535"`
-	Name     string `mapstructure:"name" validate:"required"`
-	Password string `mapstructure:"password"`
+	Host     string `confii:"host" validate:"required"`
+	Port     int    `confii:"port" validate:"required,min=1,max=65535"`
+	Name     string `confii:"name" validate:"required"`
+	Password string `confii:"password"`
 }
 
 func main() {
-	cfg, err := confii.New[AppConfig](context.Background(),
-		confii.WithLoaders(loader.NewYAML("config.yaml")),
+	cfg, err := confii.New[AppConfig](confii.WithLoaders(loader.NewYAML("config.yaml")),
 		confii.WithValidateOnLoad(true),
 	)
 	if err != nil {

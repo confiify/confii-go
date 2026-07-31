@@ -10,61 +10,53 @@ import (
 	"log/slog"
 	"strings"
 
-	confii "github.com/confiify/confii-go"
+	confii "github.com/confiify/confii-go/v2"
 )
 
 // MultiStore tries multiple stores in priority order.
 //
 // Error semantics:
 //
-//   - [MultiStore.GetSecret] returns the value from the first store that
-//     returns one. If no store returns a value, the per-store errors are
-//     aggregated. When every store reported [confii.ErrSecretNotFound]
-//     (or returned a nil value with no error and failOnMissing is true),
-//     the result is a single [confii.ErrSecretNotFound] just like the
-//     legacy behavior. When at least one store returned a real (non
-//     not-found) error, the result is a [MultiStoreError] that wraps every
-//     backing error so callers can distinguish "no store has the secret"
-//     from "one or more backends failed".
+//   - [MultiStore.GetSecret] returns the first successful value. It continues
+//     only after [confii.ErrSecretNotFound]. A cancellation or non-not-found
+//     backend failure stops the search so an outage cannot silently fall back
+//     to a lower-authority store. The error includes prior misses and the
+//     failing backend. If every store misses, the result wraps
+//     [confii.ErrSecretNotFound].
 //
 //   - [MultiStore.ListSecrets] returns the union of keys from every store
 //     that succeeded. If at least one store errored, the partial inventory
 //     is still returned alongside a [MultiStoreError] describing each
 //     backing failure; callers must check both the slice and the error.
 //
-// The previous implementation logged non-not-found backend errors but
-// collapsed them into [confii.ErrSecretNotFound] (or silently dropped them
-// in ListSecrets), which made network/auth outages indistinguishable from
-// genuinely-missing secrets. Wrapping per-store errors keeps
-// [errors.Is]/[errors.As] working for both [confii.ErrSecretNotFound] and
-// any backend-specific sentinels, while restoring operator visibility.
+// Per-store errors remain available through [errors.Is] and [errors.As], so
+// callers can distinguish an absent secret from authentication, network, or
+// provider failures.
 type MultiStore struct {
-	stores        []confii.SecretStore
-	failOnMissing bool
-	writeToFirst  bool
-	logger        *slog.Logger
+	stores       []confii.SecretStore
+	writeToFirst bool
+	logger       *slog.Logger
 }
 
 // MultiStoreOption configures a MultiStore.
 type MultiStoreOption func(*MultiStore)
 
-// WithFailOnMissing controls whether a missing secret across all stores is an error.
-func WithFailOnMissing(v bool) MultiStoreOption {
-	return func(s *MultiStore) { s.failOnMissing = v }
-}
-
-// WithWriteToFirst controls whether writes go only to the first store.
+// WithWriteToFirst controls write and delete fan-out. The default true sends
+// the operation only to the highest-priority store. False applies stores in
+// order and stops at the first error; already completed writes are not rolled
+// back.
 func WithWriteToFirst(v bool) MultiStoreOption {
 	return func(s *MultiStore) { s.writeToFirst = v }
 }
 
-// NewMultiStore creates a store that tries each store in order.
+// NewMultiStore creates a priority chain. The stores slice is retained and
+// must not be mutated while in use. Nil entries are unsupported. An empty
+// chain reports not found on reads and treats writes and deletes as no-ops.
 func NewMultiStore(stores []confii.SecretStore, opts ...MultiStoreOption) *MultiStore {
 	s := &MultiStore{
-		stores:        stores,
-		failOnMissing: true,
-		writeToFirst:  true,
-		logger:        slog.Default(),
+		stores:       stores,
+		writeToFirst: true,
+		logger:       slog.Default(),
 	}
 	for _, o := range opts {
 		o(s)
@@ -78,7 +70,7 @@ func NewMultiStore(stores []confii.SecretStore, opts ...MultiStoreOption) *Multi
 // [MultiStore.GetSecret] call where the only failure mode across every
 // store was a missing key, `errors.Is(err, confii.ErrSecretNotFound)`
 // still reports true. Each entry is rendered on its own line in
-// [MultiStoreError.Error] with the store index (and store name when the
+// [MultiStoreError.Error()] with the store index (and store name when the
 // underlying type implements `Name() string`) so operators can identify
 // which backend produced which failure.
 type MultiStoreError struct {
@@ -138,18 +130,18 @@ func (e *MultiStoreError) Error() string {
 }
 
 // Unwrap exposes per-store errors for [errors.Is] / [errors.As]
-// traversal. To preserve the G25 contract — "the aggregate is
-// [confii.ErrSecretNotFound] only when EVERY store reported missing" —
+// traversal. The aggregate matches [confii.ErrSecretNotFound] only when every
+// store reported missing; otherwise
 // the unwrap surface elides the not-found entries whenever at least one
 // real (non not-found) error is present. In other words:
 //
 //   - If every entry is a not-found error, Unwrap returns all of them so
 //     `errors.Is(err, confii.ErrSecretNotFound)` keeps reporting true,
-//     matching the legacy behavior callers rely on.
+//     preserving the typed not-found contract.
 //
 //   - If at least one entry is a real backend error (network/auth/etc),
 //     Unwrap returns only the real errors. The not-found entries are
-//     still rendered by [MultiStoreError.Error] for operator visibility
+//     still rendered by [MultiStoreError.Error()] for operator visibility
 //     but they no longer let `errors.Is(err, confii.ErrSecretNotFound)`
 //     mask a partial outage.
 //
@@ -195,33 +187,35 @@ func storeName(store confii.SecretStore) string {
 	return ""
 }
 
-// GetSecret tries each store in priority order and returns the first
-// successful result. When no store returns a value, the per-store errors
-// are aggregated:
+// GetSecret tries stores in priority order and returns the first non-nil value.
+// A nil value with no error is treated as not found. Search continues only for
+// not-found results:
 //
 //   - If every error wraps [confii.ErrSecretNotFound] (or every store
-//     returned `(nil, nil)` with failOnMissing enabled) the call returns
-//     a single [confii.ErrSecretNotFound] for backward compatibility with
-//     callers that only check `errors.Is(err, confii.ErrSecretNotFound)`.
+//     returned `(nil, nil)`) the call returns a single typed not-found error.
 //
-//   - If at least one store returned a non-not-found error, the call
-//     returns a *[MultiStoreError] wrapping every backing error. The
-//     wrapped error chain still satisfies
-//     `errors.Is(err, confii.ErrSecretNotFound)` for stores that
-//     reported not-found, but the top-level error is intentionally NOT
-//     [confii.ErrSecretNotFound] — callers can distinguish "no store has
-//     it" from "a backend was unreachable".
-//
-// When [WithFailOnMissing](false) is set and every store returned
-// not-found (or `(nil, nil)`), the call returns `(nil, nil)` to preserve
-// the legacy "soft miss" contract.
+//   - The first cancellation or non-not-found error stops traversal and returns
+//     a *[MultiStoreError] containing that failure and earlier misses. Its error
+//     chain intentionally excludes those earlier not-found errors so
+//     errors.Is(err, confii.ErrSecretNotFound) cannot mask an outage.
 func (s *MultiStore) GetSecret(ctx context.Context, key string, opts ...confii.SecretOption) (any, error) {
 	var entries []MultiStoreErrorEntry
-	hasRealError := false
 	for i, store := range s.stores {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		val, err := store.GetSecret(ctx, key, opts...)
-		if err == nil {
+		if err == nil && val != nil {
 			return val, nil
+		}
+		if err == nil {
+			err = fmt.Errorf("%w: %s", confii.ErrSecretNotFound, key)
+		}
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			return nil, err
 		}
 		entry := MultiStoreErrorEntry{
 			Index: i,
@@ -230,39 +224,29 @@ func (s *MultiStore) GetSecret(ctx context.Context, key string, opts ...confii.S
 		}
 		entries = append(entries, entry)
 		if !errors.Is(err, confii.ErrSecretNotFound) {
-			hasRealError = true
 			s.logger.Warn("secret store error",
 				slog.String("key", key),
 				slog.Int("store_index", i),
 				slog.String("store_name", entry.Name),
 				slog.String("error", err.Error()),
 			)
+			return nil, &MultiStoreError{Op: "GetSecret", Key: key, Errs: entries}
 		}
 	}
-
-	if hasRealError {
-		// At least one backend genuinely failed. Surface every per-store
-		// error so the caller can act on partial outages instead of
-		// mistaking them for a missing secret.
-		return nil, &MultiStoreError{
-			Op:   "GetSecret",
-			Key:  key,
-			Errs: entries,
-		}
-	}
-
-	if s.failOnMissing {
-		return nil, fmt.Errorf("%w: %s (tried %d stores)", confii.ErrSecretNotFound, key, len(s.stores))
-	}
-	return nil, nil
+	return nil, fmt.Errorf("%w: %s (tried %d stores)", confii.ErrSecretNotFound, key, len(s.stores))
 }
 
-// SetSecret writes a secret to the first store or all stores, depending on configuration.
+// SetSecret writes to the first store by default. WithWriteToFirst(false)
+// writes to every store in order and stops at the first error; the operation is
+// not transactional across stores.
 func (s *MultiStore) SetSecret(ctx context.Context, key string, value any, opts ...confii.SecretOption) error {
 	if s.writeToFirst && len(s.stores) > 0 {
 		return s.stores[0].SetSecret(ctx, key, value, opts...)
 	}
 	for _, store := range s.stores {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if err := store.SetSecret(ctx, key, value, opts...); err != nil {
 			return err
 		}
@@ -270,12 +254,17 @@ func (s *MultiStore) SetSecret(ctx context.Context, key string, value any, opts 
 	return nil
 }
 
-// DeleteSecret removes a secret from the first store or all stores, depending on configuration.
+// DeleteSecret deletes from the first store by default. WithWriteToFirst(false)
+// deletes from every store in order and stops at the first error; the operation
+// is not transactional across stores.
 func (s *MultiStore) DeleteSecret(ctx context.Context, key string, opts ...confii.SecretOption) error {
 	if s.writeToFirst && len(s.stores) > 0 {
 		return s.stores[0].DeleteSecret(ctx, key, opts...)
 	}
 	for _, store := range s.stores {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if err := store.DeleteSecret(ctx, key, opts...); err != nil {
 			return err
 		}
@@ -295,8 +284,17 @@ func (s *MultiStore) ListSecrets(ctx context.Context, prefix string) ([]string, 
 	var result []string
 	var entries []MultiStoreErrorEntry
 	for i, store := range s.stores {
+		if err := ctx.Err(); err != nil {
+			return result, err
+		}
 		keys, err := store.ListSecrets(ctx, prefix)
 		if err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil {
+				if ctx.Err() != nil {
+					return result, ctx.Err()
+				}
+				return result, err
+			}
 			entry := MultiStoreErrorEntry{
 				Index: i,
 				Name:  storeName(store),

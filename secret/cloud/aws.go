@@ -9,6 +9,7 @@ package cloud
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -16,7 +17,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
-	confii "github.com/confiify/confii-go"
+	"github.com/aws/aws-sdk-go-v2/service/secretsmanager/types"
+	confii "github.com/confiify/confii-go/v2"
 )
 
 // AWSSecretsManager implements SecretStore for AWS Secrets Manager.
@@ -35,12 +37,14 @@ type awsSMConfig struct {
 	EndpointURL  string
 }
 
-// WithAWSRegion sets the AWS region.
+// WithAWSRegion sets the AWS region. The default is us-east-1.
 func WithAWSRegion(region string) AWSSecretsManagerOption {
 	return func(c *awsSMConfig) { c.Region = region }
 }
 
-// WithAWSCredentials sets explicit AWS credentials.
+// WithAWSCredentials sets static AWS credentials. When omitted, the standard
+// AWS SDK credential chain is used. sessionToken may be empty for long-lived
+// credentials. Do not embed credentials in source code.
 func WithAWSCredentials(accessKey, secretKey, sessionToken string) AWSSecretsManagerOption {
 	return func(c *awsSMConfig) {
 		c.AccessKey = accessKey
@@ -54,7 +58,9 @@ func WithAWSEndpoint(url string) AWSSecretsManagerOption {
 	return func(c *awsSMConfig) { c.EndpointURL = url }
 }
 
-// NewAWSSecretsManager creates a new AWS Secrets Manager store.
+// NewAWSSecretsManager constructs a store using ctx while loading AWS SDK
+// configuration. It does not contact Secrets Manager until an operation is
+// invoked. A nil or canceled context is handled by the AWS SDK.
 func NewAWSSecretsManager(ctx context.Context, opts ...AWSSecretsManagerOption) (*AWSSecretsManager, error) {
 	cfg := &awsSMConfig{Region: "us-east-1"}
 	for _, opt := range opts {
@@ -86,15 +92,13 @@ func NewAWSSecretsManager(ctx context.Context, opts ...AWSSecretsManagerOption) 
 	return &AWSSecretsManager{client: client}, nil
 }
 
-// GetSecret retrieves a secret from AWS Secrets Manager, with support for version stages, version IDs, and JSON key extraction.
+// GetSecret retrieves a secret from AWS Secrets Manager, with support for
+// version stages, version IDs, and structured field extraction.
 func (s *AWSSecretsManager) GetSecret(ctx context.Context, key string, opts ...confii.SecretOption) (any, error) {
 	o := confii.ResolveSecretOptions(opts...)
 
-	// Support "secret_name:json_key" syntax.
-	secretName, jsonKey, _ := strings.Cut(key, ":")
-
 	input := &secretsmanager.GetSecretValueInput{
-		SecretId: aws.String(secretName),
+		SecretId: aws.String(key),
 	}
 
 	// Version handling: stage names vs version IDs.
@@ -112,7 +116,7 @@ func (s *AWSSecretsManager) GetSecret(ctx context.Context, key string, opts ...c
 		if isAWSNotFound(err) {
 			return nil, fmt.Errorf("%w: %s", confii.ErrSecretNotFound, key)
 		}
-		return nil, fmt.Errorf("%w: %v", confii.ErrSecretAccess, err)
+		return nil, fmt.Errorf("%w: %w", confii.ErrSecretAccess, err)
 	}
 
 	var value any
@@ -129,15 +133,15 @@ func (s *AWSSecretsManager) GetSecret(ctx context.Context, key string, opts ...c
 		value = output.SecretBinary
 	}
 
-	// Extract JSON key if specified.
-	if jsonKey != "" {
+	if o.Field != "" {
 		if m, ok := value.(map[string]any); ok {
-			v, exists := m[jsonKey]
+			v, exists := m[o.Field]
 			if !exists {
-				return nil, fmt.Errorf("%w: JSON key %q not found in secret %s", confii.ErrSecretValidation, jsonKey, secretName)
+				return nil, fmt.Errorf("%w: field %q not found in secret %s", confii.ErrSecretValidation, o.Field, key)
 			}
 			return v, nil
 		}
+		return nil, fmt.Errorf("%w: secret %s is not structured", confii.ErrSecretValidation, key)
 	}
 
 	return value, nil
@@ -173,7 +177,8 @@ func (s *AWSSecretsManager) SetSecret(ctx context.Context, key string, value any
 	return err
 }
 
-// DeleteSecret permanently deletes a secret from AWS Secrets Manager without recovery.
+// DeleteSecret permanently deletes key without a recovery window. This action
+// is destructive and cannot be undone through Secrets Manager recovery.
 func (s *AWSSecretsManager) DeleteSecret(ctx context.Context, key string, _ ...confii.SecretOption) error {
 	_, err := s.client.DeleteSecret(ctx, &secretsmanager.DeleteSecretInput{
 		SecretId:                   aws.String(key),
@@ -207,7 +212,11 @@ func (s *AWSSecretsManager) ListSecrets(ctx context.Context, prefix string) ([]s
 	return keys, nil
 }
 
+// isAWSNotFound reports the SDK's typed missing-resource condition. It must
+// not match on message text: not-found is the only classification that lets
+// multi-store fallback continue, so a broader match would route auth, network,
+// or endpoint failures past the fail-closed contract.
 func isAWSNotFound(err error) bool {
-	return strings.Contains(err.Error(), "ResourceNotFoundException") ||
-		strings.Contains(err.Error(), "not found")
+	var notFound *types.ResourceNotFoundException
+	return errors.As(err, &notFound)
 }

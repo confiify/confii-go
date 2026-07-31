@@ -20,7 +20,7 @@ type eagerCountingSecretStore struct {
 	calls int
 }
 
-func (s *eagerCountingSecretStore) GetSecret(context.Context, string) (any, error) {
+func (s *eagerCountingSecretStore) ReadSecret(context.Context, SecretRequest) (any, error) {
 	s.mu.Lock()
 	s.calls++
 	s.mu.Unlock()
@@ -36,7 +36,7 @@ func (s *eagerCountingSecretStore) callCount() int {
 func TestDeclarativeSecretsAreEagerAndDeduplicated(t *testing.T) {
 	dir := t.TempDir()
 	store := &eagerCountingSecretStore{}
-	RegisterSelfConfigSecretProvider("test-eager-counting", func(map[string]any) (SelfConfigSecretStore, error) {
+	RegisterSelfConfigSecretProvider("test-eager-counting", func(context.Context, map[string]any) (SecretReader, error) {
 		return store, nil
 	})
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".confii.yaml"), []byte(`
@@ -44,7 +44,10 @@ sources:
   - type: yaml
     path: `+filepath.Join(dir, "app.yaml")+`
 secrets:
-  provider: test-eager-counting
+  default_provider: test
+  providers:
+    test:
+      type: test-eager-counting
 `), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "app.yaml"), []byte(`
 database:
@@ -52,7 +55,7 @@ database:
   password: ${secret:database-credentials:password}
 `), 0o600))
 
-	cfg, err := New[any](context.Background(), WithWorkingDir(dir))
+	cfg, err := NewWithContext[any](context.Background(), WithWorkingDir(dir))
 	require.NoError(t, err)
 	assert.Equal(t, 1, store.callCount(), "one remote document must serve both JSON paths")
 	assert.Equal(t, "demo", cfg.GetStringOr("database.username", ""))
@@ -65,7 +68,7 @@ database:
 	require.NoError(t, docsErr)
 	assert.NotContains(t, docs, "resolved")
 
-	require.NoError(t, cfg.RefreshSecrets(context.Background()))
+	require.NoError(t, cfg.RefreshSecretsWithContext(context.Background()))
 	assert.Equal(t, 2, store.callCount(), "an explicit refresh starts a new deduplicated provider session")
 }
 
@@ -121,9 +124,18 @@ func TestSelfConfigSourceProviderBuildFailures(t *testing.T) {
 	assert.ErrorIs(t, err, ErrConfigLoad)
 	assert.Contains(t, err.Error(), "nil loader")
 
-	RegisterSelfConfigSourceProvider("ignored-nil", nil)
+	assert.Panics(t, func() { RegisterSelfConfigSourceProvider("ignored-nil", nil) })
 	_, ok := LookupSelfConfigSourceProvider("ignored-nil")
 	assert.False(t, ok)
+	assert.Panics(t, func() {
+		RegisterSelfConfigSourceProvider("", func(context.Context, map[string]any) (Loader, error) { return nil, nil })
+	})
+	name := "test-source-duplicate-registration"
+	factory := func(context.Context, map[string]any) (Loader, error) { return nil, nil }
+	RegisterSelfConfigSourceProvider(name, factory)
+	assert.Panics(t, func() {
+		RegisterSelfConfigSourceProvider("  TEST-SOURCE-DUPLICATE-REGISTRATION  ", factory)
+	})
 }
 
 func TestSecretReferenceKeysAndProviderAreValueSafe(t *testing.T) {
@@ -133,9 +145,12 @@ sources:
   - type: yaml
     path: `+filepath.Join(dir, "app.yaml")+`
 secrets:
-  provider: dict
-  entries:
-    database-password: do-not-return
+  default_provider: local
+  providers:
+    local:
+      type: dict
+      entries:
+        database-password: do-not-return
 `), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "app.yaml"), []byte(`
 database:
@@ -146,11 +161,11 @@ tokens:
 plain: value
 `), 0o600))
 
-	cfg, err := New[any](context.Background(), WithWorkingDir(dir))
+	cfg, err := NewWithContext[any](context.Background(), WithWorkingDir(dir))
 	require.NoError(t, err)
-	assert.Equal(t, "dict", cfg.SecretProvider())
-	assert.Equal(t, []string{"dict"}, cfg.SecretProviders())
-	assert.Equal(t, []string{"dict"}, cfg.SecretReferenceProviders())
+	assert.Equal(t, "local", cfg.SecretProvider())
+	assert.Equal(t, []string{"local"}, cfg.SecretProviders())
+	assert.Equal(t, []string{"local"}, cfg.SecretReferenceProviders())
 	assert.Equal(t, []string{"database.password", "tokens"}, cfg.SecretReferenceKeys())
 }
 
@@ -186,7 +201,7 @@ security:
   signing_key: ${secret@shared:signing-key}
 `), 0o600))
 
-	cfg, err := New[any](context.Background(), WithWorkingDir(dir), WithEnv("production"))
+	cfg, err := NewWithContext[any](context.Background(), WithWorkingDir(dir), WithEnv("production"))
 	require.NoError(t, err)
 	assert.Equal(t, "production", cfg.SecretProvider())
 	assert.Equal(t, []string{"development", "production", "shared"}, cfg.SecretProviders())
@@ -200,7 +215,7 @@ security:
 
 func mustGet(t *testing.T, cfg *Config[any], key string) any {
 	t.Helper()
-	value, err := cfg.GetCtx(context.Background(), key)
+	value, err := cfg.GetWithContext(context.Background(), key)
 	require.NoError(t, err)
 	return value
 }

@@ -4,29 +4,42 @@
 package observe
 
 import (
-	"crypto/sha256"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"io"
-	"math"
 	"os"
 	"path/filepath"
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/confiify/confii-go/v2/diff"
+	"github.com/confiify/confii-go/v2/internal/dictutil"
+	"github.com/google/renameio/v2/maybe"
+	"github.com/oklog/ulid/v2"
 )
 
-// Version represents an immutable configuration snapshot.
+// Version represents a captured configuration snapshot. VersionManager stores
+// an independent copy of Config and returns detached records from public
+// methods, so caller mutation cannot corrupt retained history.
 //
-// The Timestamp field carries sub-second precision (Unix seconds as a
-// float64 with nanosecond fractional component) so callers can rely on
-// strict monotonic ordering between snapshots taken in quick succession.
+// Timestamp records when the snapshot was created. VersionID is a monotonic
+// ULID and provides deterministic ordering when multiple snapshots share the
+// same clock instant.
 type Version struct {
-	VersionID string         `json:"version_id"`
-	Config    map[string]any `json:"config"`
-	Timestamp float64        `json:"timestamp"`
-	DateTime  string         `json:"datetime"`
-	Metadata  map[string]any `json:"metadata,omitempty"`
+	// VersionID is a canonical, time-sortable ULID for this record.
+	VersionID string `json:"version_id"`
+	// Config is the materialized configuration captured by SaveVersion.
+	Config map[string]any `json:"config"`
+	// Timestamp is the UTC creation time serialized as RFC3339Nano in JSON.
+	Timestamp time.Time `json:"timestamp"`
+	// Metadata is caller-supplied descriptive data; it must be JSON-serializable
+	// when disk persistence is enabled.
+	Metadata map[string]any `json:"metadata,omitempty"`
+	// SensitivePaths preserves redaction metadata without storing secret
+	// references or provider coordinates in the version record.
+	SensitivePaths []string `json:"sensitive_paths,omitempty"`
 }
 
 // VersionManager manages configuration version snapshots.
@@ -39,18 +52,26 @@ type VersionManager struct {
 	storagePath   string
 	maxVersions   int
 	versions      map[string]*Version
-	lastTS        int64   // monotonic counter (nanoseconds) used for IDs.
-	lastTimestamp float64 // last externally exposed, strictly monotonic timestamp.
+	lastTimestamp time.Time
+	entropy       io.Reader
+}
+
+func cloneVersion(version *Version) *Version {
+	if version == nil {
+		return nil
+	}
+	clone := *version
+	clone.Config = dictutil.DeepCopy(version.Config)
+	clone.Metadata = dictutil.DeepCopy(version.Metadata)
+	clone.SensitivePaths = append([]string(nil), version.SensitivePaths...)
+	return &clone
 }
 
 // NewVersionManager creates a new version manager.
 //
-// If storagePath is empty the manager keeps snapshots in memory only. Pass
-// an explicit directory path to opt into disk persistence; the prior default
-// of ".confii/versions" was removed because it polluted the consumer's
-// source tree when confii-go was used as a library.
-//
-// If maxVersions <= 0 it defaults to 100.
+// If storagePath is empty, snapshots remain in memory. Otherwise subsequent
+// saves create the directory with mode 0700 and records with mode 0600. A
+// non-positive maxVersions selects the default retention limit of 100.
 func NewVersionManager(storagePath string, maxVersions int) *VersionManager {
 	if maxVersions <= 0 {
 		maxVersions = 100
@@ -59,6 +80,7 @@ func NewVersionManager(storagePath string, maxVersions int) *VersionManager {
 		storagePath: storagePath,
 		maxVersions: maxVersions,
 		versions:    make(map[string]*Version),
+		entropy:     ulid.Monotonic(rand.Reader, 0),
 	}
 }
 
@@ -80,51 +102,58 @@ func (m *VersionManager) Reconfigure(storagePath string, maxVersions int) {
 
 // SaveVersion captures a snapshot of the configuration.
 //
-// JSON marshal and unmarshal failures (which previously were silently
-// dropped) are now propagated to the caller so they can detect a bad
-// snapshot rather than persist partial/empty state.
+// Serialization failures are returned and no partial snapshot is persisted.
 func (m *VersionManager) SaveVersion(config map[string]any, metadata map[string]any) (*Version, error) {
+	return m.SaveVersionWithSensitivePaths(config, metadata, nil)
+}
+
+// SaveVersionWithSensitivePaths captures a snapshot and the paths that must be
+// redacted by diagnostics after the snapshot is restored. Paths are copied,
+// sorted, and persisted with the version; they contain no secret values.
+func (m *VersionManager) SaveVersionWithSensitivePaths(config map[string]any, metadata map[string]any, sensitivePaths []string) (*Version, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Pick a strictly monotonic nanosecond timestamp. time.Now() can return
-	// equal values when called in a tight loop on some platforms; bump by
-	// one nanosecond if we ever observe a tie.
-	nowNS := time.Now().UnixNano()
-	if nowNS <= m.lastTS {
-		nowNS = m.lastTS + 1
+	now := time.Now().UTC()
+	if !now.After(m.lastTimestamp) {
+		now = m.lastTimestamp.Add(time.Nanosecond)
 	}
-	m.lastTS = nowNS
-	now := time.Unix(0, nowNS)
-	timestamp := float64(nowNS) / 1e9
-	// A float64 at the current Unix epoch cannot represent every nanosecond.
-	// Advance to the next representable value when Windows' lower-resolution
-	// clock (or a rapid save) would otherwise expose an equal timestamp.
-	if timestamp <= m.lastTimestamp {
-		timestamp = math.Nextafter(m.lastTimestamp, math.Inf(1))
-	}
-	m.lastTimestamp = timestamp
+	m.lastTimestamp = now
 
 	configJSON, err := json.Marshal(config)
 	if err != nil {
 		return nil, fmt.Errorf("version: marshal config: %w", err)
 	}
-	hash := sha256.Sum256(append(configJSON, []byte(fmt.Sprintf("%d", nowNS))...))
-	versionID := fmt.Sprintf("%x", hash[:8])
+	identifier, err := ulid.New(ulid.Timestamp(now), m.entropy)
+	if err != nil {
+		return nil, fmt.Errorf("version: generate ULID: %w", err)
+	}
+	versionID := identifier.String()
 
 	// Deep copy via JSON round-trip to ensure the snapshot is immutable.
 	var configCopy map[string]any
 	if err := json.Unmarshal(configJSON, &configCopy); err != nil {
 		return nil, fmt.Errorf("version: unmarshal snapshot: %w", err)
 	}
+	var metadataCopy map[string]any
+	if metadata != nil {
+		metadataJSON, err := json.Marshal(metadata)
+		if err != nil {
+			return nil, fmt.Errorf("version: marshal metadata: %w", err)
+		}
+		if err := json.Unmarshal(metadataJSON, &metadataCopy); err != nil {
+			return nil, fmt.Errorf("version: unmarshal metadata snapshot: %w", err)
+		}
+	}
 
 	v := &Version{
-		VersionID: versionID,
-		Config:    configCopy,
-		Timestamp: timestamp,
-		DateTime:  now.Format(time.RFC3339Nano),
-		Metadata:  metadata,
+		VersionID:      versionID,
+		Config:         configCopy,
+		Timestamp:      now,
+		Metadata:       metadataCopy,
+		SensitivePaths: append([]string(nil), sensitivePaths...),
 	}
+	sort.Strings(v.SensitivePaths)
 
 	// Persist to disk only when an explicit storage path was supplied.
 	if m.storagePath != "" {
@@ -136,7 +165,7 @@ func (m *VersionManager) SaveVersion(config map[string]any, metadata map[string]
 			return nil, fmt.Errorf("version: marshal version record: %w", err)
 		}
 		path := filepath.Join(m.storagePath, versionID+".json")
-		if err := os.WriteFile(path, data, 0600); err != nil {
+		if err := maybe.WriteFile(path, data, 0600); err != nil {
 			return nil, fmt.Errorf("version: write snapshot: %w", err)
 		}
 	}
@@ -144,15 +173,18 @@ func (m *VersionManager) SaveVersion(config map[string]any, metadata map[string]
 	m.versions[versionID] = v
 	m.evict()
 
-	return v, nil
+	return cloneVersion(v), nil
 }
 
-// GetVersion retrieves a version by ID.
+// GetVersion retrieves id from memory or configured disk storage. It returns
+// nil for an unknown or invalid ID, unreadable storage, or malformed record.
+// The returned record is a detached copy and may be modified by the caller.
 func (m *VersionManager) GetVersion(id string) *Version {
 	m.mu.RLock()
 	if v, ok := m.versions[id]; ok {
+		result := cloneVersion(v)
 		m.mu.RUnlock()
-		return v
+		return result
 	}
 	m.mu.RUnlock()
 
@@ -183,31 +215,34 @@ func (m *VersionManager) GetVersion(id string) *Version {
 	if err := json.Unmarshal(data, &v); err != nil {
 		return nil
 	}
-	return &v
+	return cloneVersion(&v)
 }
 
 // ListVersions returns all known versions sorted by timestamp (newest first).
 //
-// The returned slice is a defensive copy: callers may sort, filter, or
-// otherwise mutate it without affecting the manager's internal state. Disk
-// scanning (which previously ran under the read lock and mutated internal
-// state) is now performed under the write lock.
+// The returned slice and Version elements are detached from manager state and
+// may be modified by the caller. Invalid or unreadable disk records are
+// skipped.
 func (m *VersionManager) ListVersions() []*Version {
 	m.mu.Lock()
 	m.scanDiskLocked()
 	versions := make([]*Version, 0, len(m.versions))
 	for _, v := range m.versions {
-		versions = append(versions, v)
+		versions = append(versions, cloneVersion(v))
 	}
 	m.mu.Unlock()
 
 	sort.Slice(versions, func(i, j int) bool {
-		return versions[i].Timestamp > versions[j].Timestamp
+		if versions[i].Timestamp.Equal(versions[j].Timestamp) {
+			return versions[i].VersionID > versions[j].VersionID
+		}
+		return versions[i].Timestamp.After(versions[j].Timestamp)
 	})
 	return versions
 }
 
-// LatestVersion returns the most recent version.
+// LatestVersion returns the most recent known version, or nil when none exists.
+// The returned record is a detached copy and may be modified by the caller.
 func (m *VersionManager) LatestVersion() *Version {
 	versions := m.ListVersions()
 	if len(versions) == 0 {
@@ -219,7 +254,7 @@ func (m *VersionManager) LatestVersion() *Version {
 // DiffVersions compares two version snapshots and returns a list of
 // differences. Each element is a map with keys: "path", "type", and one or
 // both of "old_value"/"new_value".
-func (m *VersionManager) DiffVersions(id1, id2 string) ([]map[string]any, error) {
+func (m *VersionManager) DiffVersions(id1, id2 string) ([]diff.ConfigDiff, error) {
 	v1 := m.GetVersion(id1)
 	if v1 == nil {
 		return nil, fmt.Errorf("version %s not found", id1)
@@ -228,45 +263,8 @@ func (m *VersionManager) DiffVersions(id1, id2 string) ([]map[string]any, error)
 	if v2 == nil {
 		return nil, fmt.Errorf("version %s not found", id2)
 	}
-	return versionDiffMaps(v1.Config, v2.Config, ""), nil
-}
-
-func versionDiffMaps(a, b map[string]any, prefix string) []map[string]any {
-	var diffs []map[string]any
-	keys := make(map[string]struct{})
-	for k := range a {
-		keys[k] = struct{}{}
-	}
-	for k := range b {
-		keys[k] = struct{}{}
-	}
-	for k := range keys {
-		path := k
-		if prefix != "" {
-			path = prefix + "." + k
-		}
-		va, inA := a[k]
-		vb, inB := b[k]
-		switch {
-		case !inA:
-			diffs = append(diffs, map[string]any{"path": path, "type": "added", "new_value": vb})
-		case !inB:
-			diffs = append(diffs, map[string]any{"path": path, "type": "removed", "old_value": va})
-		default:
-			ma, aMap := va.(map[string]any)
-			mb, bMap := vb.(map[string]any)
-			if aMap && bMap {
-				diffs = append(diffs, versionDiffMaps(ma, mb, path)...)
-			} else {
-				ja, _ := json.Marshal(va)
-				jb, _ := json.Marshal(vb)
-				if string(ja) != string(jb) {
-					diffs = append(diffs, map[string]any{"path": path, "type": "modified", "old_value": va, "new_value": vb})
-				}
-			}
-		}
-	}
-	return diffs
+	paths := append(append([]string(nil), v1.SensitivePaths...), v2.SensitivePaths...)
+	return diff.Redact(diff.Diff(v1.Config, v2.Config), paths, "[REDACTED: secret-backed value]"), nil
 }
 
 // scanDiskLocked loads any version files present on disk that are not
@@ -316,15 +314,8 @@ func (m *VersionManager) scanDiskLocked() {
 }
 
 func validVersionID(id string) bool {
-	if len(id) != 16 {
-		return false
-	}
-	for _, r := range id {
-		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
-			return false
-		}
-	}
-	return true
+	parsed, err := ulid.ParseStrict(id)
+	return err == nil && parsed.String() == id
 }
 
 func (m *VersionManager) evict() {
@@ -334,13 +325,18 @@ func (m *VersionManager) evict() {
 	// Sort by timestamp, remove oldest.
 	type entry struct {
 		id string
-		ts float64
+		ts time.Time
 	}
 	var entries []entry
 	for id, v := range m.versions {
 		entries = append(entries, entry{id, v.Timestamp})
 	}
-	sort.Slice(entries, func(i, j int) bool { return entries[i].ts < entries[j].ts })
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].ts.Equal(entries[j].ts) {
+			return entries[i].id < entries[j].id
+		}
+		return entries[i].ts.Before(entries[j].ts)
+	})
 
 	for len(entries) > m.maxVersions {
 		oldest := entries[0]

@@ -10,19 +10,17 @@ import (
 	"os"
 	"sync"
 
-	"github.com/confiify/confii-go/internal/sourcekind"
+	"github.com/confiify/confii-go/v2/internal/sourcekind"
 )
 
 // FileTracker tracks file modification times and content hashes
 // for incremental reload support.
 //
-// G20 (Wave 20) source-capability model: a FileTracker now distinguishes
-// between trackable (real on-disk file) and untrackable (HTTP URL,
+// FileTracker distinguishes between trackable (real on-disk file) and
+// untrackable (HTTP URL,
 // environment-variable marker, cloud-object identifier, deleted/permission-
 // denied path) sources. Untrackable sources are recorded in an internal
-// set on first encounter and are reported as unchanged thereafter, so they
-// no longer defeat the Wave 7 G14 incremental Reload optimization by
-// returning "changed=true" on every gate check.
+// set on first encounter and are reported as unchanged thereafter.
 type FileTracker struct {
 	mu          sync.RWMutex
 	files       map[string]fileState
@@ -37,8 +35,8 @@ type fileState struct {
 // isNonFileScheme reports whether path looks like a non-file source
 // based on a known scheme/marker prefix.
 //
-// D-W20-01 (Wave 22): the canonical scheme list now lives in
-// [github.com/confiify/confii-go/internal/sourcekind]. This wrapper retains
+// The canonical scheme list lives in
+// [github.com/confiify/confii-go/v2/internal/sourcekind]. This wrapper retains
 // the FileTracker-local name (HasChanged/Track call sites) while consolidating
 // the source of truth so a new scheme (e.g. a new cloud store) only needs to
 // be added in one place. The predicate remains cheap (no regex, no URL parse)
@@ -57,12 +55,11 @@ func NewFileTracker() *FileTracker {
 
 // Track starts tracking a file, recording its current mtime and hash.
 //
-// G20: if path carries a non-file scheme (e.g. "http://", "environment:",
+// If path carries a non-file scheme (e.g. "http://", "environment:",
 // "s3://"), Track classifies the source as untrackable, records it in
 // the internal untrackable set, and returns nil. Subsequent HasChanged
 // calls for that source return false instead of repeatedly reporting
-// changed=true. For ordinary file paths, Track keeps its pre-G20
-// contract: an os.Stat / read failure is surfaced to the caller as an
+// changed=true. For ordinary file paths, an os.Stat/read failure is surfaced as an
 // error so initial wiring problems remain visible.
 func (ft *FileTracker) Track(path string) error {
 	if isNonFileScheme(path) {
@@ -90,22 +87,8 @@ func (ft *FileTracker) Track(path string) error {
 // last tracked state. mtime is retained as diagnostic metadata, but content
 // is authoritative so a metadata-only touch does not trigger a reload.
 //
-// G20: HasChanged enforces the source-capability model. The decision
-// tree is:
-//
-//  1. If the source is already classified as untrackable, return false
-//     (no os.Stat call — idempotent fast path).
-//  2. If the source has a non-file scheme prefix, classify it as
-//     untrackable on the spot and return false.
-//  3. If the source has not been registered with Track, fall back to
-//     the pre-G20 "treat as changed" contract — callers (e.g. the Reload
-//     incremental gate) re-Track such paths on the same pass.
-//  4. Otherwise call readState. On a read failure (file deleted,
-//     permission denied), classify as untrackable and return false; the
-//     spurious-Reload loop that this sub-fix exists to kill is exactly
-//     the case where step 4's read keeps failing on every gate check.
-//  5. On a successful read, compare mtime+hash against the recorded
-//     state — Wave 7 G14's incremental contract.
+// Unregistered local paths are treated as changed. Non-file and unreadable
+// sources are classified as untrackable and return false until tracked again.
 func (ft *FileTracker) HasChanged(path string) bool {
 	ft.mu.RLock()
 	if _, untrackable := ft.untrackable[path]; untrackable {
@@ -153,9 +136,6 @@ func (ft *FileTracker) HasChanged(path string) bool {
 // observation-driven: a path that has never been seen returns true
 // (optimistically trackable) so callers can attempt Track without a
 // pre-flight check.
-//
-// IsTrackable is additive (Wave 20, G20 sub-fix); no existing caller
-// depends on it.
 func (ft *FileTracker) IsTrackable(path string) bool {
 	if isNonFileScheme(path) {
 		return false
@@ -171,7 +151,11 @@ func (ft *FileTracker) Update(path string) error {
 	return ft.Track(path) // same operation
 }
 
-// GetChangedFiles returns which of the given files have changed.
+// GetChangedFiles returns the input paths whose content differs from their
+// tracked state, preserving input order. Unregistered local paths are included;
+// non-file and currently unreadable sources are excluded according to
+// [FileTracker.HasChanged]. The method is safe for concurrent use and is useful
+// to applications that coordinate reloads across a batch of dependent files.
 func (ft *FileTracker) GetChangedFiles(paths []string) []string {
 	var changed []string
 	for _, p := range paths {
@@ -184,8 +168,7 @@ func (ft *FileTracker) GetChangedFiles(paths []string) []string {
 
 // Clear removes all tracked files. The untrackable classification set is
 // also cleared so that previously unreadable sources get a fresh chance
-// at classification — this matches the "clean slate" intent of the
-// pre-G20 Clear contract.
+// at classification, matching the "clean slate" intent of Clear.
 func (ft *FileTracker) Clear() {
 	ft.mu.Lock()
 	defer ft.mu.Unlock()
@@ -194,7 +177,7 @@ func (ft *FileTracker) Clear() {
 }
 
 // FileSnapshot is an opaque capture of a [FileTracker]'s state,
-// produced by [FileTracker.Snapshot] and consumed by
+// produced by [FileTracker.Snapshot()] and consumed by
 // [FileTracker.Restore]. The zero value is a valid empty snapshot;
 // restoring it clears the tracker. Callers must not depend on its
 // layout.
@@ -219,7 +202,7 @@ func (ft *FileTracker) Snapshot() FileSnapshot {
 
 // Restore replaces the tracker's state with s. After this call, the
 // tracker reports exactly the file states and untrackable
-// classifications captured at the point [FileTracker.Snapshot] was
+// classifications captured at the point [FileTracker.Snapshot()] was
 // taken. Restore is goroutine-safe.
 func (ft *FileTracker) Restore(s FileSnapshot) {
 	ft.mu.Lock()
@@ -233,7 +216,7 @@ func (ft *FileTracker) Restore(s FileSnapshot) {
 }
 
 // osStat is a package-level indirection for os.Stat so tests can count
-// invocations to pin the G20 untrackable-set idempotency contract. Non-
+// invocations to preserve untrackable-set idempotency. Non-
 // test code paths use os.Stat directly via this variable.
 var osStat = os.Stat
 

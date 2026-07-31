@@ -22,14 +22,20 @@ type SelfConfigSourceProviderFactory func(context.Context, map[string]any) (Load
 var selfConfigSourceProviders sync.Map // map[string]SelfConfigSourceProviderFactory
 
 // RegisterSelfConfigSourceProvider registers an optional declarative source
-// type. Names are case-insensitive; a later registration replaces the prior
-// factory, matching database/sql-style driver registration.
+// type. Names are case-insensitive. It panics for an empty name, a nil factory,
+// or a duplicate normalized name, matching database/sql-style driver
+// registration and preventing import order from silently replacing a provider.
 func RegisterSelfConfigSourceProvider(name string, factory SelfConfigSourceProviderFactory) {
 	name = strings.ToLower(strings.TrimSpace(name))
-	if name == "" || factory == nil {
-		return
+	if name == "" {
+		panic("confii: RegisterSelfConfigSourceProvider called with empty name")
 	}
-	selfConfigSourceProviders.Store(name, factory)
+	if factory == nil {
+		panic("confii: RegisterSelfConfigSourceProvider called with nil factory for " + name)
+	}
+	if _, loaded := selfConfigSourceProviders.LoadOrStore(name, factory); loaded {
+		panic("confii: RegisterSelfConfigSourceProvider called twice for " + name)
+	}
 }
 
 // LookupSelfConfigSourceProvider returns the optional source factory
@@ -46,24 +52,27 @@ func buildRegisteredSelfConfigSource(ctx context.Context, sourceType string, cfg
 	factory, ok := LookupSelfConfigSourceProvider(sourceType)
 	if !ok {
 		return nil, &ConfigError{
-			Op: "ApplySelfConfig",
+			Op:   "ApplySelfConfig",
+			Code: ConfigErrorCodeLoad,
 			Err: fmt.Errorf(
-				"%w: unsupported self-config source type %q (built in: environment_files, yaml, yml, json, toml, ini, cfg, env, envfile, environment; registered: %s)",
-				ErrConfigLoad, sourceType, registeredSelfConfigSourceProviderNames(),
+				"unsupported self-config source type %q (built in: environment_files, yaml, json, toml, ini, dotenv, environment; registered: %s)",
+				sourceType, registeredSelfConfigSourceProviderNames(),
 			),
 		}
 	}
 	loader, err := factory(ctx, cfg)
 	if err != nil {
 		return nil, &ConfigError{
-			Op:  "ApplySelfConfig",
-			Err: fmt.Errorf("%w: self-config source provider %q failed to build: %w", ErrConfigLoad, sourceType, err),
+			Op:   "ApplySelfConfig",
+			Code: ConfigErrorCodeLoad,
+			Err:  fmt.Errorf("self-config source provider %q failed to build: %w", sourceType, err),
 		}
 	}
 	if loader == nil {
 		return nil, &ConfigError{
-			Op:  "ApplySelfConfig",
-			Err: fmt.Errorf("%w: self-config source provider %q returned a nil loader", ErrConfigLoad, sourceType),
+			Op:   "ApplySelfConfig",
+			Code: ConfigErrorCodeLoad,
+			Err:  fmt.Errorf("self-config source provider %q returned a nil loader", sourceType),
 		}
 	}
 	return loader, nil

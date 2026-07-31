@@ -4,48 +4,79 @@
 package confii
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 
-	"github.com/confiify/confii-go/selfconfig"
+	"github.com/confiify/confii-go/v2/selfconfig"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// TestSelfConfigAccountsForEveryStartupOption is the first half of the
-// options -> Settings -> generated-template drift guard. The companion test in
-// selfconfig/template_test.go requires every Settings field to appear in the
-// embedded default.confii.yaml. A new Config startup option therefore requires
-// either a declarative mapping here or an explicit architectural reason why it
-// cannot live inside the file it helps discover.
+func TestSelfConfigAppliesReloadDebounceAndSensitivePaths(t *testing.T) {
+	directory := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(directory, ".confii.yaml"), []byte(`
+reload_debounce: 275ms
+sensitive_paths:
+  - credentials.token
+  - database.password
+`), 0o600))
+	selfconfig.ClearCache()
+	options := defaultOptions()
+	options.WorkingDir = directory
+	require.NoError(t, applySelfConfig(&options))
+	assert.Equal(t, 275*time.Millisecond, options.ReloadDebounce)
+	assert.Equal(t, []string{"credentials.token", "database.password"}, options.SensitivePaths)
+}
+
+func TestSelfConfigRejectsInvalidReloadDebounce(t *testing.T) {
+	directory := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(directory, ".confii.yaml"), []byte("reload_debounce: immediate\n"), 0o600))
+	selfconfig.ClearCache()
+	options := defaultOptions()
+	options.WorkingDir = directory
+	err := applySelfConfig(&options)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrConfigLoad)
+}
+
 func TestSelfConfigAccountsForEveryStartupOption(t *testing.T) {
 	declarative := map[string][]string{
-		"Env":                       {"DefaultEnvironment"},
-		"EnvSwitcher":               {"EnvSwitcher"},
-		"Loaders":                   {"DefaultFiles", "Sources"},
-		"DynamicReloading":          {"DynamicReloading"},
-		"UseEnvExpander":            {"UseEnvExpander"},
-		"UseTypeCasting":            {"UseTypeCasting"},
-		"DeepMerge":                 {"DeepMerge"},
-		"MergeStrategy":             {"MergeStrategy"},
-		"MergeStrategyMap":          {"MergeStrategyMap"},
-		"EnvPrefix":                 {"EnvPrefix", "DefaultPrefix"},
-		"SysenvFallback":            {"SysenvFallback"},
-		"SchemaPath":                {"SchemaPath"},
-		"ValidateOnLoad":            {"ValidateOnLoad"},
-		"StrictValidation":          {"StrictValidation"},
-		"FreezeOnLoad":              {"FreezeOnLoad"},
-		"OnError":                   {"OnError"},
-		"DebugMode":                 {"DebugMode"},
-		"EnvironmentStrategy":       {"EnvironmentStrategy"},
-		"EnvironmentConflictPolicy": {"EnvironmentConflictPolicy"},
+		"Env":                         {"DefaultEnvironment"},
+		"EnvSwitcher":                 {"EnvSwitcher"},
+		"Loaders":                     {"Sources"},
+		"DynamicReloading":            {"DynamicReloading"},
+		"ReloadDebounce":              {"ReloadDebounce"},
+		"UseEnvExpander":              {"UseEnvExpander"},
+		"UseTypeCasting":              {"UseTypeCasting"},
+		"MergeStrategy":               {"Merge"},
+		"MergeStrategyMap":            {"Merge"},
+		"EnvPrefix":                   {"EnvPrefix"},
+		"SysenvFallback":              {"SysenvFallback"},
+		"SchemaPath":                  {"SchemaPath"},
+		"ValidateOnLoad":              {"ValidateOnLoad"},
+		"StrictValidation":            {"StrictValidation"},
+		"FreezeOnLoad":                {"FreezeOnLoad"},
+		"OnError":                     {"OnError"},
+		"DebugMode":                   {"DebugMode"},
+		"EnvironmentStrategy":         {"EnvironmentStrategy"},
+		"EnvironmentConflictPolicy":   {"EnvironmentConflictPolicy"},
+		"StartupTimeout":              {"Startup"},
+		"OperationTimeout":            {"Runtime"},
+		"SecretResolutionConcurrency": {"SecretResolutionConcurrency"},
+		"SensitivePaths":              {"SensitivePaths"},
 	}
 	intentionalCodeOnly := map[string]string{
 		"WorkingDir":     "selects the directory in which self-config is discovered",
-		"SecretResolver": "legacy internal wiring; declarative secrets use Secrets",
+		"SecretResolver": "programmatic resolver wiring; declarative providers use Secrets",
+		"Exporters":      "holds application-defined Go serializers",
+		"Validators":     "holds application-defined Go validation rules",
 		"Schema":         "holds an in-memory Go value; declarative schemas use SchemaPath",
 		"Logger":         "holds a Go logger object; declarative logging uses LogLevel",
 		"SecretHook":     "holds a Go function; declarative secret hooks use Secrets",
+		"hookSetups":     "holds Go hook functions frozen into the materialization plan",
 	}
 	internalBookkeeping := map[string]bool{
 		"environmentConflictPolicyConfigured": true,

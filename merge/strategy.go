@@ -22,10 +22,8 @@ import (
 //     mismatches fall back to Replace.
 //   - Union: same shape as DeepMergeStrategy but all base-only and
 //     overlay-only keys are preserved (union of key sets); recursion
-//     routes through mergeAt so nested per-path strategy overrides
-//     resolve correctly. Previous implementations called the package
-//     level deep-merge directly and ignored the StrategyMap below the
-//     Union node.
+//     routes through mergeAt so nested per-path strategy overrides remain
+//     effective below the Union node.
 //   - Intersection: keeps only keys present in both maps with equal
 //     values; unequal scalar values and type mismatches are omitted
 //     entirely (not preserved as nil placeholders).
@@ -52,6 +50,20 @@ func NewAdvanced(defaultStrategy Strategy, strategyMap map[string]Strategy) *Adv
 // Merge combines base and overlay using the merger's default strategy
 // and any per-path overrides registered in StrategyMap.
 func (m *AdvancedMerger) Merge(base, overlay map[string]any) map[string]any {
+	if m.DefaultStrategy == ShallowMerge {
+		result := make(map[string]any, len(base)+len(overlay))
+		maps.Copy(result, base)
+		for key, overlayValue := range overlay {
+			baseValue, exists := base[key]
+			strategy, overridden := m.StrategyMap[key]
+			if exists && overridden {
+				result[key] = m.applyStrategy(strategy, baseValue, overlayValue, key)
+				continue
+			}
+			result[key] = overlayValue
+		}
+		return result
+	}
 	return m.mergeAt(base, overlay, "")
 }
 
@@ -146,6 +158,16 @@ func (m *AdvancedMerger) applyStrategy(strategy Strategy, baseVal, overlayVal an
 	switch strategy {
 	case Replace:
 		return overlayVal
+	case ShallowMerge:
+		baseMap, baseOK := baseVal.(map[string]any)
+		overlayMap, overlayOK := overlayVal.(map[string]any)
+		if baseOK && overlayOK {
+			result := make(map[string]any, len(baseMap)+len(overlayMap))
+			maps.Copy(result, baseMap)
+			maps.Copy(result, overlayMap)
+			return result
+		}
+		return overlayVal
 
 	case DeepMergeStrategy:
 		baseMap, baseOk := baseVal.(map[string]any)
@@ -168,10 +190,8 @@ func (m *AdvancedMerger) applyStrategy(strategy Strategy, baseVal, overlayVal an
 		return intersect(baseVal, overlayVal)
 
 	case Union:
-		// Union recursion routes through mergeAt so nested per-path
-		// strategy overrides resolve correctly. Previous implementation
-		// called dictutil.DeepMerge directly and silently bypassed the
-		// strategy map for everything below the Union node.
+		// Route recursion through mergeAt so nested per-path strategies remain
+		// effective below the Union node.
 		baseMap, baseOk := baseVal.(map[string]any)
 		overlayMap, overlayOk := overlayVal.(map[string]any)
 		if baseOk && overlayOk {

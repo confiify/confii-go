@@ -17,7 +17,10 @@ type JSONSchemaValidator struct {
 	schema *jsonschema.Schema
 }
 
-// NewJSONSchemaValidator creates a validator from a JSON Schema map.
+// NewJSONSchemaValidator compiles schemaMap as JSON Schema. The map must be
+// JSON-serializable and use keywords supported by the underlying draft
+// implementation. Compilation errors are returned before a validator is
+// created.
 func NewJSONSchemaValidator(schemaMap map[string]any) (*JSONSchemaValidator, error) {
 	data, err := json.Marshal(schemaMap)
 	if err != nil {
@@ -26,7 +29,9 @@ func NewJSONSchemaValidator(schemaMap map[string]any) (*JSONSchemaValidator, err
 	return compileSchema(data)
 }
 
-// NewJSONSchemaValidatorFromFile creates a validator from a JSON Schema file.
+// NewJSONSchemaValidatorFromFile reads and compiles a JSON Schema document from
+// path. Relative paths are resolved by the process working directory. Read,
+// JSON decoding, resource registration, and compilation failures are returned.
 func NewJSONSchemaValidatorFromFile(path string) (*JSONSchemaValidator, error) {
 	// #nosec G304 -- path is the caller-selected schema file; arbitrary paths are this API's contract.
 	data, err := os.ReadFile(path)
@@ -52,7 +57,10 @@ func compileSchema(data []byte) (*JSONSchemaValidator, error) {
 	return &JSONSchemaValidator{schema: schema}, nil
 }
 
-// Validate validates the configuration data against the schema.
+// Validate validates data against the compiled schema. It returns nil on
+// success or an aggregated error containing schema locations and failed
+// keywords. Violating configuration values are not included in the generated
+// message.
 func (v *JSONSchemaValidator) Validate(data map[string]any) error {
 	err := v.schema.Validate(data)
 	if err == nil {
@@ -76,7 +84,7 @@ func (v *JSONSchemaValidator) Validate(data map[string]any) error {
 // The returned messages reference schema constraint metadata only — they
 // do not echo the violating user-supplied values — so callers may safely
 // surface them in operator-facing diagnostics or attach them to a
-// structured error context (G01).
+// structured error context.
 //
 // Returns (nil, nil) when data satisfies the schema.
 func (v *JSONSchemaValidator) ValidateDetailed(data map[string]any) ([]string, error) {
@@ -94,13 +102,8 @@ func (v *JSONSchemaValidator) ValidateDetailed(data map[string]any) ([]string, e
 }
 
 func collectErrors(ve *jsonschema.ValidationError, msgs *[]string) {
-	// Only emit a message for nodes that own a non-zero KeywordPath. The
-	// jsonschema library wraps every failure in a top-level "Schema"
-	// node whose ErrorKind has an empty KeywordPath; emitting that node
-	// adds a noisy "(root): &{file://...}" entry that doesn't carry a
-	// constraint name. Recursing through Causes finds the leaf
-	// constraint-violation entries that actually identify the failed
-	// keyword (e.g. "minimum", "required", "pattern").
+	// Report leaf constraint violations and omit wrapper nodes that do not
+	// identify a failed schema keyword.
 	if ve.ErrorKind != nil {
 		kw := ve.ErrorKind.KeywordPath()
 		if len(kw) > 0 {

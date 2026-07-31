@@ -38,8 +38,12 @@ func TestFromContentType(t *testing.T) {
 		want Format
 	}{
 		{"application/json", FormatJSON},
+		{"application/problem+json; charset=utf-8", FormatJSON},
 		{"application/x-yaml", FormatYAML},
+		{"application/config+yaml; charset=utf-8", FormatYAML},
 		{"application/toml", FormatTOML},
+		{"application/not-jsonish", FormatUnknown},
+		{"invalid; content; type", FormatUnknown},
 		{"text/plain", FormatUnknown},
 	}
 

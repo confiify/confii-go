@@ -13,24 +13,21 @@ import (
 // NewGetCmd creates the 'get' command.
 func NewGetCmd() *cobra.Command {
 	var loaders []string
+	var environment string
 
 	cmd := &cobra.Command{
-		Use:   "get [env] <key>",
+		Use:   "get <key>",
 		Short: "Get a single configuration value",
-		Args:  cobra.RangeArgs(1, 2),
+		Args:  cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			env := ""
 			key := args[0]
-			if len(args) == 2 {
-				env, key = args[0], args[1]
-			}
 
-			cfg, err := buildConfig(env, loaders)
+			cfg, err := buildConfigWithContext(c.Context(), environment, loaders)
 			if err != nil {
 				return err
 			}
 
-			val, err := cfg.Get(key)
+			val, err := cfg.GetWithContext(c.Context(), key)
 			if err != nil {
 				return err
 			}
@@ -46,6 +43,7 @@ func NewGetCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringSliceVarP(&loaders, "loader", "l", nil, "Loader spec (type:source)")
+	cmd.Flags().StringSliceVarP(&loaders, "loader", "l", nil, loaderSpecHelp)
+	cmd.Flags().StringVarP(&environment, "environment", "e", "", "Override the active environment")
 	return cmd
 }

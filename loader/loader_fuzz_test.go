@@ -3,34 +3,6 @@
 
 package loader
 
-// This file fuzzes the file-format loaders (YAML, JSON, TOML).
-//
-// Beyond the implicit "does not panic" check that Go's fuzz harness
-// provides for free, each Fuzz target asserts the following semantic
-// invariants on the loader's return value:
-//
-//  1. Result/error exclusivity: Load must return either a non-nil result
-//     OR a non-nil error, never both. (A nil/nil pair is permitted because
-//     an empty file legitimately yields no configuration.)
-//  2. Typed errors: every non-nil error must be a *confii.ConfigError so
-//     callers can use errors.As / errors.Is reliably, and the underlying
-//     sentinel must be confii.ErrConfigLoad or confii.ErrConfigFormat.
-//  3. Self-merge safety: a successful parse must produce a value graph
-//     that DeepMerge(result, result) can recurse through without
-//     panicking. This catches any future regression where a parser
-//     yields cyclic or otherwise pathological structures.
-//  4. Self-merge idempotence: DeepMerge(result, result) must be value-equal
-//     to result, treating two IEEE NaN values of the same type as equivalent.
-//     This is a weaker form of full Encode/Parse round-trip but is uniform
-//     across YAML/JSON/TOML since all three decode to a map[string]any (with
-//     the documented caveat that nested values may have varying concrete
-//     types per format).
-//
-// Empty-string keys are intentionally NOT rejected here: JSON allows
-// "" as a key and YAML can produce an empty string key from a bare
-// `:` document; both are legal Go data, just pathological for
-// downstream flatten-by-dot consumers.
-
 import (
 	"context"
 	"errors"
@@ -40,23 +12,19 @@ import (
 	"reflect"
 	"testing"
 
-	confii "github.com/confiify/confii-go"
-	"github.com/confiify/confii-go/internal/dictutil"
+	confii "github.com/confiify/confii-go/v2"
+	"github.com/confiify/confii-go/v2/internal/dictutil"
 )
 
-// assertLoaderInvariants validates the four invariants documented above
-// on a single (result, err) pair. It is shared across the YAML/JSON/TOML
-// fuzz targets because they all return map[string]any.
 func assertLoaderInvariants(t *testing.T, result map[string]any, err error) {
 	t.Helper()
 
 	if err != nil {
-		// Invariant 1: result must be nil when err is non-nil.
+
 		if result != nil {
 			t.Fatalf("loader returned non-nil result with non-nil error: result=%v err=%v", result, err)
 		}
-		// Invariant 2: errors must be typed as *confii.ConfigError and
-		// wrap one of the documented sentinel errors.
+
 		var ce *confii.ConfigError
 		if !errors.As(err, &ce) {
 			t.Fatalf("loader error is not *confii.ConfigError: %T (%v)", err, err)
@@ -68,32 +36,17 @@ func assertLoaderInvariants(t *testing.T, result map[string]any, err error) {
 	}
 
 	if result == nil {
-		// Empty input legitimately yields no configuration.
+
 		return
 	}
 
-	// Invariant 3: the result must safely deep-merge with itself
-	// without panicking. A self-merge exercises any cyclic-graph
-	// landmines because DeepMerge recurses through nested
-	// map[string]any. (We do NOT require non-empty keys: JSON allows
-	// "" as a key and YAML can produce an empty string key from a bare
-	// `:` document; both are legal inputs whose loader output is
-	// well-formed Go data even if pathological for downstream
-	// flatten-by-dot consumers.)
 	merged := dictutil.DeepMerge(result, result)
 
-	// Invariant 4: idempotence under self-merge. DeepMerge(a, a) should
-	// be value-equal to a (modulo Go map iteration order, which
-	// reflect.DeepEqual handles correctly, except for IEEE NaN values.
-	// TOML permits NaN, so compare those as equivalent configuration values.
 	if !loaderValuesEqual(merged, result) {
 		t.Fatalf("DeepMerge(result, result) != result: result=%v merged=%v", result, merged)
 	}
 }
 
-// loaderValuesEqual applies reflect.DeepEqual semantics while treating two
-// IEEE NaN values of the same type as equivalent. TOML explicitly permits NaN,
-// whose language-level inequality to itself does not violate merge idempotence.
 func loaderValuesEqual(left, right any) bool {
 	if reflect.DeepEqual(left, right) {
 		return true

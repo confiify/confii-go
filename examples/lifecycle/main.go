@@ -10,14 +10,14 @@ import (
 	"fmt"
 	"log"
 
-	confii "github.com/confiify/confii-go"
-	"github.com/confiify/confii-go/loader"
+	confii "github.com/confiify/confii-go/v2"
+	"github.com/confiify/confii-go/v2/loader"
 )
 
 func main() {
 	ctx := context.Background()
 
-	cfg, err := confii.New[any](ctx,
+	cfg, err := confii.NewWithContext[any](ctx,
 		confii.WithLoaders(loader.NewYAML("config.yaml")),
 	)
 	if err != nil {
@@ -30,30 +30,41 @@ func main() {
 	})
 
 	// --- Set values ---
-	_ = cfg.Set("app.version", "2.0.0")
+	if err := cfg.Set("app.version", "2.0.0"); err != nil {
+		log.Fatal(err)
+	}
 
 	// Protected set (errors if key exists)
 	err = cfg.Set("app.name", "other", confii.WithOverride(false))
 	fmt.Println("Protected set error:", err) // ErrConfigFrozen or override error
 
 	// --- Temporary override ---
-	restore, _ := cfg.Override(map[string]any{"database.host": "test-db"})
-	host, _ := cfg.Get("database.host")
+	restore, err := cfg.Override(map[string]any{"database.host": "test-db"})
+	if err != nil {
+		log.Fatal(err)
+	}
+	host, err := cfg.Get("database.host")
+	if err != nil {
+		log.Fatal(err)
+	}
 	fmt.Println("Overridden host:", host) // test-db
 	restore()
-	host, _ = cfg.Get("database.host")
+	host, err = cfg.Get("database.host")
+	if err != nil {
+		log.Fatal(err)
+	}
 	fmt.Println("Restored host:", host) // localhost
 
 	// --- Reload ---
-	err = cfg.Reload(ctx)
+	err = cfg.ReloadWithContext(ctx)
 	fmt.Println("Reload error:", err)
 
 	// Incremental reload (only changed files)
-	err = cfg.Reload(ctx, confii.WithIncremental(true))
+	err = cfg.ReloadWithContext(ctx, confii.WithIncremental(true))
 	fmt.Println("Incremental reload error:", err)
 
 	// Dry run (validates without applying)
-	err = cfg.Reload(ctx, confii.WithDryRun(true))
+	err = cfg.ReloadWithContext(ctx, confii.WithDryRun(true))
 	fmt.Println("Dry run error:", err)
 
 	// --- Freeze ---

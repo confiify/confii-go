@@ -3,7 +3,10 @@
 
 package hook
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 func FuzzEnvExpanderHook(f *testing.F) {
 	seeds := []string{
@@ -28,7 +31,7 @@ func FuzzEnvExpanderHook(f *testing.F) {
 	hook := NewEnvExpanderHook()
 
 	f.Fuzz(func(t *testing.T, input string) {
-		// Must not panic for any input.
-		_ = hook("testkey", input)
+
+		_, _ = hook(context.Background(), "testkey", input)
 	})
 }

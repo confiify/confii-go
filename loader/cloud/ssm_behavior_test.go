@@ -3,27 +3,6 @@
 
 //go:build aws
 
-// Behavior tests for the AWS Systems Manager Parameter Store (SSM)
-// configuration loader.
-//
-// Provider: AWS SSM Parameter Store (loader/cloud/ssm.go).
-//
-// Fixture mechanism: protocol-level fixture via `httptest.NewServer`
-// returning canned `GetParametersByPath` JSON responses. The AWS SDK v2
-// uses JSON-RPC over HTTPS for SSM (X-Amz-Target header carrying the
-// operation name), so a plain `httptest` server suffices to simulate the
-// service. The test redirects the SDK to the fixture server with the
-// `AWS_ENDPOINT_URL_SSM` environment variable, which the SDK respects in
-// `config.LoadDefaultConfig` since v1.27.
-//
-// Build-tag gating: this file is gated by `//go:build aws`; the cloud module
-// owns the required AWS SDK versions. Upstream CI exercises it through the
-// same temporary consumer shape users install.
-//
-// Running locally as a consumer:
-//
-//	go test -tags aws -count=1 ./...
-
 package cloud
 
 import (
@@ -36,13 +15,10 @@ import (
 	"strings"
 	"testing"
 
-	confii "github.com/confiify/confii-go"
+	confii "github.com/confiify/confii-go/v2"
 	"github.com/stretchr/testify/require"
 )
 
-// ssmFixture wires a httptest server up as a fake SSM endpoint and
-// redirects the AWS SDK at it via env vars. The returned cleanup is
-// registered with t.Cleanup and the env is reset by t.Setenv.
 type ssmFixture struct {
 	server     *httptest.Server
 	lastTarget string
@@ -62,18 +38,13 @@ func newSSMFixture(t *testing.T, respond func(target string, body []byte, w http
 	}))
 	t.Cleanup(f.server.Close)
 
-	// Disable IMDS lookups so creds resolution stays hermetic.
 	t.Setenv("AWS_EC2_METADATA_DISABLED", "true")
-	// Force the SDK at our fixture server.
+
 	t.Setenv("AWS_ENDPOINT_URL_SSM", f.server.URL)
 	t.Setenv("AWS_ENDPOINT_URL", f.server.URL)
 	return f
 }
 
-// TestSSMLoader_Load_HappyPath_ReturnsParsedKeys verifies the success
-// path: the loader issues a GetParametersByPath, the fixture responds
-// with two parameters, and the loader nests them by "/" into the
-// returned map.
 func TestSSMLoader_Load_HappyPath_ReturnsParsedKeys(t *testing.T) {
 	f := newSSMFixture(t, func(target string, _ []byte, w http.ResponseWriter) {
 		if !strings.Contains(target, "GetParametersByPath") {
@@ -106,9 +77,7 @@ func TestSSMLoader_Load_HappyPath_ReturnsParsedKeys(t *testing.T) {
 	if db["host"] != "db.example.com" {
 		t.Errorf("db.host: got %#v, want %q", db["host"], "db.example.com")
 	}
-	// SSMLoader's Load calls typecoerce.ParseScalar, which converts
-	// numeric-looking strings to numbers; assert via stringification so
-	// the test does not depend on the exact numeric type.
+
 	if portStr := jsonStringify(db["port"]); portStr != "5432" {
 		t.Errorf("db.port: got %s, want 5432", portStr)
 	}
@@ -116,8 +85,7 @@ func TestSSMLoader_Load_HappyPath_ReturnsParsedKeys(t *testing.T) {
 	if !strings.Contains(f.lastTarget, "GetParametersByPath") {
 		t.Errorf("captured X-Amz-Target: got %q, want contains GetParametersByPath", f.lastTarget)
 	}
-	// Confirm the request body carried the configured prefix (with
-	// trailing slash appended by NewSSM).
+
 	if !strings.Contains(string(f.lastBody), "/myapp/") {
 		t.Errorf("captured body: got %q, want containing %q", string(f.lastBody), "/myapp/")
 	}
@@ -132,9 +100,6 @@ func TestSSMLoader_LoadCanceledContextWrapsConfigError(t *testing.T) {
 	require.ErrorIs(t, err, confii.ErrConfigLoad)
 }
 
-// TestSSMLoader_Load_ServerError_ReturnsConfigLoadError exercises the
-// 500 error path: the loader must wrap the SDK error in a ConfigError
-// tagged with ErrConfigLoad.
 func TestSSMLoader_Load_ServerError_ReturnsConfigLoadError(t *testing.T) {
 	_ = newSSMFixture(t, func(_ string, _ []byte, w http.ResponseWriter) {
 		w.Header().Set("Content-Type", "application/x-amz-json-1.1")
@@ -162,10 +127,6 @@ func TestSSMLoader_Load_ServerError_ReturnsConfigLoadError(t *testing.T) {
 	}
 }
 
-// TestSSMLoader_Load_EmptyResponse_ReturnsNil verifies the
-// "no parameters" path: the loader returns (nil, nil) when the response
-// is empty, matching the documented contract for "missing source =
-// empty contribution."
 func TestSSMLoader_Load_EmptyResponse_ReturnsNil(t *testing.T) {
 	_ = newSSMFixture(t, func(_ string, _ []byte, w http.ResponseWriter) {
 		w.Header().Set("Content-Type", "application/x-amz-json-1.1")
@@ -187,14 +148,6 @@ func TestSSMLoader_Load_EmptyResponse_ReturnsNil(t *testing.T) {
 	}
 }
 
-// TestSSMLoader_Load_MissingCredentials_StillReachesEndpoint exercises
-// the auth-plumbing path. With no credentials configured on the loader
-// AND no ambient credentials, the SDK should still attempt the request
-// against the configured endpoint (because the test fixture sits
-// "inside" AWS), and we assert that the request was issued. This guards
-// against regressions where the loader fails before contacting the
-// service when credentials are absent. (Production AWS would reject
-// such a request, but the fixture has no auth gate.)
 func TestSSMLoader_Load_MissingCredentials_StillReachesEndpoint(t *testing.T) {
 	called := false
 	f := newSSMFixture(t, func(_ string, _ []byte, w http.ResponseWriter) {
@@ -202,9 +155,7 @@ func TestSSMLoader_Load_MissingCredentials_StillReachesEndpoint(t *testing.T) {
 		w.Header().Set("Content-Type", "application/x-amz-json-1.1")
 		_ = json.NewEncoder(w).Encode(map[string]any{"Parameters": []map[string]any{}})
 	})
-	// Provide *anonymous* creds via env so the SDK signer doesn't fail
-	// on missing credentials before issuing the request. This is the
-	// minimal credential surface needed to exercise the transport path.
+
 	t.Setenv("AWS_ACCESS_KEY_ID", "anon")
 	t.Setenv("AWS_SECRET_ACCESS_KEY", "anon")
 
@@ -218,8 +169,6 @@ func TestSSMLoader_Load_MissingCredentials_StillReachesEndpoint(t *testing.T) {
 	_ = f
 }
 
-// jsonStringify renders v with json.Marshal so numeric/string scalars
-// can be compared without locking to a specific Go numeric type.
 func jsonStringify(v any) string {
 	b, _ := json.Marshal(v)
 	return string(b)

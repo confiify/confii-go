@@ -6,18 +6,15 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
 
-	confii "github.com/confiify/confii-go"
-	"github.com/confiify/confii-go/loader"
+	confii "github.com/confiify/confii-go/v2"
+	"github.com/confiify/confii-go/v2/loader"
 )
 
 func main() {
-	cfg, err := confii.New[any](context.Background(),
-		confii.WithLoaders(loader.NewYAML("../lifecycle/config.yaml")),
-	)
+	cfg, err := confii.New[any](confii.WithLoaders(loader.NewYAML("../lifecycle/config.yaml")))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -36,18 +33,28 @@ func main() {
 	fmt.Println("Saved version:", v1.VersionID)
 
 	// Make changes
-	_ = cfg.Set("app.debug", false)
-	_ = cfg.Set("database.host", "new-db.example.com")
+	if err := cfg.Set("app.debug", false); err != nil {
+		log.Fatal(err)
+	}
+	if err := cfg.Set("database.host", "new-db.example.com"); err != nil {
+		log.Fatal(err)
+	}
 
 	// Take another snapshot
-	v2, _ := cfg.SaveVersion(nil)
+	v2, err := cfg.SaveVersion(nil)
+	if err != nil {
+		log.Fatal(err)
+	}
 	fmt.Println("Saved version:", v2.VersionID)
 
 	// Compare versions
-	diffs, _ := vm.DiffVersions(v1.VersionID, v2.VersionID)
+	diffs, err := vm.DiffVersions(v1.VersionID, v2.VersionID)
+	if err != nil {
+		log.Fatal(err)
+	}
 	fmt.Printf("\nChanges between v1 and v2: %d\n", len(diffs))
 	for _, d := range diffs {
-		fmt.Printf("  %s: %s (%v -> %v)\n", d["path"], d["type"], d["old_value"], d["new_value"])
+		fmt.Printf("  %s: %s (%v -> %v)\n", d.Path, d.Type, d.OldValue, d.NewValue)
 	}
 
 	// List all versions
@@ -59,6 +66,9 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	host, _ := cfg.Get("database.host")
+	host, err := cfg.Get("database.host")
+	if err != nil {
+		log.Fatal(err)
+	}
 	fmt.Println("\nAfter rollback, host:", host) // localhost
 }

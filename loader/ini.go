@@ -9,38 +9,33 @@ import (
 	"log/slog"
 	"os"
 
-	confii "github.com/confiify/confii-go"
-	"github.com/confiify/confii-go/internal/typecoerce"
-	"gopkg.in/ini.v1"
+	confii "github.com/confiify/confii-go/v2"
+	"github.com/confiify/confii-go/v2/internal/configdecode"
+	"github.com/confiify/confii-go/v2/internal/formatparse"
 )
 
 // INILoader loads configuration from an INI file.
 // Each section becomes a top-level key; keys within sections are nested.
 //
-// Defaults-only convention (G19): keys that appear before any
+// Keys that appear before any
 // `[section]` header — including the `DEFAULT` pseudo-section produced
 // by `gopkg.in/ini.v1` for unsectioned key/value pairs — are promoted
-// to root-level keys of the returned map. Previously such files were
-// dropped because the loader unconditionally skipped the `DEFAULT`
-// section, leaving INI files like:
+// to root-level keys of the returned map. This supports INI files such as:
 //
 //	host = localhost
 //	port = 5432
 //
-// indistinguishable from an empty file. Root keys never collide with
-// sections in well-formed INI input; if a root key shares a name with
-// a sibling section, the section wins (it is parsed last) — this
-// preserves the historical "section becomes a top-level key" contract.
+// If a root key shares a name with a sibling section, the section wins
+// because sections are parsed after root keys.
 //
 // Absence of the configured file is governed by the loader's
-// [confii.ErrorPolicy] (default [confii.ErrorPolicyRaise]) (G07):
+// [confii.ErrorPolicy] (default [confii.ErrorPolicyRaise]):
 //
 //   - ErrorPolicyRaise:  Load returns a typed [*confii.ConfigError]
 //     wrapping [confii.ErrConfigLoad].
 //   - ErrorPolicyWarn:   the missing file is logged via the configured
 //     [*slog.Logger] and Load returns (nil, nil).
-//   - ErrorPolicyIgnore: the missing file is silently skipped (legacy
-//     pre-G07 behavior).
+//   - ErrorPolicyIgnore: the missing file is silently skipped.
 type INILoader struct {
 	source      string
 	errorPolicy confii.ErrorPolicy
@@ -58,7 +53,7 @@ func WithINIErrorPolicy(p confii.ErrorPolicy) INIOption {
 }
 
 // WithINILogger sets the logger used when the error policy is
-// [confii.ErrorPolicyWarn]. Nil is ignored. Defaults to [slog.Default].
+// [confii.ErrorPolicyWarn]. Nil is ignored. Defaults to [slog.Default()].
 func WithINILogger(logger *slog.Logger) INIOption {
 	return func(l *INILoader) {
 		if logger != nil {
@@ -73,7 +68,7 @@ func WithINILogger(logger *slog.Logger) INIOption {
 //
 // Top-level key/value pairs that appear before any `[section]` header
 // are surfaced as root-level keys of the returned configuration map;
-// see [INILoader] for the full defaults-only convention (G19).
+// see [INILoader] for the full defaults-only convention.
 func NewINI(path string, opts ...INIOption) *INILoader {
 	l := &INILoader{
 		source:      path,
@@ -93,42 +88,16 @@ func (l *INILoader) Source() string { return l.source }
 // sections as nested configuration maps. Failures are dispatched through
 // the loader's [confii.ErrorPolicy]; see [INILoader] for details.
 func (l *INILoader) Load(_ context.Context) (map[string]any, error) {
-	if _, err := os.Stat(l.source); err != nil {
+	data, err := os.ReadFile(l.source)
+	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return l.handleMissing(err)
 		}
 		return nil, confii.NewLoadError(l.source, err)
 	}
-
-	cfg, err := ini.Load(l.source)
+	result, err := configdecode.Map(data, formatparse.FormatINI)
 	if err != nil {
 		return nil, confii.NewFormatError(l.source, "ini", err)
-	}
-
-	result := make(map[string]any)
-	for _, section := range cfg.Sections() {
-		name := section.Name()
-		// G19: the gopkg.in/ini.v1 library reports a synthetic
-		// "DEFAULT" section that holds every key/value pair preceding
-		// the first explicit [section] header. Surface those keys as
-		// root-level entries of the result map instead of dropping
-		// them, so defaults-only INI files (and the leading block of
-		// mixed files) round-trip into the configuration.
-		if name == ini.DefaultSection {
-			for _, key := range section.Keys() {
-				result[key.Name()] = typecoerce.ParseScalar(key.Value(), false)
-			}
-			continue
-		}
-		sectionMap := make(map[string]any)
-		for _, key := range section.Keys() {
-			sectionMap[key.Name()] = typecoerce.ParseScalar(key.Value(), false)
-		}
-		result[name] = sectionMap
-	}
-
-	if len(result) == 0 {
-		return nil, nil
 	}
 	return result, nil
 }

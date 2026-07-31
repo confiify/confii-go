@@ -104,7 +104,7 @@ func TestResolveVersion(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			if got := resolveVersion(test.linkedVersion, test.buildInfo, test.buildInfoOK); got != test.want {
-				t.Fatalf("resolveVersion() = %q, want %q", got, test.want)
+				t.Fatalf("resolveVersion = %q, want %q", got, test.want)
 			}
 		})
 	}

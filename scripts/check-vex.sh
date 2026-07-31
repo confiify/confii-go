@@ -25,16 +25,19 @@ trap 'rm -rf "$workspace_dir"' EXIT HUP INT TERM
 	# go.mod file for an explicit, not-yet-published required version while it
 	# constructs the pruned module graph. Version-specific replacements keep
 	# those graph reads local without conflicting with the workspace modules.
-	root_version=$(awk '$1 == "github.com/confiify/confii-go" { print $2; exit }' \
+	root_module=github.com/confiify/confii-go/v2
+	loader_module=github.com/confiify/confii-go/loader/cloud/v2
+	secret_module=github.com/confiify/confii-go/secret/cloud/v2
+	root_version=$(awk -v module="$root_module" '$1 == module { print $2; exit }' \
 		"$repo_root/loader/cloud/go.mod")
-	loader_version=$(awk '$1 == "github.com/confiify/confii-go/loader/cloud" { print $2; exit }' \
+	loader_version=$(awk -v module="$loader_module" '$1 == module { print $2; exit }' \
 		"$repo_root/examples/cloud/go.mod")
-	secret_version=$(awk '$1 == "github.com/confiify/confii-go/secret/cloud" { print $2; exit }' \
+	secret_version=$(awk -v module="$secret_module" '$1 == module { print $2; exit }' \
 		"$repo_root/examples/cloud/go.mod")
 	go work edit \
-		-replace="github.com/confiify/confii-go@$root_version=$repo_root" \
-		-replace="github.com/confiify/confii-go/loader/cloud@$loader_version=$repo_root/loader/cloud" \
-		-replace="github.com/confiify/confii-go/secret/cloud@$secret_version=$repo_root/secret/cloud"
+		-replace="$root_module@$root_version=$repo_root" \
+		-replace="$loader_module@$loader_version=$repo_root/loader/cloud" \
+		-replace="$secret_module@$secret_version=$repo_root/secret/cloud"
 )
 workspace_file="$workspace_dir/go.work"
 
@@ -134,9 +137,9 @@ done
 
 component_purl="pkg:golang/golang.org/x/crypto@$crypto_version"
 for product_purl in \
-	"pkg:golang/github.com/confiify/confii-go" \
-	"pkg:golang/github.com/confiify/confii-go/loader/cloud" \
-	"pkg:golang/github.com/confiify/confii-go/secret/cloud" \
+	"pkg:golang/github.com/confiify/confii-go/v2" \
+	"pkg:golang/github.com/confiify/confii-go/loader/cloud/v2" \
+	"pkg:golang/github.com/confiify/confii-go/secret/cloud/v2" \
 	"pkg:golang/github.com/confiify/confii-go/examples/cloud"
 do
 	jq -e --arg product "$product_purl" --arg component "$component_purl" '
@@ -149,6 +152,61 @@ do
 		echo "GO-2026-5932 VEX is stale for $product_purl and $component_purl" >&2
 		exit 1
 	}
+done
+
+aws_s3crypto_vex="$vex_dir/GO-2022-0635-GO-2022-0646.openvex.json"
+[ -f "$aws_s3crypto_vex" ] || {
+	echo "AWS S3 crypto advisories require $aws_s3crypto_vex" >&2
+	exit 1
+}
+
+aws_sdk_version=""
+for manifest in \
+	"$repo_root/secret/cloud/go.mod" \
+	"$repo_root/examples/cloud/go.mod"
+do
+	version=$(awk '$1 == "github.com/aws/aws-sdk-go" { print $2; exit }' "$manifest")
+	[ -n "$version" ] || {
+		echo "$manifest does not declare github.com/aws/aws-sdk-go" >&2
+		exit 1
+	}
+	if [ -z "$aws_sdk_version" ]; then
+		aws_sdk_version=$version
+	elif [ "$version" != "$aws_sdk_version" ]; then
+		echo "github.com/aws/aws-sdk-go versions are not synchronized across affected modules" >&2
+		exit 1
+	fi
+done
+
+aws_component_purl="pkg:golang/github.com/aws/aws-sdk-go@$aws_sdk_version"
+for vuln_id in GO-2022-0635 GO-2022-0646; do
+	jq -e --arg id "$vuln_id" '
+		[.statements[] |
+		 select(.vulnerability.name == $id and
+		        .status == "not_affected" and
+		        .justification == "vulnerable_code_not_present")]
+		| length == 1
+	' "$aws_s3crypto_vex" >/dev/null || {
+		echo "$vuln_id requires exactly one not_affected vulnerable_code_not_present statement" >&2
+		exit 1
+	}
+
+	for product_purl in \
+		"pkg:golang/github.com/confiify/confii-go/secret/cloud/v2" \
+		"pkg:golang/github.com/confiify/confii-go/examples/cloud"
+	do
+		jq -e --arg id "$vuln_id" --arg product "$product_purl" \
+			--arg component "$aws_component_purl" '
+			any(.statements[] |
+				select(.vulnerability.name == $id) |
+				.products[]?;
+				.["@id"] == $product and
+				any(.subcomponents[]?; .["@id"] == $component))
+		' "$aws_s3crypto_vex" >/dev/null || {
+			echo "$vuln_id VEX is stale for $product_purl and $aws_component_purl" >&2
+			exit 1
+		}
+	done
 done
 
 check_no_openpgp_dependency() {
@@ -169,5 +227,19 @@ check_no_openpgp_dependency "$repo_root" ""
 check_no_openpgp_dependency "$repo_root/loader/cloud" "aws,azure,gcp,ibm"
 check_no_openpgp_dependency "$repo_root/secret/cloud" "aws,azure,gcp,vault"
 check_no_openpgp_dependency "$repo_root/examples/cloud" "aws,azure,gcp,vault,ibm"
+
+check_no_aws_s3crypto_dependency() {
+	module_dir=$1
+	tags=$2
+	deps=$(cd "$module_dir" && GOWORK="$workspace_file" go list -deps -tags "$tags" ./...)
+	if printf '%s\n' "$deps" |
+		grep -Eq '^github\.com/aws/aws-sdk-go/service/s3/s3crypto(/|$)'; then
+		echo "AWS S3 crypto vulnerable code is present in $module_dir dependency graph" >&2
+		exit 1
+	fi
+}
+
+check_no_aws_s3crypto_dependency "$repo_root/secret/cloud" "vault"
+check_no_aws_s3crypto_dependency "$repo_root/examples/cloud" "vault"
 
 echo "OpenVEX metadata is valid and every OSV suppression is accounted for"

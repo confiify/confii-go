@@ -5,7 +5,7 @@ cloud storage -- all through a unified `Loader` interface. Sources are loaded in
 order: **later loaders override earlier ones** when deep merge is enabled.
 
 ```go
-cfg, err := confii.New[any](ctx,
+cfg, err := confii.NewWithContext[any](ctx,
     confii.WithLoaders(
         loader.NewYAML("config/base.yaml"),       // loaded first (lowest priority)
         loader.NewJSON("config/overrides.json"),   // overrides base
@@ -13,6 +13,25 @@ cfg, err := confii.New[any](ctx,
     ),
 )
 ```
+
+The same core loaders can be declared in the ordered `sources` list:
+
+```yaml title=".confii.yaml"
+sources:
+  - type: yaml
+    path: config/base.yml
+  - type: dotenv
+    path: .env.local
+  - type: environment
+    prefix: APP
+```
+
+Core declarative types have one canonical spelling: `yaml`, `json`, `toml`,
+`ini`, `dotenv`, `environment`, and `environment_files`. The type selects the
+parser and must agree with the path. Extensions remain conventional, so YAML
+accepts `.yaml` and `.yml`, INI accepts `.ini` and `.cfg`, and dotenv accepts
+`.env`, `.env.*`, and `*.env`. See the
+[canonical source-type reference](configuration.md#canonical-source-types).
 
 ---
 
@@ -23,7 +42,7 @@ Confii supports five file formats out of the box with no build tags required.
 ### YAML
 
 ```go
-import "github.com/confiify/confii-go/loader"
+import "github.com/confiify/confii-go/v2/loader"
 
 l := loader.NewYAML("config.yaml")
 ```
@@ -88,8 +107,14 @@ DATABASE_PORT=5432
 DEBUG=true
 ```
 
+Dotenv parsing follows godotenv's quoting, comment, `export`, multiline, and
+variable-expansion grammar. Confii then converts unambiguous scalar values and
+maps dot-separated names such as `database.host` into nested configuration.
+Malformed records follow `WithEnvFileErrorPolicy`; warning logs identify the
+source and line without logging the record's potentially sensitive content.
+
 !!! tip "Combining file formats"
-    You can mix formats freely. A common pattern is to use YAML for the main
+    A project may combine source formats. A common pattern uses YAML for the main
     config, JSON for machine-generated overrides, and `.env` for local secrets:
 
     ```go
@@ -149,7 +174,7 @@ With `WithSeparator("_")`, `APP_DATABASE_HOST` maps to `database.host`.
 
 ### Using WithEnvPrefix
 
-As a shorthand, you can use `confii.WithEnvPrefix` instead of explicitly adding
+`confii.WithEnvPrefix` is shorthand for explicitly adding
 an `EnvironmentLoader`:
 
 ```go
@@ -173,7 +198,7 @@ confii.WithEnvPrefix("APP")
 === "Go"
 
     ```go
-    cfg, err := confii.New[any](ctx,
+    cfg, err := confii.NewWithContext[any](ctx,
         confii.WithLoaders(
             loader.NewYAML("config.yaml"),
             loader.NewEnvironment("APP"),      // overrides YAML values
@@ -192,7 +217,7 @@ Load configuration from any HTTP or HTTPS endpoint. The response body is
 auto-detected as JSON or YAML based on the `Content-Type` header.
 
 ```go
-import "github.com/confiify/confii-go/loader"
+import "github.com/confiify/confii-go/v2/loader"
 
 l := loader.NewHTTP("https://config.example.com/api/v1/config")
 ```
@@ -202,6 +227,8 @@ l := loader.NewHTTP("https://config.example.com/api/v1/config")
 | Option | Description | Default |
 | --- | --- | --- |
 | `loader.WithTimeout(d)` | HTTP request timeout | `30s` |
+| `loader.WithHTTPClient(client)` | Copy a custom client, transport, redirect policy, and cookie jar | standard client |
+| `loader.WithMaxResponseBytes(n)` | Maximum accepted response body size | `8 MiB` |
 | `loader.WithHeaders(map)` | Custom request headers | none |
 | `loader.WithBasicAuth(user, pass)` | HTTP Basic Authentication | none |
 
@@ -247,6 +274,11 @@ l := loader.NewHTTP("https://config.example.com/api/v1/config")
     format. If the header is missing or ambiguous, it falls back to parsing the
     URL extension (`.json`, `.yaml`, `.yml`, `.toml`). JSON and YAML are
     attempted in order if no format can be determined.
+
+!!! warning "Bounded responses"
+    The loader rejects bodies larger than 8 MiB before parsing. Increase the
+    limit explicitly only for a trusted endpoint whose configuration document
+    is expected to be larger.
 
 ---
 
@@ -312,11 +344,14 @@ go build -tags "aws,azure,gcp,ibm"
 
 The Git loader fetches configuration from a file in a GitHub or GitLab
 repository via raw content URLs. Install
-`github.com/confiify/confii-go/loader/cloud` first; it does **not** require any
-build tag.
+`github.com/confiify/confii-go/loader/cloud/v2` first; it does **not** require any
+build tag. Repository URLs must use HTTPS and the exact public host
+`github.com` or `gitlab.com`; embedded credentials, custom ports, query
+strings, fragments, and traversal segments are rejected before a private
+repository token is attached to the provider-specific raw endpoint.
 
 ```go
-import "github.com/confiify/confii-go/loader/cloud"
+import "github.com/confiify/confii-go/loader/cloud/v2"
 
 l := cloud.NewGit(
     "https://github.com/myorg/config-repo",
@@ -349,7 +384,7 @@ Loads a config file from an S3 bucket. Requires build tag `aws`.
 ```go
 //go:build aws
 
-import "github.com/confiify/confii-go/loader/cloud"
+import "github.com/confiify/confii-go/loader/cloud/v2"
 
 l, err := cloud.NewS3("s3://my-bucket/config/app.yaml")
 ```
@@ -386,7 +421,7 @@ Requires build tag `aws`.
 ```go
 //go:build aws
 
-import "github.com/confiify/confii-go/loader/cloud"
+import "github.com/confiify/confii-go/loader/cloud/v2"
 
 l := cloud.NewSSM("/myapp/production/")
 ```
@@ -419,7 +454,7 @@ Loads a config file from Azure Blob Storage. Requires build tag `azure`.
 ```go
 //go:build azure
 
-import "github.com/confiify/confii-go/loader/cloud"
+import "github.com/confiify/confii-go/loader/cloud/v2"
 
 l := cloud.NewAzureBlob(
     "https://myaccount.blob.core.windows.net/configs",
@@ -457,7 +492,7 @@ Loads a config file from a GCS bucket. Requires build tag `gcp`.
 ```go
 //go:build gcp
 
-import "github.com/confiify/confii-go/loader/cloud"
+import "github.com/confiify/confii-go/loader/cloud/v2"
 
 l := cloud.NewGCS("my-bucket", "config/app.yaml")
 ```
@@ -485,7 +520,7 @@ Loads a config file from IBM COS. Requires build tag `ibm`.
 ```go
 //go:build ibm
 
-import "github.com/confiify/confii-go/loader/cloud"
+import "github.com/confiify/confii-go/loader/cloud/v2"
 
 l := cloud.NewIBMCOS(/* ... */)
 ```
@@ -498,7 +533,7 @@ When multiple loaders are configured, they are processed **in order**. Each
 subsequent loader's data is merged on top of the previous result.
 
 ```go
-cfg, err := confii.New[any](ctx,
+cfg, err := confii.NewWithContext[any](ctx,
     confii.WithLoaders(
         loader.NewYAML("config/base.yaml"),       // 1. Base config
         loader.NewYAML("config/prod.yaml"),        // 2. Env-specific overrides
@@ -516,7 +551,7 @@ base.yaml  <--merged--  prod.yaml  <--merged--  .env  <--merged--  APP_* env var
 ```
 
 !!! note "Deep merge is the default"
-    With `WithDeepMerge(true)` (the default), nested maps are merged recursively.
+    With `WithMergeStrategy(confii.StrategyMerge)` (the default), nested maps are merged recursively.
     A later source only needs to specify the keys it wants to override -- all
     other keys from earlier sources are preserved.
 
@@ -566,7 +601,7 @@ base.yaml  <--merged--  prod.yaml  <--merged--  .env  <--merged--  APP_* env var
     ```
 
 !!! warning "Shallow merge replaces entire sections"
-    With `WithDeepMerge(false)`, a later source that defines `database` will
+    With `WithMergeStrategy(confii.StrategyShallowMerge)`, a later source that defines `database` will
     replace the **entire** `database` map from earlier sources. Only use shallow
     merge if you understand this behavior and want full section replacement.
 
@@ -594,11 +629,11 @@ confii.WithLoaders(
 
 ## Runtime Source Extension
 
-You can add new sources after initialization without reloading everything:
+New sources may be added after initialization without a full reload:
 
 ```go
 // Add a new source at runtime
-cfg.Extend(ctx, loader.NewJSON("hotfix-config.json"))
+cfg.ExtendWithContext(ctx, loader.NewJSON("hotfix-config.json"))
 ```
 
 The extended source is merged on top of the existing configuration using the
@@ -608,7 +643,7 @@ same merge strategy.
 
 ## Custom Loaders
 
-Implement the `Loader` interface to create your own source:
+Implement the `Loader` interface to provide a custom source:
 
 ```go
 type Loader interface {
@@ -651,7 +686,7 @@ func (l *RedisLoader) Source() string {
 ```
 
 ```go
-cfg, err := confii.New[any](ctx,
+cfg, err := confii.NewWithContext[any](ctx,
     confii.WithLoaders(
         loader.NewYAML("config.yaml"),
         &RedisLoader{client: rdb, key: "app:config"},

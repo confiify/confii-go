@@ -25,8 +25,8 @@ already has a repository.
 Add Confii to this application's module and install the `confii` executable:
 
 ```bash
-go get github.com/confiify/confii-go@latest
-go install github.com/confiify/confii-go/confii@latest
+go get github.com/confiify/confii-go/v2@latest
+go install github.com/confiify/confii-go/v2/confii@latest
 confii --version
 ```
 
@@ -43,14 +43,16 @@ Run the guided initializer:
 confii init
 ```
 
-It asks how you want to organize environments:
+It asks how you want to organize environments and whether the self-config
+should use YAML (recommended), JSON, or TOML:
 
 1. **Separate files (recommended)** — shared values in `config/default.yaml`,
    with small overrides such as `config/development.yaml` and
    `config/production.yaml`.
 2. **One sectioned file** — `config/application.yaml` contains `default`,
    `development`, and `production` sections.
-3. **Self-configuration only** — create `.confii.yaml` without starter data.
+3. **Self-configuration only** — create only the selected self-config format
+   without starter data.
 
 The rest of this guide uses the recommended separate-file layout. To produce it
 without a prompt, including a staging environment, run:
@@ -58,6 +60,7 @@ without a prompt, including a staging environment, run:
 ```bash
 confii init --non-interactive \
   --strategy named-files \
+  --format yaml \
   --environments development,staging,production
 ```
 
@@ -73,7 +76,7 @@ my-service/
     └── production.yaml
 ```
 
-`.confii.yaml` is the project's control plane. It selects the active environment,
+The `.confii.<format>` file is the project's control plane. It selects the active environment,
 declares the files to load, and exposes every supported startup decision as a
 documented setting. The generated file is ready to use; the active fragment is:
 
@@ -124,6 +127,12 @@ log:
     layout, so review obsolete configuration files manually after changing
     strategies.
 
+To override Confii's own behavior by environment, add a same-family,
+same-format overlay such as `.confii.production.yaml`. Confii loads the base
+first and recursively overlays the file selected by `APP_ENV` (or the configured
+fallback environment). It rejects mixed hidden/visible families and mixed
+formats instead of guessing precedence.
+
 ## 4. Inspect and select the environment
 
 First confirm which environment is effective and which choices were generated:
@@ -154,7 +163,7 @@ The production plan contains two ordered layers:
 2. config/production.yaml
 ```
 
-You can also inspect the fully merged result:
+Inspect the fully merged result with:
 
 ```bash
 confii load
@@ -172,28 +181,27 @@ Create `main.go`:
 package main
 
 import (
-    "context"
     "fmt"
     "log"
 
-    confii "github.com/confiify/confii-go"
+    confii "github.com/confiify/confii-go/v2"
 )
 
 type AppConfig struct {
     App struct {
-        Name string `mapstructure:"name"`
-    } `mapstructure:"app"`
+        Name string `confii:"name"`
+    } `confii:"app"`
     Server struct {
-        Host string `mapstructure:"host"`
-        Port int    `mapstructure:"port"`
-    } `mapstructure:"server"`
+        Host string `confii:"host"`
+        Port int    `confii:"port"`
+    } `confii:"server"`
     Log struct {
-        Level string `mapstructure:"level"`
-    } `mapstructure:"log"`
+        Level string `confii:"level"`
+    } `confii:"log"`
 }
 
 func main() {
-    cfg, err := confii.New[AppConfig](context.Background())
+    cfg, err := confii.New[AppConfig]()
     if err != nil {
         log.Fatal(err)
     }
@@ -213,6 +221,9 @@ func main() {
 ```
 
 There are no loader paths or environment names in the Go code. `confii.New`
+uses an implicit startup context with a 60-second safety deadline. Use
+`confii.NewWithContext[AppConfig](ctx)` only when initialization should inherit a
+caller's cancellation, values, or deadline.
 discovers `.confii.yaml`, and explicit `confii.With*` options remain available
 when an application must override a project default.
 
@@ -259,7 +270,7 @@ confii init --non-interactive --strategy sectioned
 
 Confii generates `config/application.yaml` with `default`, `development`, and
 `production` sections. The Go integration remains exactly
-`confii.New[AppConfig](ctx)`. Pick one environment model for normal operation;
+`confii.NewWithContext[AppConfig](ctx)`. Pick one environment model for normal operation;
 the explicit `hybrid` strategy is intended for controlled migrations, not as a
 default project structure.
 

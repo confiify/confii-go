@@ -4,8 +4,6 @@
 // Package merge provides configuration merging strategies.
 package merge
 
-import "github.com/confiify/confii-go/internal/dictutil"
-
 // Strategy defines how two configuration maps are combined.
 type Strategy int
 
@@ -16,16 +14,17 @@ const (
 	// individual shared keys still apply, so "default Replace, but
 	// DeepMerge under path X" remains expressible.
 	Replace Strategy = iota
+	// ShallowMerge preserves top-level base keys while overlay values replace
+	// shared keys without recursively combining nested maps.
+	ShallowMerge
 	// DeepMergeStrategy recursively merges nested maps; non-map type
 	// mismatches at a given key fall back to Replace.
 	DeepMergeStrategy
-	// Append appends overlay list items after base list items. On any
-	// type mismatch (either side is not a list) Append falls back to
-	// Replace and returns the overlay verbatim instead of silently
-	// coercing scalars to single-element lists.
+	// Append appends overlay items after base items. Non-list operands are
+	// treated as one-element lists.
 	Append
-	// Prepend prepends overlay list items before base list items.
-	// Type-mismatch behavior matches Append.
+	// Prepend prepends overlay items before base items. Non-list operands are
+	// treated as one-element lists.
 	Prepend
 	// Intersection keeps only keys present in both configs whose values
 	// are equal scalars or whose nested maps have a non-empty
@@ -37,32 +36,18 @@ const (
 	Union
 )
 
-// Merger combines two configuration maps.
+// Merger combines base with a higher-precedence overlay. Implementations must
+// document whether returned maps alias either input; Confii's built-in mergers
+// return independent map structure.
 type Merger interface {
 	Merge(base, overlay map[string]any) map[string]any
 }
 
-// DefaultMerger merges configurations using shallow or deep merge.
-type DefaultMerger struct {
-	DeepMerge bool
-}
-
-// NewDefault creates a DefaultMerger. When deepMerge is true, nested maps
-// are recursively merged; otherwise top-level keys are replaced.
-func NewDefault(deepMerge bool) *DefaultMerger {
-	return &DefaultMerger{DeepMerge: deepMerge}
-}
-
-// Merge combines base and overlay configuration maps using the configured strategy.
-func (m *DefaultMerger) Merge(base, overlay map[string]any) map[string]any {
-	if m.DeepMerge {
-		return dictutil.DeepMerge(base, overlay)
-	}
-	return dictutil.ShallowMerge(base, overlay)
-}
-
-// MergeAll merges multiple configurations in order using the given merger.
-// Later configs override earlier ones.
+// MergeAll merges configs from lowest to highest precedence. Nil configurations
+// are skipped, and no inputs returns a new empty map. merger must be non-nil
+// when two or more non-nil configurations require combination. Whether the
+// result aliases an input depends on the Merger implementation; in particular,
+// a single input is returned directly.
 func MergeAll(merger Merger, configs ...map[string]any) map[string]any {
 	if len(configs) == 0 {
 		return make(map[string]any)

@@ -8,14 +8,10 @@ import (
 	"errors"
 	"testing"
 
-	confii "github.com/confiify/confii-go"
+	confii "github.com/confiify/confii-go/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-// ---------------------------------------------------------------------------
-// EnvStore with options
-// ---------------------------------------------------------------------------
 
 func TestEnvStore_WithSuffix(t *testing.T) {
 	t.Setenv("DB_PASSWORD_SECRET", "pass123")
@@ -47,7 +43,7 @@ func TestEnvStore_WithTransformKeyFalse(t *testing.T) {
 func TestEnvStore_TransformKey_ReplacesSpecialChars(t *testing.T) {
 	t.Setenv("MY_SECRET_KEY", "transformed")
 
-	s := NewEnvStore() // transformKey=true by default
+	s := NewEnvStore()
 	val, err := s.GetSecret(context.Background(), "my-secret.key")
 	require.NoError(t, err)
 	assert.Equal(t, "transformed", val)
@@ -70,25 +66,17 @@ func TestEnvStore_SetSecret_FormatsValue(t *testing.T) {
 	s := NewEnvStore()
 	ctx := context.Background()
 
-	// Set with a non-string value (int).
 	require.NoError(t, s.SetSecret(ctx, "test/num", 42))
 	val, err := s.GetSecret(ctx, "test/num")
 	require.NoError(t, err)
 	assert.Equal(t, "42", val)
 }
 
-// ---------------------------------------------------------------------------
-// MultiStore with options
-// ---------------------------------------------------------------------------
-
-func TestMultiStore_WithFailOnMissing_False(t *testing.T) {
-	multi := NewMultiStore(
-		[]confii.SecretStore{NewDictStore(nil)},
-		WithFailOnMissing(false),
-	)
+func TestMultiStore_MissingIsTypedError(t *testing.T) {
+	multi := NewMultiStore([]confii.SecretStore{NewDictStore(nil)})
 
 	val, err := multi.GetSecret(context.Background(), "missing")
-	require.NoError(t, err)
+	require.ErrorIs(t, err, confii.ErrSecretNotFound)
 	assert.Nil(t, val)
 }
 
@@ -96,15 +84,13 @@ func TestMultiStore_WriteToAll(t *testing.T) {
 	primary := NewDictStore(nil)
 	secondary := NewDictStore(nil)
 
-	multi := NewMultiStore(
-		[]confii.SecretStore{primary, secondary},
+	multi := NewMultiStore([]confii.SecretStore{primary, secondary},
 		WithWriteToFirst(false),
 	)
 	ctx := context.Background()
 
 	require.NoError(t, multi.SetSecret(ctx, "shared-key", "shared-value"))
 
-	// Both stores should have the value.
 	val1, err := primary.GetSecret(ctx, "shared-key")
 	require.NoError(t, err)
 	assert.Equal(t, "shared-value", val1)
@@ -118,19 +104,16 @@ func TestMultiStore_DeleteToFirst(t *testing.T) {
 	primary := NewDictStore(map[string]any{"key": "primary"})
 	secondary := NewDictStore(map[string]any{"key": "secondary"})
 
-	multi := NewMultiStore(
-		[]confii.SecretStore{primary, secondary},
+	multi := NewMultiStore([]confii.SecretStore{primary, secondary},
 		WithWriteToFirst(true),
 	)
 	ctx := context.Background()
 
 	require.NoError(t, multi.DeleteSecret(ctx, "key"))
 
-	// Should be deleted from primary.
 	_, err := primary.GetSecret(ctx, "key")
 	assert.True(t, errors.Is(err, confii.ErrSecretNotFound))
 
-	// Secondary should still have it.
 	val, err := secondary.GetSecret(ctx, "key")
 	require.NoError(t, err)
 	assert.Equal(t, "secondary", val)
@@ -140,8 +123,7 @@ func TestMultiStore_DeleteToAll(t *testing.T) {
 	primary := NewDictStore(map[string]any{"key": "primary"})
 	secondary := NewDictStore(map[string]any{"key": "secondary"})
 
-	multi := NewMultiStore(
-		[]confii.SecretStore{primary, secondary},
+	multi := NewMultiStore([]confii.SecretStore{primary, secondary},
 		WithWriteToFirst(false),
 	)
 	ctx := context.Background()
@@ -161,16 +143,10 @@ func TestMultiStore_EmptyStores(t *testing.T) {
 	_, err := multi.GetSecret(ctx, "key")
 	assert.True(t, errors.Is(err, confii.ErrSecretNotFound))
 
-	// SetSecret with writeToFirst=true but no stores should not panic.
 	assert.NoError(t, multi.SetSecret(ctx, "key", "value"))
 
-	// DeleteSecret same.
 	assert.NoError(t, multi.DeleteSecret(ctx, "key"))
 }
-
-// ---------------------------------------------------------------------------
-// DictStore extra methods
-// ---------------------------------------------------------------------------
 
 func TestDictStore_Len_AfterOperations(t *testing.T) {
 	s := NewDictStore(map[string]any{"a": 1, "b": 2, "c": 3})
@@ -188,7 +164,6 @@ func TestDictStore_Clear_ThenReadWrite(t *testing.T) {
 	s.Clear()
 	assert.Equal(t, 0, s.Len())
 
-	// Can still write after clear.
 	_ = s.SetSecret(context.Background(), "b", 2)
 	assert.Equal(t, 1, s.Len())
 
@@ -209,8 +184,6 @@ func TestDictStore_VersionOutOfRange(t *testing.T) {
 	ctx := context.Background()
 	_ = s.SetSecret(ctx, "key", "v1")
 
-	// Version 99 is out of range. We must NOT silently fall through to the
-	// current value; the caller asked for a specific version and got nothing.
 	val, err := s.GetSecret(ctx, "key", confii.WithVersion("99"))
 	assert.Nil(t, val)
 	require.Error(t, err)
@@ -223,7 +196,6 @@ func TestDictStore_VersionInvalidFormat(t *testing.T) {
 	ctx := context.Background()
 	_ = s.SetSecret(ctx, "key", "v1")
 
-	// Non-numeric version string: also a not-found, not a fallthrough.
 	val, err := s.GetSecret(ctx, "key", confii.WithVersion("abc"))
 	assert.Nil(t, val)
 	require.Error(t, err)
@@ -231,8 +203,6 @@ func TestDictStore_VersionInvalidFormat(t *testing.T) {
 		"unparseable version should yield ErrSecretNotFound, got %v", err)
 }
 
-// TestDictStore_VersionNegative covers the historical panic on negative
-// indexes: previously fmt.Sscanf accepted "-1" and the slice access blew up.
 func TestDictStore_VersionNegative(t *testing.T) {
 	s := NewDictStore(nil)
 	ctx := context.Background()
@@ -245,11 +215,8 @@ func TestDictStore_VersionNegative(t *testing.T) {
 		"negative version should yield ErrSecretNotFound, got %v", err)
 }
 
-// TestDictStore_VersionNoHistory covers requesting a version on a key that
-// only exists in the current-secrets map (no recorded version history). It
-// must not fall through to the current value either.
 func TestDictStore_VersionNoHistory(t *testing.T) {
-	// Seed via the constructor so the key has no version history.
+
 	s := NewDictStore(map[string]any{"key": "current"})
 	ctx := context.Background()
 
@@ -259,10 +226,6 @@ func TestDictStore_VersionNoHistory(t *testing.T) {
 	assert.True(t, errors.Is(err, confii.ErrSecretNotFound),
 		"version request against no-history key should yield ErrSecretNotFound, got %v", err)
 }
-
-// ---------------------------------------------------------------------------
-// Resolver edge cases
-// ---------------------------------------------------------------------------
 
 func TestResolver_CacheDisabled(t *testing.T) {
 	store := NewDictStore(map[string]any{"key": "value"})
@@ -290,7 +253,7 @@ func TestResolver_CacheStats_Keys(t *testing.T) {
 }
 
 func TestResolver_Prefetch_Error(t *testing.T) {
-	store := NewDictStore(nil) // empty store
+	store := NewDictStore(nil)
 	r := NewResolver(store)
 
 	err := r.Prefetch(context.Background(), []string{"missing"})
@@ -305,11 +268,10 @@ func TestResolver_Prefetch_PopulatesCache(t *testing.T) {
 	stats := r.CacheStats()
 	assert.Equal(t, 2, stats["size"])
 
-	// Verify cached values are used.
 	_ = store.DeleteSecret(context.Background(), "a")
 	got, err := r.Resolve(context.Background(), "${secret:a}")
 	require.NoError(t, err)
-	assert.Equal(t, "va", got) // from cache
+	assert.Equal(t, "va", got)
 }
 
 func TestResolver_ExtractPath_Error(t *testing.T) {
@@ -342,12 +304,13 @@ func TestResolver_NoPlaceholder(t *testing.T) {
 }
 
 func TestResolver_Hook_ErrorLeavesUnchanged(t *testing.T) {
-	store := NewDictStore(nil) // empty, so any secret lookup fails
-	r := NewResolver(store, WithResolverFailOnMissing(false))
+	store := NewDictStore(nil)
+	r := NewResolver(store)
 
 	h := r.Hook()
-	// Should return original string when resolution fails.
-	got := h("key", "${secret:missing}")
+
+	got, err := h(context.Background(), "key", "${secret:missing}")
+	require.ErrorIs(t, err, confii.ErrSecretNotFound)
 	assert.Equal(t, "${secret:missing}", got)
 }
 
@@ -360,14 +323,10 @@ func TestResolver_Version_InPlaceholder(t *testing.T) {
 
 	r := NewResolver(store, WithCache(false))
 
-	// Latest (no version captured) returns the current value.
 	got, err := r.Resolve(ctx, "${secret:db/pass}")
 	require.NoError(t, err)
 	assert.Equal(t, "v2", got)
 
-	// ${secret:key::version} (empty json path, explicit version) — this is
-	// the form the regex previously rejected; it must now resolve to the
-	// requested historical version.
 	got, err = r.Resolve(ctx, "${secret:db/pass::0}")
 	require.NoError(t, err)
 	assert.Equal(t, "v0", got)
@@ -377,28 +336,18 @@ func TestResolver_Version_InPlaceholder(t *testing.T) {
 	assert.Equal(t, "v1", got)
 }
 
-// ---------------------------------------------------------------------------
-// MultiStore with non-not-found error (logs warning)
-// ---------------------------------------------------------------------------
-
 func TestMultiStore_GetSecret_NonNotFoundError(t *testing.T) {
-	// DictStore always returns ErrSecretNotFound, but let's test with
-	// a store that returns a different error by using the second store.
+
 	store1 := NewDictStore(nil)
 	store2 := NewDictStore(map[string]any{"key": "from-secondary"})
 
 	multi := NewMultiStore([]confii.SecretStore{store1, store2})
 	ctx := context.Background()
 
-	// store1 returns ErrSecretNotFound, falls through to store2.
 	val, err := multi.GetSecret(ctx, "key")
 	require.NoError(t, err)
 	assert.Equal(t, "from-secondary", val)
 }
-
-// ===========================================================================
-// failingStore returns errors for all operations (non-ErrSecretNotFound)
-// ===========================================================================
 
 type failingStore struct {
 	err error
@@ -420,7 +369,6 @@ func (s *failingStore) ListSecrets(_ context.Context, _ string) ([]string, error
 	return nil, s.err
 }
 
-// Test GetSecret when store returns non-ErrSecretNotFound error (lines 54-56).
 func TestMultiStore_GetSecret_NonNotFoundError_FailingStore(t *testing.T) {
 	fail := &failingStore{err: errors.New("connection refused")}
 	working := NewDictStore(map[string]any{"key": "found"})
@@ -428,21 +376,17 @@ func TestMultiStore_GetSecret_NonNotFoundError_FailingStore(t *testing.T) {
 	multi := NewMultiStore([]confii.SecretStore{fail, working})
 	ctx := context.Background()
 
-	// The failing store returns a non-ErrSecretNotFound error, which should be logged.
-	// Then it falls through to the working store.
 	val, err := multi.GetSecret(ctx, "key")
-	require.NoError(t, err)
-	assert.Equal(t, "found", val)
+	require.Error(t, err)
+	assert.Nil(t, val)
 }
 
-// Test SetSecret when a store in the chain fails (lines 70-72).
 func TestMultiStore_SetSecret_ChainFailure(t *testing.T) {
 	working := NewDictStore(nil)
 	fail := &failingStore{err: errors.New("write error")}
 
-	multi := NewMultiStore(
-		[]confii.SecretStore{working, fail},
-		WithWriteToFirst(false), // write to all stores
+	multi := NewMultiStore([]confii.SecretStore{working, fail},
+		WithWriteToFirst(false),
 	)
 
 	err := multi.SetSecret(context.Background(), "key", "value")
@@ -450,14 +394,12 @@ func TestMultiStore_SetSecret_ChainFailure(t *testing.T) {
 	assert.Contains(t, err.Error(), "write error")
 }
 
-// Test DeleteSecret when a store in the chain fails (lines 83-85).
 func TestMultiStore_DeleteSecret_ChainFailure(t *testing.T) {
 	working := NewDictStore(map[string]any{"key": "val"})
 	fail := &failingStore{err: errors.New("delete error")}
 
-	multi := NewMultiStore(
-		[]confii.SecretStore{working, fail},
-		WithWriteToFirst(false), // delete from all stores
+	multi := NewMultiStore([]confii.SecretStore{working, fail},
+		WithWriteToFirst(false),
 	)
 
 	err := multi.DeleteSecret(context.Background(), "key")
@@ -465,10 +407,6 @@ func TestMultiStore_DeleteSecret_ChainFailure(t *testing.T) {
 	assert.Contains(t, err.Error(), "delete error")
 }
 
-// Test ListSecrets when a store returns error: per G25, the failing
-// store's error is no longer silently skipped — the partial inventory
-// is returned alongside a *MultiStoreError describing each backend
-// failure.
 func TestMultiStore_ListSecrets_StoreError(t *testing.T) {
 	listErr := errors.New("list error")
 	fail := &failingStore{err: listErr}
@@ -479,6 +417,6 @@ func TestMultiStore_ListSecrets_StoreError(t *testing.T) {
 	keys, err := multi.ListSecrets(context.Background(), "")
 	require.Error(t, err, "store error must be surfaced, not silently skipped")
 	assert.True(t, errors.Is(err, listErr))
-	// We still receive the partial inventory from the working store.
+
 	assert.GreaterOrEqual(t, len(keys), 2)
 }

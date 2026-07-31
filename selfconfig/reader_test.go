@@ -18,7 +18,8 @@ func TestRead_YAMLFile(t *testing.T) {
 	content := []byte(`
 default_environment: production
 env_prefix: APP
-deep_merge: true
+merge:
+  default: deep_merge
 debug_mode: true
 environment_strategy: hybrid
 environment_conflict_policy: warn
@@ -33,10 +34,19 @@ environment_conflict_policy: warn
 	assert.Equal(t, "APP", settings.EnvPrefix)
 	require.NotNil(t, settings.DebugMode)
 	assert.True(t, *settings.DebugMode)
-	require.NotNil(t, settings.DeepMerge)
-	assert.True(t, *settings.DeepMerge)
+	assert.Equal(t, "deep_merge", settings.Merge.Default)
 	assert.Equal(t, "hybrid", settings.EnvironmentStrategy)
 	assert.Equal(t, "warn", settings.EnvironmentConflictPolicy)
+}
+
+func TestRead_YAMLFileRejectsJSONDocument(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".confii.yaml"), []byte(`{"default_environment":"production"}`), 0o600))
+
+	ClearCache()
+	_, err := Read(dir)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "JSON document")
 }
 
 func TestRead_HiddenYAMLFile(t *testing.T) {
@@ -96,22 +106,19 @@ on_error = "warn"
 	assert.Equal(t, "warn", settings.OnError)
 }
 
-func TestRead_DefaultFiles(t *testing.T) {
+func TestRead_RejectsRemovedCompatibilityFields(t *testing.T) {
 	dir := t.TempDir()
 	content := []byte(`
-default_files:
-  - config/base.yaml
+default_files:  - config/base.yaml
   - config/dev.yaml
-default_prefix: MYAPP
+default_prefix:MYAPP
 `)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "confii.yaml"), content, 0644))
 
 	ClearCache()
 	settings, err := Read(dir)
-	require.NoError(t, err)
-	require.NotNil(t, settings)
-	assert.Equal(t, []string{"config/base.yaml", "config/dev.yaml"}, settings.DefaultFiles)
-	assert.Equal(t, "MYAPP", settings.DefaultPrefix)
+	require.Error(t, err)
+	assert.Nil(t, settings)
 }
 
 func TestRead_Sources(t *testing.T) {
@@ -156,7 +163,6 @@ secrets:
 func TestRead_PriorityOrder(t *testing.T) {
 	dir := t.TempDir()
 
-	// Both confii.yaml and .confii.yaml exist — confii.yaml wins.
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "confii.yaml"),
 		[]byte(`default_environment: from-primary`), 0644))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".confii.yaml"),
@@ -164,15 +170,14 @@ func TestRead_PriorityOrder(t *testing.T) {
 
 	ClearCache()
 	settings, err := Read(dir)
-	require.NoError(t, err)
-	require.NotNil(t, settings)
-	assert.Equal(t, "from-primary", settings.DefaultEnvironment)
+	require.Error(t, err)
+	assert.Nil(t, settings)
+	assert.Contains(t, err.Error(), "hidden and visible")
 }
 
 func TestRead_CacheBehavior(t *testing.T) {
 	ClearCache()
 
-	// Read from a temp dir (not ".") so cache doesn't interfere.
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "confii.yaml"),
 		[]byte(`default_environment: cached`), 0644))
@@ -180,7 +185,6 @@ func TestRead_CacheBehavior(t *testing.T) {
 	s1, _ := Read(dir)
 	require.NotNil(t, s1)
 
-	// CWD cache only applies to dir=".".
 	s2, _ := Read(dir)
 	require.NotNil(t, s2)
 	assert.Equal(t, s1.DefaultEnvironment, s2.DefaultEnvironment)
@@ -188,16 +192,108 @@ func TestRead_CacheBehavior(t *testing.T) {
 
 func TestClearCache(t *testing.T) {
 	ClearCache()
-	// Should not panic.
+
 	ClearCache()
 }
 
 func TestCandidateFilenamesReturnsIndependentDiscoveryOrder(t *testing.T) {
 	first := CandidateFilenames()
 	require.NotEmpty(t, first)
-	assert.Equal(t, "confii.yaml", first[0])
+	assert.Equal(t, ".confii.yaml", first[0])
 	first[0] = "mutated"
-	assert.Equal(t, "confii.yaml", CandidateFilenames()[0])
+	assert.Equal(t, ".confii.yaml", CandidateFilenames()[0])
+}
+
+func TestReadLayersMatchingEnvironmentSelfConfig(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".confii.yaml"), []byte(`
+default_environment: development
+env_switcher: APP_ENV
+log_level: info
+runtime:
+  timeout: 30s
+`), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".confii.production.yaml"), []byte(`
+log_level: warn
+runtime:
+  timeout: 5s
+`), 0o600))
+	t.Setenv("APP_ENV", "production")
+	ClearCache()
+	t.Cleanup(ClearCache)
+
+	settings, err := Read(dir)
+	require.NoError(t, err)
+	require.NotNil(t, settings)
+	assert.Equal(t, "production", os.Getenv(settings.EnvSwitcher))
+	assert.Equal(t, "warn", settings.LogLevel)
+	assert.Equal(t, "5s", settings.Runtime.Timeout)
+	assert.Equal(t, "development", settings.DefaultEnvironment)
+}
+
+func TestReadWithOptionsExplicitEnvironmentControlsOverlayAndCache(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".confii.yaml"), []byte(`
+default_environment: development
+env_switcher: APP_ENV
+log_level: info
+`), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".confii.development.yaml"), []byte("log_level: debug\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".confii.production.yaml"), []byte("log_level: error\n"), 0o600))
+	t.Setenv("APP_ENV", "development")
+	ClearCache()
+	t.Cleanup(ClearCache)
+
+	production, err := ReadWithOptions(dir, WithEnvironment("production"))
+	require.NoError(t, err)
+	assert.Equal(t, "error", production.LogLevel)
+
+	development, err := Read(dir)
+	require.NoError(t, err)
+	assert.Equal(t, "debug", development.LogLevel)
+
+	production.LogLevel = "mutated"
+	again, err := ReadWithOptions(dir, WithEnvironment("production"))
+	require.NoError(t, err)
+	assert.Equal(t, "error", again.LogLevel)
+	assert.NotSame(t, production, again)
+}
+
+func TestReadWithOptionsRejectsPanickingOption(t *testing.T) {
+	_, err := ReadWithOptions(t.TempDir(), func(*readOptions) { panic("read option panic") })
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "read option 0 panicked")
+}
+
+func TestReadEnvironmentOverlayMustMatchBaseConvention(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".confii.yaml"), []byte("default_environment: production\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".confii.production.toml"), []byte("log_level = \"warn\"\n"), 0o600))
+	ClearCache()
+	t.Cleanup(ClearCache)
+
+	settings, err := Read(dir)
+	require.Error(t, err)
+	assert.Nil(t, settings)
+	assert.Contains(t, err.Error(), "must use the base file's .confii.yaml convention")
+}
+
+func TestReadCacheTracksEnvironmentSwitcherValue(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".confii.json"), []byte(`{"env_switcher":"APP_ENV","log_level":"info"}`), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".confii.production.json"), []byte(`{"log_level":"error"}`), 0o600))
+	ClearCache()
+	t.Cleanup(ClearCache)
+	t.Setenv("APP_ENV", "")
+
+	base, err := Read(dir)
+	require.NoError(t, err)
+	assert.Equal(t, "info", base.LogLevel)
+	t.Setenv("APP_ENV", "production")
+	overlay, err := Read(dir)
+	require.NoError(t, err)
+	assert.Equal(t, "error", overlay.LogLevel)
+	assert.NotSame(t, base, overlay)
 }
 
 func TestReadRejectsUnknownTopLevelFieldsInEveryFormat(t *testing.T) {
@@ -345,7 +441,7 @@ func TestReadReportsSelfConfigInspectionFailure(t *testing.T) {
 }
 
 func TestReadFirstFromDirReportsNotFound(t *testing.T) {
-	settings, found, err := readFirstFromDir(t.TempDir())
+	settings, found, err := readFirstFromDir(t.TempDir(), readOptions{})
 	require.NoError(t, err)
 	assert.False(t, found)
 	assert.Nil(t, settings)
@@ -391,4 +487,19 @@ func TestReadFileReportsReadAndExtensionErrors(t *testing.T) {
 	_, err = readFile(path)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unsupported self-config extension")
+}
+
+// An empty self-config file selects defaults identically in every supported
+// format; JSON must not fail with a bare EOF while YAML and TOML succeed.
+func TestRead_EmptyFileSelectsDefaultsInEveryFormat(t *testing.T) {
+	for _, name := range []string{".confii.yaml", ".confii.json", ".confii.toml"} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(dir, name), nil, 0o600))
+
+			settings, err := Read(dir)
+			require.NoError(t, err, "empty %s must select defaults, not fail to parse", name)
+			require.NotNil(t, settings)
+		})
+	}
 }

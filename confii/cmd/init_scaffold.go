@@ -4,6 +4,8 @@
 package cmd
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -15,7 +17,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/confiify/confii-go/selfconfig"
+	"github.com/BurntSushi/toml"
+	"github.com/confiify/confii-go/v2/selfconfig"
+	"go.yaml.in/yaml/v3"
 )
 
 type initLayout string
@@ -80,7 +84,15 @@ func buildInitPlanWithRenderer(
 	if err != nil {
 		return nil, err
 	}
-	plan := []initFile{{path: filepath.Join(root, selfConfigFilename), data: selfConfig}}
+	format, err := parseInitFormat(defaultString(opts.format, string(initFormatYAML)))
+	if err != nil {
+		return nil, err
+	}
+	selfConfig, err = convertInitSelfConfig(selfConfig, format)
+	if err != nil {
+		return nil, err
+	}
+	plan := []initFile{{path: filepath.Join(root, selfConfigFilenameFor(format)), data: selfConfig}}
 	if layout == initLayoutMinimal {
 		return plan, nil
 	}
@@ -103,6 +115,40 @@ func buildInitPlanWithRenderer(
 		})
 	}
 	return plan, nil
+}
+
+func defaultString(value, fallback string) string {
+	if strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	return value
+}
+
+func convertInitSelfConfig(yamlData []byte, format initFormat) ([]byte, error) {
+	if format == initFormatYAML {
+		return yamlData, nil
+	}
+	var values map[string]any
+	if err := yaml.Unmarshal(yamlData, &values); err != nil {
+		return nil, fmt.Errorf("decode embedded self-config template: %w", err)
+	}
+	switch format {
+	case initFormatJSON:
+		data, err := json.MarshalIndent(values, "", "  ")
+		if err != nil {
+			return nil, fmt.Errorf("render JSON self-config: %w", err)
+		}
+		return append(data, '\n'), nil
+	case initFormatTOML:
+		var output bytes.Buffer
+		output.WriteString("# Environment overrides may be added as .confii.<environment>.toml.\n")
+		if err := toml.NewEncoder(&output).Encode(values); err != nil {
+			return nil, fmt.Errorf("render TOML self-config: %w", err)
+		}
+		return output.Bytes(), nil
+	default:
+		return nil, fmt.Errorf("unsupported init format %q", format)
+	}
 }
 
 func initProjectName(root string) string {
@@ -417,7 +463,7 @@ func printInitPlan(output io.Writer, verb string, layout initLayout, plan []init
 	return nil
 }
 
-func printInitNextSteps(output io.Writer, layout initLayout, root, environment, envSwitcher string, forced bool) error {
+func printInitNextSteps(output io.Writer, layout initLayout, root, selfConfigName, environment, envSwitcher string, forced bool) error {
 	if forced {
 		if _, err := fmt.Fprintln(output, "\nWarning: --force replaced only the files listed above; it never removes files from a previous layout. Review obsolete configuration files manually."); err != nil {
 			return err
@@ -434,11 +480,11 @@ func printInitNextSteps(output io.Writer, layout initLayout, root, environment, 
 	if _, err := fmt.Fprintln(output, "  If this is a new Go module: go mod init <module-path>"); err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintln(output, "  go get github.com/confiify/confii-go@latest"); err != nil {
+	if _, err := fmt.Fprintln(output, "  go get github.com/confiify/confii-go/v2@latest"); err != nil {
 		return err
 	}
 	if layout == initLayoutMinimal {
-		if _, err := fmt.Fprintln(output, "  Edit .confii.yaml and declare at least one source, then run: confii plan"); err != nil {
+		if _, err := fmt.Fprintf(output, "  Edit %s and declare at least one source, then run: confii plan\n", selfConfigName); err != nil {
 			return err
 		}
 	} else {
@@ -449,6 +495,6 @@ func printInitNextSteps(output io.Writer, layout initLayout, root, environment, 
 			return err
 		}
 	}
-	_, err := fmt.Fprintln(output, "  In Go: cfg, err := confii.New[YourConfig](ctx)")
+	_, err := fmt.Fprintln(output, "  In Go: cfg, err := confii.NewWithContext[YourConfig](ctx)")
 	return err
 }

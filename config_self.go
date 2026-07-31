@@ -9,24 +9,31 @@ import (
 	"log/slog"
 	"maps"
 	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
-	"github.com/confiify/confii-go/selfconfig"
+	"github.com/confiify/confii-go/v2/internal/formatparse"
+	"github.com/confiify/confii-go/v2/selfconfig"
 )
 
 // applySelfConfig reads the self-configuration file and applies its values.
 //
-// G06 (Wave 22): the directory passed to [selfconfig.Read] is now the
-// option-supplied WorkingDir (defaulting to "." when unset, matching
-// pre-G06 behavior) instead of an unconditional literal ".". This lets
-// callers using [WithWorkingDir] get self-config discovery rooted at
-// their chosen base instead of the process CWD.
+// The directory passed to [selfconfig.Read] is the option-supplied WorkingDir,
+// defaulting to "." when unset. Callers using [WithWorkingDir] therefore get
+// self-config discovery rooted at their chosen base instead of the process CWD.
 func applySelfConfig(opts *options) error {
 	workdir := opts.WorkingDir
 	if workdir == "" {
 		workdir = "."
 	}
-	settings, err := selfconfig.Read(workdir)
+	var settings *selfconfig.Settings
+	var err error
+	if opts.isSet("env") {
+		settings, err = selfconfig.ReadWithOptions(workdir, selfconfig.WithEnvironment(opts.Env))
+	} else {
+		settings, err = selfconfig.Read(workdir)
+	}
 	if err != nil {
 		return err
 	}
@@ -46,26 +53,24 @@ func applySelfConfig(opts *options) error {
 	if !opts.isSet("sysenv_fallback") && settings.SysenvFallback != nil {
 		opts.SysenvFallback = *settings.SysenvFallback
 	}
-	if !opts.isSet("deep_merge") && settings.DeepMerge != nil {
-		opts.DeepMerge = *settings.DeepMerge
-	}
-	if !opts.isSet("merge_strategy") && settings.MergeStrategy != "" {
-		strategy, err := parseSelfConfigMergeStrategy(settings.MergeStrategy)
+	if !opts.isSet("merge_strategy") && settings.Merge.Default != "" {
+		strategy, err := parseSelfConfigMergeStrategy(settings.Merge.Default)
 		if err != nil {
 			return err
 		}
-		opts.MergeStrategy = &strategy
+		opts.MergeStrategy = strategy
 	}
-	if !opts.isSet("merge_strategy_map") && len(settings.MergeStrategyMap) > 0 {
-		strategyMap := make(map[string]MergeStrategy, len(settings.MergeStrategyMap))
-		for path, value := range settings.MergeStrategyMap {
+	if !opts.isSet("merge_strategy_map") && len(settings.Merge.Paths) > 0 {
+		strategyMap := make(map[string]MergeStrategy, len(settings.Merge.Paths))
+		for path, value := range settings.Merge.Paths {
 			strategy, err := parseSelfConfigMergeStrategy(value)
 			if err != nil {
 				return &ConfigError{
-					Op: "ApplySelfConfig",
+					Op:   "ApplySelfConfig",
+					Code: ConfigErrorCodeLoad,
 					Err: fmt.Errorf(
-						"%w: invalid merge_strategy_map value for path %q: %w",
-						ErrConfigLoad, path, err,
+						"invalid merge.paths value for path %q: %w",
+						path, err,
 					),
 				}
 			}
@@ -87,6 +92,16 @@ func applySelfConfig(opts *options) error {
 	}
 	if !opts.isSet("dynamic_reloading") && settings.DynamicReloading != nil {
 		opts.DynamicReloading = *settings.DynamicReloading
+	}
+	if !opts.isSet("reload_debounce") && settings.ReloadDebounce != "" {
+		interval, err := time.ParseDuration(strings.TrimSpace(settings.ReloadDebounce))
+		if err != nil {
+			return &ConfigError{Op: "ApplySelfConfig", Code: ConfigErrorCodeLoad, Err: fmt.Errorf("invalid reload_debounce %q: %w", settings.ReloadDebounce, err)}
+		}
+		opts.ReloadDebounce = interval
+	}
+	if !opts.isSet("sensitive_paths") && settings.SensitivePaths != nil {
+		opts.SensitivePaths = append([]string(nil), settings.SensitivePaths...)
 	}
 	if !opts.isSet("freeze_on_load") && settings.FreezeOnLoad != nil {
 		opts.FreezeOnLoad = *settings.FreezeOnLoad
@@ -112,54 +127,40 @@ func applySelfConfig(opts *options) error {
 		opts.EnvironmentConflictPolicy = policy
 		opts.environmentConflictPolicyConfigured = true
 	}
+	if !opts.isSet("startup_timeout") && settings.Startup.Timeout != "" {
+		timeout, err := time.ParseDuration(strings.TrimSpace(settings.Startup.Timeout))
+		if err != nil {
+			return &ConfigError{
+				Op:   "ApplySelfConfig",
+				Code: ConfigErrorCodeLoad,
+				Err: fmt.Errorf(
+					"invalid startup.timeout %q: %w",
+					settings.Startup.Timeout, err,
+				),
+			}
+		}
+		opts.StartupTimeout = timeout
+	}
+	if !opts.isSet("secret_resolution_concurrency") && settings.SecretResolutionConcurrency != nil {
+		opts.SecretResolutionConcurrency = *settings.SecretResolutionConcurrency
+	}
+	if !opts.isSet("operation_timeout") && settings.Runtime.Timeout != "" {
+		timeout, err := time.ParseDuration(strings.TrimSpace(settings.Runtime.Timeout))
+		if err != nil {
+			return &ConfigError{Op: "ApplySelfConfig", Code: ConfigErrorCodeLoad, Err: fmt.Errorf("invalid runtime.timeout %q: %w", settings.Runtime.Timeout, err)}
+		}
+		opts.OperationTimeout = timeout
+	}
 	if !opts.isSet("on_error") && settings.OnError != "" {
-		// G07: validate the on_error string instead of blindly coercing.
-		// Previously any string (including misspellings like "warning"
-		// or "fatal") was accepted as an ErrorPolicy and downstream
-		// switches treated unknown values as Warn-or-Ignore, which made
-		// misconfiguration silent.
+		// Reject unsupported policy names instead of silently changing error
+		// handling behavior.
 		policy, err := ParseErrorPolicy(settings.OnError)
 		if err != nil {
 			return err
 		}
 		opts.OnError = policy
 	}
-	if !opts.isSet("loaders") && len(settings.DefaultFiles) > 0 {
-		// D07 / G19-residual: propagate the resolved Config-level
-		// OnError policy to each fileAutoLoader so that missing /
-		// malformed self-config-discovered files are dispatched with
-		// the same semantics as explicit-loader paths (e.g.
-		// loader.NewYAML). Pre-D07 the auto-loader unconditionally
-		// swallowed missing files and decoded YAML directly into
-		// map[string]any, bypassing both the policy contract and the
-		// Wave 9 D01 normalization.
-		for _, f := range settings.DefaultFiles {
-			opts.Loaders = append(opts.Loaders, &fileAutoLoader{
-				path:        f,
-				errorPolicy: opts.OnError,
-				logger:      opts.Logger,
-			})
-		}
-	}
-
-	// G04: wire the four parsed-but-unused settings into options.
-	//
-	// `default_prefix` is the documented default for the env-prefix
-	// loader pipeline (Wave 12 G02 / Wave 13 G03). It only takes effect
-	// when neither an explicit [WithEnvPrefix] nor a self-config
-	// `env_prefix` (which already wins above) has populated EnvPrefix —
-	// otherwise it would silently override more-specific configuration.
-	if !opts.isSet("env_prefix") && opts.EnvPrefix == "" && settings.DefaultPrefix != "" {
-		// This is a compatibility alias, not an explicit constructor
-		// option. New installs the corresponding environment loader only
-		// after all declarative sources have been materialized, ensuring
-		// environment variables retain highest precedence.
-		opts.EnvPrefix = settings.DefaultPrefix
-	}
-
-	// `log_level` constructs a *slog.Logger and assigns it to opts.Logger.
-	// Mirrors the G07 invalid-on_error pattern: an unrecognised level is
-	// surfaced as a typed *ConfigError instead of silently coerced.
+	// log_level constructs the logger used by configuration operations.
 	if !opts.isSet("logger") && settings.LogLevel != "" {
 		lvl, err := parseSelfConfigLogLevel(settings.LogLevel)
 		if err != nil {
@@ -191,8 +192,8 @@ func applySelfConfig(opts *options) error {
 // surrounding whitespace trimmed) are "debug", "info", "warn", and
 // "error". Any other value — including the empty string — returns a
 // typed *ConfigError wrapping [ErrConfigLoad] so misconfiguration is
-// loud rather than silently coerced. Pattern mirrors [ParseErrorPolicy]
-// (G07) for the on_error self-config setting.
+// loud rather than silently coerced, matching [ParseErrorPolicy] for the
+// on_error self-config setting.
 func parseSelfConfigLogLevel(s string) (slog.Level, error) {
 	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "debug":
@@ -205,24 +206,24 @@ func parseSelfConfigLogLevel(s string) (slog.Level, error) {
 		return slog.LevelError, nil
 	default:
 		return 0, &ConfigError{
-			Op: "ApplySelfConfig",
+			Op:   "ApplySelfConfig",
+			Code: ConfigErrorCodeLoad,
 			Err: fmt.Errorf(
-				"%w: invalid log_level %q (valid values: %q, %q, %q, %q)",
-				ErrConfigLoad, s, "debug", "info", "warn", "error",
+				"invalid log_level %q (valid values: %q, %q, %q, %q)",
+				s, "debug", "info", "warn", "error",
 			),
 		}
 	}
 }
 
-// parseSelfConfigMergeStrategy translates the human-readable names accepted
-// by .confii.yaml into the public MergeStrategy constants. "merge" is the
-// canonical spelling; deep_merge and deep-merge are accepted aliases because
-// the standard boolean option uses the deep_merge name.
+// parseSelfConfigMergeStrategy translates canonical self-config strategy names.
 func parseSelfConfigMergeStrategy(s string) (MergeStrategy, error) {
 	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "replace":
 		return StrategyReplace, nil
-	case "merge", "deep_merge", "deep-merge":
+	case "shallow_merge":
+		return StrategyShallowMerge, nil
+	case "deep_merge":
 		return StrategyMerge, nil
 	case "append":
 		return StrategyAppend, nil
@@ -234,84 +235,59 @@ func parseSelfConfigMergeStrategy(s string) (MergeStrategy, error) {
 		return StrategyUnion, nil
 	default:
 		return 0, &ConfigError{
-			Op: "ApplySelfConfig",
-			Err: fmt.Errorf(
-				"%w: invalid merge strategy %q (valid values: %q, %q, %q, %q, %q, %q)",
-				ErrConfigLoad, s, "replace", "merge", "append", "prepend", "intersection", "union",
-			),
+			Op:   "ApplySelfConfig",
+			Code: ConfigErrorCodeLoad,
+			Err:  fmt.Errorf("invalid merge strategy %q (valid values: replace, shallow_merge, deep_merge, append, prepend, intersection, union)", s),
 		}
 	}
 }
 
 // appendSelfConfigSource translates one self-config `sources:` entry
 // into a [Loader] and appends it to opts.Loaders. Recognised types
-// match the file-format dispatch already implemented by
-// [fileAutoLoader] (yaml, yml, json, toml, ini, cfg, env, envfile)
-// plus "environment" / "env-vars" for an OS-environment loader keyed
-// by `prefix`. Unknown types surface as typed *ConfigError so operator
+// use one canonical spelling per behavior: yaml, json, toml, ini, dotenv,
+// environment, and environment_files. File extensions may retain their
+// conventional aliases (for example .yml and .cfg), but the declared type
+// must agree with the path. Unknown types surface as typed *ConfigError so operator
 // typos in `.confii.yaml` fail loudly instead of silently dropping a
 // declared source.
 func appendSelfConfigSource(ctx context.Context, opts *options, src map[string]any) error {
 	rawType, _ := src["type"].(string)
 	t := strings.ToLower(strings.TrimSpace(rawType))
 	switch t {
-	case "environment_files", "environment-files":
+	case "environment_files":
 		loaders, err := buildEnvironmentFileLoaders(opts, src)
 		if err != nil {
 			return err
 		}
 		opts.Loaders = append(opts.Loaders, loaders...)
 		return nil
-	case "yaml", "yml", "json", "toml", "ini", "cfg", "envfile":
+	case "yaml", "json", "toml", "ini", "dotenv":
 		path, _ := src["path"].(string)
 		if path == "" {
 			return &ConfigError{
-				Op:  "ApplySelfConfig",
-				Err: fmt.Errorf("%w: self-config source of type %q is missing a `path` field", ErrConfigLoad, t),
+				Op:   "ApplySelfConfig",
+				Code: ConfigErrorCodeLoad,
+				Err:  fmt.Errorf("self-config source of type %q is missing a `path` field", t),
 			}
+		}
+		format, err := declarativeSourceFormat(t, path)
+		if err != nil {
+			return err
 		}
 		opts.Loaders = append(opts.Loaders, &fileAutoLoader{
 			path:        path,
+			format:      format,
 			errorPolicy: opts.OnError,
 			logger:      opts.Logger,
 		})
 		return nil
-	case "env":
-		// Two shapes share the "env" type label: a `path:` field
-		// designates a .env file (handled by fileAutoLoader's envfile
-		// branch); a `prefix:` field designates an OS-environment
-		// variable loader (the G03 envPrefixAutoLoader). Disambiguate
-		// by looking at the keys present.
-		if path, _ := src["path"].(string); path != "" {
-			opts.Loaders = append(opts.Loaders, &fileAutoLoader{
-				path:        path,
-				errorPolicy: opts.OnError,
-				logger:      opts.Logger,
-			})
-			return nil
-		}
+	case "environment":
 		prefix, _ := src["prefix"].(string)
 		if prefix == "" {
 			return &ConfigError{
-				Op:  "ApplySelfConfig",
-				Err: fmt.Errorf("%w: self-config source of type %q requires either `path` (for .env files) or `prefix` (for OS env vars)", ErrConfigLoad, t),
-			}
-		}
-		upper := strings.ToUpper(prefix)
-		wantSource := "environment:" + upper
-		for _, existing := range opts.Loaders {
-			if existing != nil && existing.Source() == wantSource {
-				return nil
-			}
-		}
-		opts.Loaders = append(opts.Loaders, &envPrefixAutoLoader{prefix: upper})
-		return nil
-	case "environment", "env-vars":
-		prefix, _ := src["prefix"].(string)
-		if prefix == "" {
-			return &ConfigError{
-				Op:  "ApplySelfConfig",
-				Err: fmt.Errorf("%w: self-config source of type %q requires a `prefix` field", ErrConfigLoad, t),
+				Op:   "ApplySelfConfig",
+				Code: ConfigErrorCodeLoad,
+				Err:  fmt.Errorf("self-config source of type %q requires a `prefix` field", t),
 			}
 		}
 		upper := strings.ToUpper(prefix)
@@ -330,5 +306,42 @@ func appendSelfConfigSource(ctx context.Context, opts *options, src map[string]a
 		}
 		opts.Loaders = append(opts.Loaders, loader)
 		return nil
+	}
+}
+
+func declarativeSourceFormat(sourceType, path string) (formatparse.Format, error) {
+	cleanPath := strings.ToLower(strings.TrimSpace(path))
+	extension := strings.ToLower(filepath.Ext(cleanPath))
+	base := filepath.Base(cleanPath)
+
+	var format formatparse.Format
+	compatible := false
+	switch sourceType {
+	case "yaml":
+		format = formatparse.FormatYAML
+		compatible = extension == ".yaml" || extension == ".yml"
+	case "json":
+		format = formatparse.FormatJSON
+		compatible = extension == ".json"
+	case "toml":
+		format = formatparse.FormatTOML
+		compatible = extension == ".toml"
+	case "ini":
+		format = formatparse.FormatINI
+		compatible = extension == ".ini" || extension == ".cfg"
+	case "dotenv":
+		format = formatparse.FormatEnvFile
+		compatible = extension == ".env" || base == ".env" || strings.HasPrefix(base, ".env.")
+	}
+	if compatible {
+		return format, nil
+	}
+	return formatparse.FormatUnknown, &ConfigError{
+		Op:   "ApplySelfConfig",
+		Code: ConfigErrorCodeFormat,
+		Err: fmt.Errorf(
+			"self-config source type %q is incompatible with path %q",
+			sourceType, path,
+		),
 	}
 }

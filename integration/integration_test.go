@@ -1,9 +1,6 @@
 // Copyright 2026 The Confii Contributors
 // SPDX-License-Identifier: MIT
 
-// Package integration contains end-to-end tests that exercise confii
-// the way a real consumer would: import the library, load real config files,
-// and verify the full pipeline works. No mocks or stubs.
 package integration
 
 import (
@@ -18,94 +15,85 @@ import (
 	"testing"
 	"time"
 
-	confii "github.com/confiify/confii-go"
-	"github.com/confiify/confii-go/diff"
-	"github.com/confiify/confii-go/loader"
-	"github.com/confiify/confii-go/merge"
-	"github.com/confiify/confii-go/observe"
-	"github.com/confiify/confii-go/secret"
-	"github.com/confiify/confii-go/validate"
+	confii "github.com/confiify/confii-go/v2"
+	"github.com/confiify/confii-go/v2/diff"
+	"github.com/confiify/confii-go/v2/loader"
+	"github.com/confiify/confii-go/v2/merge"
+	"github.com/confiify/confii-go/v2/observe"
+	"github.com/confiify/confii-go/v2/secret"
+	"github.com/confiify/confii-go/v2/validate"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// ---------------------------------------------------------------------------
-// Typed config structs — what a real app would define
-// ---------------------------------------------------------------------------
-
 type AppConfig struct {
-	App      App      `mapstructure:"app"`
-	Database Database `mapstructure:"database"`
-	Cache    Cache    `mapstructure:"cache"`
-	Features []string `mapstructure:"features"`
+	App      App      `confii:"app"`
+	Database Database `confii:"database"`
+	Cache    Cache    `confii:"cache"`
+	Features []string `confii:"features"`
 }
 
 type App struct {
-	Name     string `mapstructure:"name" validate:"required"`
-	Version  string `mapstructure:"version"`
-	Debug    bool   `mapstructure:"debug"`
-	LogLevel string `mapstructure:"log_level"`
+	Name     string `confii:"name" validate:"required"`
+	Version  string `confii:"version"`
+	Debug    bool   `confii:"debug"`
+	LogLevel string `confii:"log_level"`
 }
 
 type Database struct {
-	Host           string `mapstructure:"host" validate:"required"`
-	Port           int    `mapstructure:"port" validate:"required,min=1,max=65535"`
-	Name           string `mapstructure:"name" validate:"required"`
-	MaxConnections int    `mapstructure:"max_connections"`
-	SSL            bool   `mapstructure:"ssl"`
-	PoolTimeout    int    `mapstructure:"pool_timeout"`
+	Host           string `confii:"host" validate:"required"`
+	Port           int    `confii:"port" validate:"required,min=1,max=65535"`
+	Name           string `confii:"name" validate:"required"`
+	MaxConnections int    `confii:"max_connections"`
+	SSL            bool   `confii:"ssl"`
+	PoolTimeout    int    `confii:"pool_timeout"`
 }
 
 type Cache struct {
-	Enabled bool `mapstructure:"enabled"`
-	TTL     int  `mapstructure:"ttl"`
+	Enabled bool `confii:"enabled"`
+	TTL     int  `confii:"ttl"`
 }
 
 type APIConfig struct {
-	API     APISection     `mapstructure:"api"`
-	Logging LoggingSection `mapstructure:"logging"`
+	API     APISection     `confii:"api"`
+	Logging LoggingSection `confii:"logging"`
 }
 
 type APISection struct {
-	Host        string   `mapstructure:"host" validate:"required"`
-	Port        int      `mapstructure:"port" validate:"required,min=1,max=65535"`
-	CorsOrigins []string `mapstructure:"cors_origins"`
+	Host        string   `confii:"host" validate:"required"`
+	Port        int      `confii:"port" validate:"required,min=1,max=65535"`
+	CorsOrigins []string `confii:"cors_origins"`
 }
 
 type LoggingSection struct {
-	Level  string `mapstructure:"level"`
-	Format string `mapstructure:"format"`
+	Level  string `confii:"level"`
+	Format string `confii:"format"`
 }
 
-// ---------------------------------------------------------------------------
-// Test: Load a YAML file, resolve environment, access with typed model
-// ---------------------------------------------------------------------------
-
 func TestTypedConfig_ProductionEnvironment(t *testing.T) {
-	cfg, err := confii.New[AppConfig](context.Background(),
+	cfg, err := confii.NewWithContext[AppConfig](context.Background(),
 		confii.WithLoaders(loader.NewYAML("testdata/base.yaml")),
 		confii.WithEnv("production"),
 	)
 	require.NoError(t, err)
 
-	// Verify environment resolution merged default + production.
 	model, err := cfg.Typed()
 	require.NoError(t, err)
 
 	assert.Equal(t, "my-service", model.App.Name)
 	assert.Equal(t, "1.0.0", model.App.Version)
-	assert.False(t, model.App.Debug)                            // production overrides default
-	assert.Equal(t, "prod-db.example.com", model.Database.Host) // production
-	assert.Equal(t, 5432, model.Database.Port)                  // from default
-	assert.Equal(t, "mydb", model.Database.Name)                // from default
-	assert.Equal(t, 100, model.Database.MaxConnections)         // production
-	assert.True(t, model.Cache.Enabled)                         // from default
-	assert.Equal(t, 3600, model.Cache.TTL)                      // production
+	assert.False(t, model.App.Debug)
+	assert.Equal(t, "prod-db.example.com", model.Database.Host)
+	assert.Equal(t, 5432, model.Database.Port)
+	assert.Equal(t, "mydb", model.Database.Name)
+	assert.Equal(t, 100, model.Database.MaxConnections)
+	assert.True(t, model.Cache.Enabled)
+	assert.Equal(t, 3600, model.Cache.TTL)
 	assert.Equal(t, []string{"auth", "logging"}, model.Features)
 }
 
 func TestTypedConfig_StagingEnvironment(t *testing.T) {
-	cfg, err := confii.New[AppConfig](context.Background(),
+	cfg, err := confii.NewWithContext[AppConfig](context.Background(),
 		confii.WithLoaders(loader.NewYAML("testdata/base.yaml")),
 		confii.WithEnv("staging"),
 	)
@@ -114,20 +102,15 @@ func TestTypedConfig_StagingEnvironment(t *testing.T) {
 	model, err := cfg.Typed()
 	require.NoError(t, err)
 
-	assert.True(t, model.App.Debug)                                // staging
-	assert.Equal(t, "staging-db.example.com", model.Database.Host) // staging
-	assert.Equal(t, 25, model.Database.MaxConnections)             // staging
-	assert.Equal(t, 300, model.Cache.TTL)                          // from default (staging doesn't override)
+	assert.True(t, model.App.Debug)
+	assert.Equal(t, "staging-db.example.com", model.Database.Host)
+	assert.Equal(t, 25, model.Database.MaxConnections)
+	assert.Equal(t, 300, model.Cache.TTL)
 }
 
-// ---------------------------------------------------------------------------
-// Test: Multiple loaders, deep merge across YAML files
-// ---------------------------------------------------------------------------
-
 func TestMultipleLoaders_DeepMerge(t *testing.T) {
-	cfg, err := confii.New[AppConfig](context.Background(),
-		confii.WithLoaders(
-			loader.NewYAML("testdata/base.yaml"),
+	cfg, err := confii.NewWithContext[AppConfig](context.Background(),
+		confii.WithLoaders(loader.NewYAML("testdata/base.yaml"),
 			loader.NewYAML("testdata/overrides.yaml"),
 		),
 		confii.WithEnv("production"),
@@ -137,24 +120,17 @@ func TestMultipleLoaders_DeepMerge(t *testing.T) {
 	model, err := cfg.Typed()
 	require.NoError(t, err)
 
-	// From base.yaml production section.
 	assert.Equal(t, "prod-db.example.com", model.Database.Host)
 	assert.Equal(t, 100, model.Database.MaxConnections)
 
-	// From overrides.yaml production section (deep merged in).
 	assert.True(t, model.Database.SSL)
 	assert.Equal(t, 30, model.Database.PoolTimeout)
 	assert.Equal(t, "warn", model.App.LogLevel)
 }
 
-// ---------------------------------------------------------------------------
-// Test: Mix formats — YAML + JSON + TOML + INI + .env in one Config
-// ---------------------------------------------------------------------------
-
 func TestMixedFormats(t *testing.T) {
-	cfg, err := confii.New[any](context.Background(),
-		confii.WithLoaders(
-			loader.NewJSON("testdata/flat.json"),
+	cfg, err := confii.NewWithContext[any](context.Background(),
+		confii.WithLoaders(loader.NewJSON("testdata/flat.json"),
 			loader.NewTOML("testdata/app.toml"),
 			loader.NewINI("testdata/legacy.ini"),
 			loader.NewEnvFile("testdata/secrets.env"),
@@ -162,12 +138,10 @@ func TestMixedFormats(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	// From JSON.
 	host, err := cfg.Get("api.host")
 	require.NoError(t, err)
 	assert.Equal(t, "0.0.0.0", host)
 
-	// From TOML.
 	readTimeout, err := cfg.GetInt("server.read_timeout")
 	require.NoError(t, err)
 	assert.Equal(t, 30, readTimeout)
@@ -176,7 +150,6 @@ func TestMixedFormats(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, metricsEnabled)
 
-	// From INI.
 	smtpHost, err := cfg.GetString("smtp.host")
 	require.NoError(t, err)
 	assert.Equal(t, "mail.example.com", smtpHost)
@@ -185,7 +158,6 @@ func TestMixedFormats(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, smtpTLS)
 
-	// From .env.
 	dbPass, err := cfg.GetString("DATABASE_PASSWORD")
 	require.NoError(t, err)
 	assert.Equal(t, "s3cret_from_env", dbPass)
@@ -194,7 +166,6 @@ func TestMixedFormats(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "redis://localhost:6379/0", redisURL)
 
-	// Verify all keys from all sources are present.
 	keys := cfg.Keys()
 	assert.Contains(t, keys, "api.host")
 	assert.Contains(t, keys, "server.port")
@@ -202,24 +173,17 @@ func TestMixedFormats(t *testing.T) {
 	assert.Contains(t, keys, "DATABASE_PASSWORD")
 }
 
-// ---------------------------------------------------------------------------
-// Test: Environment variables override file config
-// ---------------------------------------------------------------------------
-
 func TestEnvVarOverride(t *testing.T) {
 	t.Setenv("TESTAPP_HOST", "env-override-host")
 	t.Setenv("TESTAPP_PORT", "9999")
 
-	// Use a flat config (no environment sections) so env loader merges cleanly.
-	cfg, err := confii.New[any](context.Background(),
-		confii.WithLoaders(
-			loader.NewJSON("testdata/flat.json"),
+	cfg, err := confii.NewWithContext[any](context.Background(),
+		confii.WithLoaders(loader.NewJSON("testdata/flat.json"),
 			loader.NewEnvironment("TESTAPP"),
 		),
 	)
 	require.NoError(t, err)
 
-	// Env loader runs after JSON, so it overrides.
 	host, err := cfg.Get("host")
 	require.NoError(t, err)
 	assert.Equal(t, "env-override-host", host)
@@ -228,20 +192,15 @@ func TestEnvVarOverride(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 9999, port)
 
-	// Non-overridden values still come from file.
 	apiHost, err := cfg.Get("api.host")
 	require.NoError(t, err)
 	assert.Equal(t, "0.0.0.0", apiHost)
 }
 
-// ---------------------------------------------------------------------------
-// Test: EnvSwitcher reads environment from OS variable
-// ---------------------------------------------------------------------------
-
 func TestEnvSwitcher(t *testing.T) {
 	t.Setenv("APP_ENVIRONMENT", "staging")
 
-	cfg, err := confii.New[AppConfig](context.Background(),
+	cfg, err := confii.NewWithContext[AppConfig](context.Background(),
 		confii.WithLoaders(loader.NewYAML("testdata/base.yaml")),
 		confii.WithEnvSwitcher("APP_ENVIRONMENT"),
 	)
@@ -254,14 +213,10 @@ func TestEnvSwitcher(t *testing.T) {
 	assert.Equal(t, "staging-db.example.com", model.Database.Host)
 }
 
-// ---------------------------------------------------------------------------
-// Test: SysenvFallback — missing keys resolved from OS environment
-// ---------------------------------------------------------------------------
-
 func TestSysenvFallback(t *testing.T) {
 	t.Setenv("EXTERNAL_API_URL", "https://api.example.com")
 
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithSysenvFallback(true),
 	)
 	require.NoError(t, err)
@@ -274,7 +229,7 @@ func TestSysenvFallback(t *testing.T) {
 func TestSysenvFallback_WithPrefix(t *testing.T) {
 	t.Setenv("MYAPP_REDIS_HOST", "redis.local")
 
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithSysenvFallback(true),
 		confii.WithEnvPrefix("MYAPP"),
 	)
@@ -285,20 +240,15 @@ func TestSysenvFallback_WithPrefix(t *testing.T) {
 	assert.Equal(t, "redis.local", host)
 }
 
-// ---------------------------------------------------------------------------
-// Test: ${VAR} expansion in config values
-// ---------------------------------------------------------------------------
-
 func TestEnvVarExpansion(t *testing.T) {
 	t.Setenv("DB_HOST_FROM_ENV", "expanded-host")
 	t.Setenv("DB_PORT_FROM_ENV", "6543")
 
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithEnvExpander(true),
 	)
 	require.NoError(t, err)
 
-	// Set values with placeholders.
 	require.NoError(t, cfg.Set("database.host", "${DB_HOST_FROM_ENV}"))
 	require.NoError(t, cfg.Set("database.url", "postgres://${DB_HOST_FROM_ENV}:${DB_PORT_FROM_ENV}/mydb"))
 
@@ -309,12 +259,8 @@ func TestEnvVarExpansion(t *testing.T) {
 	assert.Equal(t, "postgres://expanded-host:6543/mydb", url)
 }
 
-// ---------------------------------------------------------------------------
-// Test: Secret resolution end-to-end (DictStore → Resolver → Hook → Config)
-// ---------------------------------------------------------------------------
-
 func TestSecretResolution_EndToEnd(t *testing.T) {
-	// Simulate a real secret store with application secrets.
+
 	store := secret.NewDictStore(map[string]any{
 		"db/password":    "super-secret-pw",
 		"api/key":        "key-12345",
@@ -326,95 +272,74 @@ func TestSecretResolution_EndToEnd(t *testing.T) {
 		secret.WithCacheTTL(1*time.Minute),
 	)
 
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML("testdata/base.yaml")),
 		confii.WithEnv("production"),
-		confii.WithTypeCasting(false), // disable so resolved strings aren't re-cast
+		confii.WithTypeCasting(false),
+		confii.WithGlobalHook(resolver.Hook()),
 	)
 	require.NoError(t, err)
 
-	// Register the secret resolver hook.
-	cfg.HookProcessor().RegisterGlobalHook(resolver.Hook())
-
-	// Set values with secret placeholders.
 	require.NoError(t, cfg.Set("database.password", "${secret:db/password}"))
 	require.NoError(t, cfg.Set("api.key", "${secret:api/key}"))
 	require.NoError(t, cfg.Set("database.secret_host", "${secret:db/full_config:host}"))
 
-	// Verify secrets are resolved on access.
 	pw, _ := cfg.Get("database.password")
 	assert.Equal(t, "super-secret-pw", pw)
 
 	key, _ := cfg.Get("api.key")
 	assert.Equal(t, "key-12345", key)
 
-	// JSON path extraction.
 	secretHost, _ := cfg.Get("database.secret_host")
 	assert.Equal(t, "secret-host", secretHost)
 
-	// Verify caching.
 	stats := resolver.CacheStats()
 	assert.Equal(t, true, stats["enabled"])
 	assert.Greater(t, stats["size"], 0)
 }
 
-// ---------------------------------------------------------------------------
-// Test: G23 — context-aware hook surfaces secret resolution errors and
-// propagates caller context through cfg.GetCtx.
-// ---------------------------------------------------------------------------
-
-func TestSecretResolution_HookCtx_FailOnMissing_PropagatesError(t *testing.T) {
+func TestSecretResolution_Hook_FailOnMissing_PropagatesError(t *testing.T) {
 	store := secret.NewDictStore(map[string]any{"db/password": "ok"})
 
-	resolver := secret.NewResolver(store,
-		secret.WithCache(false),
-		secret.WithResolverFailOnMissing(true),
-	)
+	resolver := secret.NewResolver(store, secret.WithCache(false))
 
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML("testdata/base.yaml")),
 		confii.WithEnv("production"),
 		confii.WithTypeCasting(false),
+		confii.WithGlobalHook(resolver.Hook()),
 	)
 	require.NoError(t, err)
 
-	// Register the new context-aware hook variant.
-	cfg.HookProcessor().RegisterGlobalHookCtx(resolver.HookCtx())
-
-	// Resolvable placeholder still works.
 	require.NoError(t, cfg.Set("database.password", "${secret:db/password}"))
-	got, err := cfg.GetCtx(context.Background(), "database.password")
+	got, err := cfg.GetWithContext(context.Background(), "database.password")
 	require.NoError(t, err)
 	assert.Equal(t, "ok", got)
 
-	// Unresolvable placeholder must surface the resolver error end-to-end.
-	require.NoError(t, cfg.Set("database.missing", "${secret:does/not/exist}"))
-	_, err = cfg.GetCtx(context.Background(), "database.missing")
-	require.Error(t, err, "GetCtx must surface secret resolution errors when failOnMissing=true")
+	err = cfg.Set("database.missing", "${secret:does/not/exist}")
+	require.Error(t, err)
 	assert.ErrorIs(t, err, confii.ErrSecretNotFound)
+	assert.False(t, cfg.Has("database.missing"))
 }
 
-// ---------------------------------------------------------------------------
-// Test: JSON Schema validation with real schema file
-// ---------------------------------------------------------------------------
-
 func TestJSONSchemaValidation(t *testing.T) {
-	cfg, err := confii.New[APIConfig](context.Background(),
+	cfg, err := confii.NewWithContext[APIConfig](context.Background(),
 		confii.WithLoaders(loader.NewJSON("testdata/flat.json")),
 	)
 	require.NoError(t, err)
 
-	// Validate against schema file.
 	v, err := validate.NewJSONSchemaValidatorFromFile("testdata/schema.json")
 	require.NoError(t, err)
 
-	err = v.Validate(cfg.ToDict())
+	data, err := cfg.ToDict()
+	require.NoError(t, err)
+	err = v.Validate(data)
 	assert.NoError(t, err)
 }
 
 func TestJSONSchemaValidation_Failure(t *testing.T) {
-	// Config missing required "api" key.
-	cfg, err := confii.New[any](context.Background(),
+
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader.NewTOML("testdata/app.toml")),
 	)
 	require.NoError(t, err)
@@ -422,17 +347,15 @@ func TestJSONSchemaValidation_Failure(t *testing.T) {
 	v, err := validate.NewJSONSchemaValidatorFromFile("testdata/schema.json")
 	require.NoError(t, err)
 
-	err = v.Validate(cfg.ToDict())
+	data, err := cfg.ToDict()
+	require.NoError(t, err)
+	err = v.Validate(data)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "validation failed")
 }
 
-// ---------------------------------------------------------------------------
-// Test: Struct tag validation via Typed()
-// ---------------------------------------------------------------------------
-
 func TestStructTagValidation(t *testing.T) {
-	cfg, err := confii.New[AppConfig](context.Background(),
+	cfg, err := confii.NewWithContext[AppConfig](context.Background(),
 		confii.WithLoaders(loader.NewYAML("testdata/base.yaml")),
 		confii.WithEnv("production"),
 	)
@@ -444,27 +367,23 @@ func TestStructTagValidation(t *testing.T) {
 }
 
 func TestStructTagValidation_MissingRequired(t *testing.T) {
-	// Load a config that won't have the required fields for AppConfig.
-	cfg, err := confii.New[AppConfig](context.Background(),
+
+	cfg, err := confii.NewWithContext[AppConfig](context.Background(),
 		confii.WithLoaders(loader.NewTOML("testdata/app.toml")),
 	)
 	require.NoError(t, err)
 
 	_, err = cfg.Typed()
-	assert.Error(t, err) // validation should fail — no app.name, database.host etc.
+	assert.Error(t, err)
 }
-
-// ---------------------------------------------------------------------------
-// Test: Builder pattern
-// ---------------------------------------------------------------------------
 
 func TestBuilderPattern(t *testing.T) {
 	cfg, err := confii.NewBuilder[AppConfig]().
 		WithEnv("staging").
 		AddLoader(loader.NewYAML("testdata/base.yaml")).
 		AddLoader(loader.NewYAML("testdata/overrides.yaml")).
-		EnableDeepMerge().
-		Build(context.Background())
+		WithMergeStrategy(confii.StrategyMerge).
+		BuildWithContext(context.Background())
 
 	require.NoError(t, err)
 	assert.Equal(t, "staging", cfg.Env())
@@ -472,15 +391,11 @@ func TestBuilderPattern(t *testing.T) {
 	model, err := cfg.Typed()
 	require.NoError(t, err)
 	assert.Equal(t, "staging-db.example.com", model.Database.Host)
-	assert.True(t, model.Database.SSL) // from overrides
+	assert.True(t, model.Database.SSL)
 }
 
-// ---------------------------------------------------------------------------
-// Test: Freeze prevents mutation
-// ---------------------------------------------------------------------------
-
 func TestFreeze(t *testing.T) {
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML("testdata/base.yaml")),
 		confii.WithEnv("production"),
 		confii.WithFreezeOnLoad(true),
@@ -488,26 +403,19 @@ func TestFreeze(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, cfg.IsFrozen())
 
-	// Set should fail.
 	err = cfg.Set("database.host", "hacked")
 	assert.True(t, errors.Is(err, confii.ErrConfigFrozen))
 
-	// Reload should fail.
-	err = cfg.Reload(context.Background())
+	err = cfg.ReloadWithContext(context.Background())
 	assert.True(t, errors.Is(err, confii.ErrConfigFrozen))
 
-	// Reads still work.
 	host, err := cfg.Get("database.host")
 	require.NoError(t, err)
 	assert.Equal(t, "prod-db.example.com", host)
 }
 
-// ---------------------------------------------------------------------------
-// Test: Override + restore
-// ---------------------------------------------------------------------------
-
 func TestOverrideAndRestore(t *testing.T) {
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML("testdata/base.yaml")),
 		confii.WithEnv("production"),
 	)
@@ -516,7 +424,6 @@ func TestOverrideAndRestore(t *testing.T) {
 	original, _ := cfg.Get("database.host")
 	assert.Equal(t, "prod-db.example.com", original)
 
-	// Override.
 	restore, err := cfg.Override(map[string]any{
 		"database.host": "test-db",
 		"database.port": 1111,
@@ -529,7 +436,6 @@ func TestOverrideAndRestore(t *testing.T) {
 	port, _ := cfg.GetInt("database.port")
 	assert.Equal(t, 1111, port)
 
-	// Restore.
 	restore()
 
 	restored, _ := cfg.Get("database.host")
@@ -539,17 +445,13 @@ func TestOverrideAndRestore(t *testing.T) {
 	assert.Equal(t, 5432, restoredPort)
 }
 
-// ---------------------------------------------------------------------------
-// Test: Reload picks up file changes
-// ---------------------------------------------------------------------------
-
 func TestReload(t *testing.T) {
-	// Write a temp config file.
+
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.yaml")
 	require.NoError(t, os.WriteFile(cfgPath, []byte("host: original\nport: 1234"), 0644))
 
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML(cfgPath)),
 	)
 	require.NoError(t, err)
@@ -557,11 +459,9 @@ func TestReload(t *testing.T) {
 	host, _ := cfg.Get("host")
 	assert.Equal(t, "original", host)
 
-	// Modify the file.
 	require.NoError(t, os.WriteFile(cfgPath, []byte("host: updated\nport: 5678"), 0644))
 
-	// Reload.
-	require.NoError(t, cfg.Reload(context.Background()))
+	require.NoError(t, cfg.ReloadWithContext(context.Background()))
 
 	host, _ = cfg.Get("host")
 	assert.Equal(t, "updated", host)
@@ -570,16 +470,12 @@ func TestReload(t *testing.T) {
 	assert.Equal(t, 5678, port)
 }
 
-// ---------------------------------------------------------------------------
-// Test: OnChange callback fires after reload
-// ---------------------------------------------------------------------------
-
 func TestOnChangeCallback(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.yaml")
 	require.NoError(t, os.WriteFile(cfgPath, []byte("host: before"), 0644))
 
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML(cfgPath)),
 	)
 	require.NoError(t, err)
@@ -590,22 +486,17 @@ func TestOnChangeCallback(t *testing.T) {
 	})
 
 	require.NoError(t, os.WriteFile(cfgPath, []byte("host: after"), 0644))
-	require.NoError(t, cfg.Reload(context.Background()))
+	require.NoError(t, cfg.ReloadWithContext(context.Background()))
 
 	assert.Contains(t, changes, "host")
 }
 
-// ---------------------------------------------------------------------------
-// Test: Export to JSON and YAML
-// ---------------------------------------------------------------------------
-
 func TestExport(t *testing.T) {
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader.NewJSON("testdata/flat.json")),
 	)
 	require.NoError(t, err)
 
-	// Export to JSON.
 	jsonData, err := cfg.Export("json")
 	require.NoError(t, err)
 	assert.Contains(t, string(jsonData), `"host"`)
@@ -614,21 +505,10 @@ func TestExport(t *testing.T) {
 	require.NoError(t, json.Unmarshal(jsonData, &parsed))
 	assert.Contains(t, parsed, "api")
 
-	// Export to YAML.
 	yamlData, err := cfg.Export("yaml")
 	require.NoError(t, err)
 	assert.Contains(t, string(yamlData), "host:")
 }
-
-// ---------------------------------------------------------------------------
-// Test: HTTP loader with a real (test) server
-//
-// G35: HTTP tests use newIntegrationHTTPTestServer for hermetic-environment
-// safety. It wraps httptest.NewServer (which binds to 127.0.0.1:0 — the OS
-// picks a free ephemeral port) and converts a loopback-bind panic into a
-// t.Skip with a clear reason rather than failing the suite when the runtime
-// sandbox refuses 127.0.0.1 binds.
-// ---------------------------------------------------------------------------
 
 func newIntegrationHTTPTestServer(t *testing.T, handler http.Handler) *httptest.Server {
 	t.Helper()
@@ -652,69 +532,60 @@ func TestHTTPLoader_RealServer(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	// Use flat configs (no environment sections) so merging is straightforward.
-	cfg, err := confii.New[any](context.Background(),
-		confii.WithLoaders(
-			loader.NewJSON("testdata/flat.json"),
+	cfg, err := confii.NewWithContext[any](context.Background(),
+		confii.WithLoaders(loader.NewJSON("testdata/flat.json"),
 			loader.NewHTTP(srv.URL),
 		),
 	)
 	require.NoError(t, err)
 
-	// HTTP values are merged on top.
 	setting, err := cfg.Get("remote.setting")
 	require.NoError(t, err)
 	assert.Equal(t, "from-http", setting)
 
-	// File values still available.
 	apiHost, err := cfg.Get("api.host")
 	require.NoError(t, err)
 	assert.Equal(t, "0.0.0.0", apiHost)
 }
 
-// ---------------------------------------------------------------------------
-// Test: Diff two environments
-// ---------------------------------------------------------------------------
-
 func TestDiffEnvironments(t *testing.T) {
-	devCfg, err := confii.New[any](context.Background(),
+	devCfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML("testdata/base.yaml")),
 		confii.WithEnv("staging"),
 	)
 	require.NoError(t, err)
 
-	prodCfg, err := confii.New[any](context.Background(),
+	prodCfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML("testdata/base.yaml")),
 		confii.WithEnv("production"),
 	)
 	require.NoError(t, err)
 
-	diffs := diff.Diff(devCfg.ToDict(), prodCfg.ToDict())
+	devData, err := devCfg.ToDict()
+	require.NoError(t, err)
+	prodData, err := prodCfg.ToDict()
+	require.NoError(t, err)
+	diffs := diff.Diff(devData, prodData)
 	assert.NotEmpty(t, diffs)
 
 	summary := diff.Summary(diffs)
 	assert.Greater(t, summary["modified"], 0)
 
-	// Serialize to JSON — what the CLI would output.
 	jsonStr, err := diff.ToJSON(diffs)
 	require.NoError(t, err)
 	assert.Contains(t, jsonStr, "modified")
 }
 
-// ---------------------------------------------------------------------------
-// Test: Drift detection
-// ---------------------------------------------------------------------------
-
 func TestDriftDetection(t *testing.T) {
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML("testdata/base.yaml")),
 		confii.WithEnv("production"),
 	)
 	require.NoError(t, err)
 
-	baseline := cfg.ToDict()
+	baseline, err := cfg.ToDict()
+	require.NoError(t, err)
 
-	// Simulate drift: someone changed a value.
 	drifted := make(map[string]any)
 	for k, v := range baseline {
 		drifted[k] = v
@@ -733,18 +604,13 @@ func TestDriftDetection(t *testing.T) {
 	assert.NotEmpty(t, driftDiffs)
 }
 
-// ---------------------------------------------------------------------------
-// Test: Observability — metrics and events
-// ---------------------------------------------------------------------------
-
 func TestObservability(t *testing.T) {
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML("testdata/base.yaml")),
 		confii.WithEnv("production"),
 	)
 	require.NoError(t, err)
 
-	// Metrics.
 	metrics := observe.NewMetrics(len(cfg.Keys()))
 
 	start := time.Now()
@@ -757,21 +623,18 @@ func TestObservability(t *testing.T) {
 	stats := metrics.Statistics()
 	assert.Equal(t, 2, stats["accessed_keys"])
 
-	// Events.
 	emitter := observe.NewEventEmitter(nil)
 	var reloadCount int
 	emitter.On("reload", func(_ ...any) { reloadCount++ })
 
-	emitter.Emit("reload", cfg.ToDict())
+	data, err := cfg.ToDict()
+	require.NoError(t, err)
+	emitter.Emit("reload", data)
 	assert.Equal(t, 1, reloadCount)
 }
 
-// ---------------------------------------------------------------------------
-// Test: Versioning — save, list, rollback
-// ---------------------------------------------------------------------------
-
 func TestVersioning(t *testing.T) {
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML("testdata/base.yaml")),
 		confii.WithEnv("production"),
 	)
@@ -780,33 +643,28 @@ func TestVersioning(t *testing.T) {
 	dir := t.TempDir()
 	vm := observe.NewVersionManager(dir, 100)
 
-	// Save version 1.
-	v1, err := vm.SaveVersion(cfg.ToDict(), map[string]any{"author": "deploy-bot", "env": "production"})
+	data, err := cfg.ToDict()
+	require.NoError(t, err)
+	v1, err := vm.SaveVersion(data, map[string]any{"author": "deploy-bot", "env": "production"})
 	require.NoError(t, err)
 	assert.NotEmpty(t, v1.VersionID)
 
-	// Modify config.
 	require.NoError(t, cfg.Set("database.host", "new-host"))
 
-	// Save version 2.
-	v2, err := vm.SaveVersion(cfg.ToDict(), map[string]any{"author": "deploy-bot"})
+	data, err = cfg.ToDict()
+	require.NoError(t, err)
+	v2, err := vm.SaveVersion(data, map[string]any{"author": "deploy-bot"})
 	require.NoError(t, err)
 	assert.NotEqual(t, v1.VersionID, v2.VersionID)
 
-	// List versions.
 	versions := vm.ListVersions()
 	assert.Len(t, versions, 2)
 
-	// Retrieve v1 — should have the original host.
 	retrieved := vm.GetVersion(v1.VersionID)
 	require.NotNil(t, retrieved)
 	db := retrieved.Config["database"].(map[string]any)
 	assert.Equal(t, "prod-db.example.com", db["host"])
 }
-
-// ---------------------------------------------------------------------------
-// Test: Advanced merge strategies
-// ---------------------------------------------------------------------------
 
 func TestAdvancedMergeStrategies(t *testing.T) {
 	base := map[string]any{
@@ -821,62 +679,48 @@ func TestAdvancedMergeStrategies(t *testing.T) {
 	}
 
 	m := merge.NewAdvanced(merge.DeepMergeStrategy, map[string]merge.Strategy{
-		"database": merge.Replace, // replace entire database section
-		"features": merge.Append,  // append feature lists
+		"database": merge.Replace,
+		"features": merge.Append,
 	})
 
 	result := m.Merge(base, overlay)
 
-	// database: replaced entirely (no port).
 	db := result["database"].(map[string]any)
 	assert.Equal(t, "prod-db", db["host"])
 	_, hasPort := db["port"]
 	assert.False(t, hasPort)
 
-	// features: appended.
 	assert.Equal(t, []any{"auth", "logging", "metrics"}, result["features"])
 
-	// cache: deep merged (default strategy).
 	cache := result["cache"].(map[string]any)
 	assert.Equal(t, 3600, cache["ttl"])
-	assert.Equal(t, true, cache["enabled"]) // preserved from base
+	assert.Equal(t, true, cache["enabled"])
 }
 
-// ---------------------------------------------------------------------------
-// Test: MultiSecretStore fallback chain
-// ---------------------------------------------------------------------------
-
 func TestMultiSecretStore_FallbackChain(t *testing.T) {
-	// Primary store has some secrets, secondary has others.
+
 	primary := secret.NewDictStore(map[string]any{
 		"db/password": "primary-pw",
 	})
 	secondary := secret.NewDictStore(map[string]any{
 		"api/key":     "secondary-key",
-		"db/password": "secondary-pw", // shadowed by primary
+		"db/password": "secondary-pw",
 	})
 
 	multi := secret.NewMultiStore([]confii.SecretStore{primary, secondary})
 	ctx := context.Background()
 
-	// Primary wins for shared keys.
 	pw, err := multi.GetSecret(ctx, "db/password")
 	require.NoError(t, err)
 	assert.Equal(t, "primary-pw", pw)
 
-	// Falls back to secondary.
 	key, err := multi.GetSecret(ctx, "api/key")
 	require.NoError(t, err)
 	assert.Equal(t, "secondary-key", key)
 
-	// Neither has it.
 	_, err = multi.GetSecret(ctx, "missing")
 	assert.Error(t, err)
 }
-
-// ---------------------------------------------------------------------------
-// Test: Secret resolver with prefix and TTL cache expiry
-// ---------------------------------------------------------------------------
 
 func TestSecretResolver_PrefixAndCacheTTL(t *testing.T) {
 	store := secret.NewDictStore(map[string]any{
@@ -891,32 +735,23 @@ func TestSecretResolver_PrefixAndCacheTTL(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Resolve with prefix applied.
 	val, err := resolver.Resolve(ctx, "${secret:db/password}")
 	require.NoError(t, err)
 	assert.Equal(t, "versioned-pw", val)
 
-	// Update underlying store.
 	_ = store.SetSecret(ctx, "prod/db/password", "new-pw")
 
-	// Still cached.
 	val, _ = resolver.Resolve(ctx, "${secret:db/password}")
 	assert.Equal(t, "versioned-pw", val)
 
-	// Wait for TTL.
 	time.Sleep(60 * time.Millisecond)
 
-	// Now picks up the new value.
 	val, _ = resolver.Resolve(ctx, "${secret:db/password}")
 	assert.Equal(t, "new-pw", val)
 }
 
-// ---------------------------------------------------------------------------
-// Test: Concurrent access safety
-// ---------------------------------------------------------------------------
-
 func TestConcurrentAccess(t *testing.T) {
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML("testdata/base.yaml")),
 		confii.WithEnv("production"),
 	)
@@ -925,7 +760,6 @@ func TestConcurrentAccess(t *testing.T) {
 	var wg sync.WaitGroup
 	errs := make(chan error, 200)
 
-	// 50 concurrent readers.
 	for i := 0; i < 50; i++ {
 		wg.Add(1)
 		go func() {
@@ -936,7 +770,9 @@ func TestConcurrentAccess(t *testing.T) {
 				}
 				cfg.Keys()
 				cfg.Has("database.port")
-				cfg.ToDict()
+				if _, err := cfg.ToDict(); err != nil {
+					errs <- err
+				}
 				cfg.GetStringOr("app.name", "default")
 				cfg.GetIntOr("database.port", 0)
 				cfg.GetBoolOr("app.debug", false)
@@ -952,28 +788,20 @@ func TestConcurrentAccess(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Test: Error handling — not found with suggestions
-// ---------------------------------------------------------------------------
-
 func TestNotFoundError(t *testing.T) {
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML("testdata/base.yaml")),
 		confii.WithEnv("production"),
 	)
 	require.NoError(t, err)
 
-	_, err = cfg.Get("database.hst") // typo
+	_, err = cfg.Get("database.hst")
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, confii.ErrConfigNotFound))
 }
 
-// ---------------------------------------------------------------------------
-// Test: GetOr convenience methods
-// ---------------------------------------------------------------------------
-
 func TestGetOrConvenience(t *testing.T) {
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML("testdata/base.yaml")),
 		confii.WithEnv("production"),
 	)
@@ -986,67 +814,48 @@ func TestGetOrConvenience(t *testing.T) {
 	assert.True(t, cfg.GetBoolOr("missing.bool", true))
 }
 
-// ---------------------------------------------------------------------------
-// Test: Full pipeline — load, merge, validate, secret resolve, access
-// ---------------------------------------------------------------------------
-
 func TestFullPipeline(t *testing.T) {
 	t.Setenv("PIPELINE_APP_VERSION", "2.0.0")
 
-	// Secret store.
 	store := secret.NewDictStore(map[string]any{
 		"db_password": "pipeline-secret",
 	})
 	resolver := secret.NewResolver(store)
 
-	// Build config with everything.
 	cfg, err := confii.NewBuilder[any]().
 		WithEnv("production").
 		AddLoader(loader.NewYAML("testdata/base.yaml")).
 		AddLoader(loader.NewYAML("testdata/overrides.yaml")).
-		EnableDeepMerge().
-		Build(context.Background())
+		WithMergeStrategy(confii.StrategyMerge).
+		WithGlobalHook(resolver.Hook()).
+		BuildWithContext(context.Background())
 	require.NoError(t, err)
 
-	// Register hooks.
-	cfg.HookProcessor().RegisterGlobalHook(resolver.Hook())
-
-	// Set a value with secret and env placeholders.
 	require.NoError(t, cfg.Set("database.password", "${secret:db_password}"))
 	require.NoError(t, cfg.Set("app.computed_version", "${PIPELINE_APP_VERSION}"))
 
-	// Verify the full pipeline.
 	pw, _ := cfg.Get("database.password")
-	assert.Equal(t, "pipeline-secret", pw) // secret resolved
+	assert.Equal(t, "pipeline-secret", pw)
 
 	ver, _ := cfg.Get("app.computed_version")
-	assert.Equal(t, "2.0.0", ver) // env var expanded
+	assert.Equal(t, "2.0.0", ver)
 
 	host, _ := cfg.Get("database.host")
-	assert.Equal(t, "prod-db.example.com", host) // from base.yaml production
+	assert.Equal(t, "prod-db.example.com", host)
 
 	ssl, _ := cfg.GetBool("database.ssl")
-	assert.True(t, ssl) // from overrides.yaml
+	assert.True(t, ssl)
 
 	logLevel, _ := cfg.Get("app.log_level")
-	assert.Equal(t, "warn", logLevel) // from overrides.yaml production
+	assert.Equal(t, "warn", logLevel)
 }
 
-// ===========================================================================
-// NEW GAP-CLOSING TESTS
-// ===========================================================================
-
-// ---------------------------------------------------------------------------
-// Test: Composition directives (_include, _defaults)
-// ---------------------------------------------------------------------------
-
 func TestComposition_IncludeAndDefaults(t *testing.T) {
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML("testdata/with_include.yaml")),
 	)
 	require.NoError(t, err)
 
-	// From _include: included.yaml.
 	logLevel, err := cfg.Get("shared.log_level")
 	require.NoError(t, err)
 	assert.Equal(t, "info", logLevel)
@@ -1055,29 +864,21 @@ func TestComposition_IncludeAndDefaults(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 3, retries)
 
-	// From _defaults.
 	timeout, err := cfg.Get("timeout")
 	require.NoError(t, err)
-	assert.Equal(t, 30, timeout) // type casting hook converts "30" → int
+	assert.Equal(t, 30, timeout)
 
-	// From the config itself.
 	name, err := cfg.Get("app.name")
 	require.NoError(t, err)
 	assert.Equal(t, "composed-app", name)
 
-	// Directives should be removed.
 	assert.False(t, cfg.Has("_include"))
 	assert.False(t, cfg.Has("_defaults"))
 }
 
-// ---------------------------------------------------------------------------
-// Test: Source tracking and introspection
-// ---------------------------------------------------------------------------
-
 func TestSourceTracking(t *testing.T) {
-	cfg, err := confii.New[any](context.Background(),
-		confii.WithLoaders(
-			loader.NewYAML("testdata/base.yaml"),
+	cfg, err := confii.NewWithContext[any](context.Background(),
+		confii.WithLoaders(loader.NewYAML("testdata/base.yaml"),
 			loader.NewYAML("testdata/overrides.yaml"),
 		),
 		confii.WithEnv("production"),
@@ -1085,36 +886,27 @@ func TestSourceTracking(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	// GetSourceInfo.
 	info := cfg.GetSourceInfo("database.host")
 	assert.NotNil(t, info)
 	assert.Equal(t, "prod-db.example.com", info.Value)
 
-	// GetSourceStatistics.
 	stats := cfg.GetSourceStatistics()
 	assert.Greater(t, stats["total_keys"], 0)
 
-	// FindKeysFromSource.
 	keys := cfg.FindKeysFromSource("base.yaml")
 	assert.NotEmpty(t, keys)
 
-	// PrintDebugInfo.
 	debugOutput := cfg.PrintDebugInfo("database.host")
 	assert.Contains(t, debugOutput, "database.host")
 	assert.Contains(t, debugOutput, "prod-db.example.com")
 
-	// GetConflicts — overrides.yaml overrides some keys from base.yaml.
 	conflicts := cfg.GetConflicts()
-	// At minimum, database.ssl should be overridden (added by overrides).
+
 	assert.NotNil(t, conflicts)
 }
 
-// ---------------------------------------------------------------------------
-// Test: Explain
-// ---------------------------------------------------------------------------
-
 func TestExplain(t *testing.T) {
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML("testdata/base.yaml")),
 		confii.WithEnv("production"),
 		confii.WithDebugMode(true),
@@ -1126,18 +918,13 @@ func TestExplain(t *testing.T) {
 	assert.Equal(t, "prod-db.example.com", explanation["current_value"])
 	assert.Equal(t, "production", explanation["environment"])
 
-	// Non-existent key.
 	missing := cfg.Explain("nonexistent.key")
 	assert.Equal(t, false, missing["exists"])
 	assert.NotNil(t, missing["available_keys"])
 }
 
-// ---------------------------------------------------------------------------
-// Test: Schema info
-// ---------------------------------------------------------------------------
-
 func TestSchemaInfo(t *testing.T) {
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML("testdata/base.yaml")),
 		confii.WithEnv("production"),
 	)
@@ -1149,14 +936,9 @@ func TestSchemaInfo(t *testing.T) {
 	assert.Equal(t, "prod-db.example.com", info["value"])
 }
 
-// ---------------------------------------------------------------------------
-// Test: Layers
-// ---------------------------------------------------------------------------
-
 func TestLayers(t *testing.T) {
-	cfg, err := confii.New[any](context.Background(),
-		confii.WithLoaders(
-			loader.NewYAML("testdata/base.yaml"),
+	cfg, err := confii.NewWithContext[any](context.Background(),
+		confii.WithLoaders(loader.NewYAML("testdata/base.yaml"),
 			loader.NewYAML("testdata/overrides.yaml"),
 		),
 		confii.WithEnv("production"),
@@ -1171,56 +953,40 @@ func TestLayers(t *testing.T) {
 	assert.Greater(t, layers[0]["key_count"], 0)
 }
 
-// ---------------------------------------------------------------------------
-// Test: GenerateDocs
-// ---------------------------------------------------------------------------
-
 func TestGenerateDocs(t *testing.T) {
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader.NewJSON("testdata/flat.json")),
 		confii.WithDebugMode(true),
 	)
 	require.NoError(t, err)
 
-	// Markdown.
 	md, err := cfg.GenerateDocs("markdown")
 	require.NoError(t, err)
 	assert.Contains(t, md, "api.host")
 	assert.Contains(t, md, "Key")
 
-	// JSON.
 	jsonDocs, err := cfg.GenerateDocs("json")
 	require.NoError(t, err)
 	assert.Contains(t, jsonDocs, "api.host")
 }
 
-// ---------------------------------------------------------------------------
-// Test: Set with override=false guard
-// ---------------------------------------------------------------------------
-
 func TestSet_OverrideFalse(t *testing.T) {
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML("testdata/base.yaml")),
 		confii.WithEnv("production"),
 	)
 	require.NoError(t, err)
 
-	// Should fail: key exists.
 	err = cfg.Set("database.host", "new-host", confii.WithOverride(false))
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "already exists")
 
-	// Should succeed: key doesn't exist.
 	err = cfg.Set("new.key", "value", confii.WithOverride(false))
 	assert.NoError(t, err)
 }
 
-// ---------------------------------------------------------------------------
-// Test: Extend (add loader at runtime)
-// ---------------------------------------------------------------------------
-
 func TestExtend(t *testing.T) {
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML("testdata/base.yaml")),
 		confii.WithEnv("production"),
 	)
@@ -1228,27 +994,20 @@ func TestExtend(t *testing.T) {
 
 	assert.False(t, cfg.Has("api.host"))
 
-	// Extend with JSON config.
-	err = cfg.Extend(context.Background(), loader.NewJSON("testdata/flat.json"))
+	err = cfg.ExtendWithContext(context.Background(), loader.NewJSON("testdata/flat.json"))
 	require.NoError(t, err)
 
-	// New keys available.
 	apiHost, err := cfg.Get("api.host")
 	require.NoError(t, err)
 	assert.Equal(t, "0.0.0.0", apiHost)
 
-	// Original keys still available.
 	dbHost, err := cfg.Get("database.host")
 	require.NoError(t, err)
 	assert.Equal(t, "prod-db.example.com", dbHost)
 }
 
-// ---------------------------------------------------------------------------
-// Test: Export with TOML + file write
-// ---------------------------------------------------------------------------
-
 func TestExport_TOML(t *testing.T) {
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader.NewJSON("testdata/flat.json")),
 	)
 	require.NoError(t, err)
@@ -1259,7 +1018,7 @@ func TestExport_TOML(t *testing.T) {
 }
 
 func TestExport_ToFile(t *testing.T) {
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader.NewJSON("testdata/flat.json")),
 	)
 	require.NoError(t, err)
@@ -1275,42 +1034,32 @@ func TestExport_ToFile(t *testing.T) {
 	assert.Contains(t, string(data), "api")
 }
 
-// ---------------------------------------------------------------------------
-// Test: Reload with incremental and dry_run
-// ---------------------------------------------------------------------------
-
 func TestReload_DryRun(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.yaml")
 	_ = os.WriteFile(cfgPath, []byte("host: original"), 0644)
 
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML(cfgPath)),
 	)
 	require.NoError(t, err)
 
 	_ = os.WriteFile(cfgPath, []byte("host: modified"), 0644)
 
-	// Dry run should not apply changes.
-	err = cfg.Reload(context.Background(), confii.WithDryRun(true), confii.WithIncremental(false))
+	err = cfg.ReloadWithContext(context.Background(), confii.WithDryRun(true), confii.WithIncremental(false))
 	require.NoError(t, err)
 
 	host, _ := cfg.Get("host")
-	assert.Equal(t, "original", host) // unchanged
+	assert.Equal(t, "original", host)
 }
 
-// ---------------------------------------------------------------------------
-// Test: Observability integrated on Config
-// ---------------------------------------------------------------------------
-
 func TestObservability_IntegratedOnConfig(t *testing.T) {
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML("testdata/base.yaml")),
 		confii.WithEnv("production"),
 	)
 	require.NoError(t, err)
 
-	// Enable observability.
 	metrics := cfg.EnableObservability()
 	assert.NotNil(t, metrics)
 
@@ -1319,17 +1068,12 @@ func TestObservability_IntegratedOnConfig(t *testing.T) {
 
 	emitter.On("reload", func(_ ...any) {})
 
-	// GetMetrics should work now.
 	m := cfg.GetMetrics()
 	assert.NotNil(t, m)
 }
 
-// ---------------------------------------------------------------------------
-// Test: Versioning integrated on Config
-// ---------------------------------------------------------------------------
-
 func TestVersioning_IntegratedOnConfig(t *testing.T) {
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML("testdata/base.yaml")),
 		confii.WithEnv("production"),
 	)
@@ -1338,19 +1082,15 @@ func TestVersioning_IntegratedOnConfig(t *testing.T) {
 	dir := t.TempDir()
 	cfg.EnableVersioning(dir, 100)
 
-	// Save version.
 	v1, err := cfg.SaveVersion(map[string]any{"author": "test"})
 	require.NoError(t, err)
 	assert.NotEmpty(t, v1.VersionID)
 
-	// Modify config.
 	_ = cfg.Set("database.host", "rollback-target")
 
-	// Save another version.
 	v2, err := cfg.SaveVersion(nil)
 	require.NoError(t, err)
 
-	// Rollback to v1.
 	err = cfg.RollbackToVersion(v1.VersionID)
 	require.NoError(t, err)
 
@@ -1360,26 +1100,23 @@ func TestVersioning_IntegratedOnConfig(t *testing.T) {
 	_ = v2
 }
 
-// ---------------------------------------------------------------------------
-// Test: Diff and DetectDrift on Config
-// ---------------------------------------------------------------------------
-
 func TestDiff_OnConfig(t *testing.T) {
-	cfg1, _ := confii.New[any](context.Background(),
+	cfg1, _ := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML("testdata/base.yaml")),
 		confii.WithEnv("staging"),
 	)
-	cfg2, _ := confii.New[any](context.Background(),
+	cfg2, _ := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML("testdata/base.yaml")),
 		confii.WithEnv("production"),
 	)
 
-	diffs := cfg1.Diff(cfg2)
+	diffs, err := cfg1.Diff(cfg2)
+	require.NoError(t, err)
 	assert.NotEmpty(t, diffs)
 }
 
 func TestDetectDrift_OnConfig(t *testing.T) {
-	cfg, _ := confii.New[any](context.Background(),
+	cfg, _ := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML("testdata/base.yaml")),
 		confii.WithEnv("production"),
 	)
@@ -1388,31 +1125,23 @@ func TestDetectDrift_OnConfig(t *testing.T) {
 		"database": map[string]any{"host": "expected-host", "port": 5432},
 	}
 
-	drifts := cfg.DetectDrift(intended)
-	assert.NotEmpty(t, drifts) // host doesn't match
+	drifts, err := cfg.DetectDrift(intended)
+	require.NoError(t, err)
+	assert.NotEmpty(t, drifts)
 }
 
-// ---------------------------------------------------------------------------
-// Test: StopWatching
-// ---------------------------------------------------------------------------
-
 func TestStopWatching(t *testing.T) {
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML("testdata/base.yaml")),
 		confii.WithEnv("production"),
 	)
 	require.NoError(t, err)
 
-	// Should not panic even if no watcher is running.
 	cfg.StopWatching()
 }
 
-// ---------------------------------------------------------------------------
-// Test: ExportDebugReport
-// ---------------------------------------------------------------------------
-
 func TestExportDebugReport(t *testing.T) {
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithLoaders(loader.NewYAML("testdata/base.yaml")),
 		confii.WithEnv("production"),
 		confii.WithDebugMode(true),

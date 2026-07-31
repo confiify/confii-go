@@ -78,7 +78,6 @@ func TestShallowMerge(t *testing.T) {
 	}
 	got := ShallowMerge(base, overlay)
 
-	// Shallow merge replaces the entire "db" value.
 	assert.Equal(t, map[string]any{"host": "prod-db"}, got["db"])
 }
 

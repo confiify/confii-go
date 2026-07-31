@@ -15,8 +15,8 @@ import (
 	"strconv"
 	"strings"
 
-	confii "github.com/confiify/confii-go"
-	"github.com/confiify/confii-go/selfconfig"
+	confii "github.com/confiify/confii-go/v2"
+	"github.com/confiify/confii-go/v2/selfconfig"
 	"github.com/spf13/cobra"
 )
 
@@ -35,9 +35,8 @@ type environmentStatus struct {
 func NewEnvCmd() *cobra.Command {
 	var jsonOutput bool
 	cmd := &cobra.Command{
-		Use:     "env",
-		Aliases: []string{"environment", "environments"},
-		Short:   "Inspect and manage project environments",
+		Use:   "env",
+		Short: "Inspect and manage project environments",
 		Long: "Inspect the effective environment and the environments discoverable from " +
 			"sectioned or named-file configuration. Setting an environment updates the " +
 			"project's configured default; an active env_switcher value still has precedence.",
@@ -77,10 +76,9 @@ func newEnvCurrentCmd(jsonOutput *bool) *cobra.Command {
 
 func newEnvListCmd(jsonOutput *bool) *cobra.Command {
 	return &cobra.Command{
-		Use:     "list",
-		Aliases: []string{"ls"},
-		Short:   "List environments discoverable from configured sources",
-		Args:    cobra.NoArgs,
+		Use:   "list",
+		Short: "List environments discoverable from configured sources",
+		Args:  cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			status, err := inspectEnvironmentStatus()
 			if err != nil {

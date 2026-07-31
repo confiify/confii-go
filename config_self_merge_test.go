@@ -10,9 +10,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	confii "github.com/confiify/confii-go"
-	"github.com/confiify/confii-go/loader"
-	"github.com/confiify/confii-go/selfconfig"
+	confii "github.com/confiify/confii-go/v2"
+	"github.com/confiify/confii-go/v2/loader"
+	"github.com/confiify/confii-go/v2/selfconfig"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -20,9 +20,10 @@ import (
 func TestSelfConfigMergeStrategyAndMap(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".confii.yaml"), []byte(`
-merge_strategy: merge
-merge_strategy_map:
-  servers: append
+merge:
+  default: deep_merge
+  paths:
+    servers: append
 `), 0o600))
 	base := filepath.Join(dir, "base.yaml")
 	overlay := filepath.Join(dir, "overlay.yaml")
@@ -31,7 +32,7 @@ merge_strategy_map:
 
 	selfconfig.ClearCache()
 	t.Cleanup(selfconfig.ClearCache)
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithWorkingDir(dir),
 		confii.WithLoaders(loader.NewYAML(base), loader.NewYAML(overlay)),
 	)
@@ -50,15 +51,17 @@ func TestGeneratedSelfConfigIsUsableUnchanged(t *testing.T) {
 	selfconfig.ClearCache()
 	t.Cleanup(selfconfig.ClearCache)
 
-	cfg, err := confii.New[any](context.Background(), confii.WithWorkingDir(dir))
+	cfg, err := confii.NewWithContext[any](context.Background(), confii.WithWorkingDir(dir))
 	require.NoError(t, err)
-	assert.Empty(t, cfg.ToDict())
+	data, err := cfg.ToDict()
+	require.NoError(t, err)
+	assert.Empty(t, data)
 	assert.Equal(t, confii.EnvironmentStrategyAuto, cfg.SourcePlan().Strategy)
 }
 
 func TestExplicitMergeStrategyWinsOverSelfConfig(t *testing.T) {
 	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, ".confii.yaml"), []byte("merge_strategy: replace\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".confii.yaml"), []byte("merge:\n  default: replace\n"), 0o600))
 	base := filepath.Join(dir, "base.yaml")
 	overlay := filepath.Join(dir, "overlay.yaml")
 	require.NoError(t, os.WriteFile(base, []byte("base_only: true\n"), 0o600))
@@ -66,10 +69,10 @@ func TestExplicitMergeStrategyWinsOverSelfConfig(t *testing.T) {
 
 	selfconfig.ClearCache()
 	t.Cleanup(selfconfig.ClearCache)
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithWorkingDir(dir),
 		confii.WithLoaders(loader.NewYAML(base), loader.NewYAML(overlay)),
-		confii.WithMergeStrategyOption(confii.StrategyMerge),
+		confii.WithMergeStrategy(confii.StrategyMerge),
 	)
 	require.NoError(t, err)
 	assert.True(t, cfg.Has("base_only"))
@@ -79,8 +82,9 @@ func TestExplicitMergeStrategyWinsOverSelfConfig(t *testing.T) {
 func TestExplicitMergeStrategyMapWinsOverSelfConfig(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".confii.yaml"), []byte(`
-merge_strategy_map:
-  servers: append
+merge:
+  paths:
+    servers: append
 `), 0o600))
 	base := filepath.Join(dir, "base.yaml")
 	overlay := filepath.Join(dir, "overlay.yaml")
@@ -89,7 +93,7 @@ merge_strategy_map:
 
 	selfconfig.ClearCache()
 	t.Cleanup(selfconfig.ClearCache)
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithWorkingDir(dir),
 		confii.WithLoaders(loader.NewYAML(base), loader.NewYAML(overlay)),
 		confii.WithMergeStrategyMap(map[string]confii.MergeStrategy{
@@ -106,11 +110,11 @@ merge_strategy_map:
 func TestSelfConfigMergeStrategyValidation(t *testing.T) {
 	t.Run("global", func(t *testing.T) {
 		dir := t.TempDir()
-		require.NoError(t, os.WriteFile(filepath.Join(dir, ".confii.yaml"), []byte("merge_strategy: concatenate\n"), 0o600))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, ".confii.yaml"), []byte("merge:\n  default: concatenate\n"), 0o600))
 		selfconfig.ClearCache()
 		t.Cleanup(selfconfig.ClearCache)
 
-		_, err := confii.New[any](context.Background(), confii.WithWorkingDir(dir))
+		_, err := confii.NewWithContext[any](context.Background(), confii.WithWorkingDir(dir))
 		require.Error(t, err)
 		assert.True(t, errors.Is(err, confii.ErrConfigLoad))
 		assert.Contains(t, err.Error(), "concatenate")
@@ -118,11 +122,11 @@ func TestSelfConfigMergeStrategyValidation(t *testing.T) {
 
 	t.Run("path override", func(t *testing.T) {
 		dir := t.TempDir()
-		require.NoError(t, os.WriteFile(filepath.Join(dir, ".confii.yaml"), []byte("merge_strategy_map:\n  servers: concatenate\n"), 0o600))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, ".confii.yaml"), []byte("merge:\n  paths:\n    servers:concatenate\n"), 0o600))
 		selfconfig.ClearCache()
 		t.Cleanup(selfconfig.ClearCache)
 
-		_, err := confii.New[any](context.Background(), confii.WithWorkingDir(dir))
+		_, err := confii.NewWithContext[any](context.Background(), confii.WithWorkingDir(dir))
 		require.Error(t, err)
 		assert.True(t, errors.Is(err, confii.ErrConfigLoad))
 		assert.Contains(t, err.Error(), "servers")

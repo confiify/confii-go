@@ -5,14 +5,15 @@ package secret
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
 	"sync"
 	"time"
 
-	confii "github.com/confiify/confii-go"
-	"github.com/confiify/confii-go/hook"
+	confii "github.com/confiify/confii-go/v2"
+	"github.com/confiify/confii-go/v2/hook"
 )
 
 // secretPattern matches the supported secret placeholder grammar:
@@ -32,13 +33,14 @@ var secretPattern = regexp.MustCompile(`\$\{secret:([^}:]+)(?::([^}:]*))?(?::([^
 
 // Resolver bridges a SecretStore with the hook system, resolving
 // ${secret:key}, ${secret:key:json_path}, ${secret:key:json_path:version}, and
-// ${secret:key::version} placeholders.
+// ${secret:key::version} placeholders. It is safe for concurrent use when its
+// SecretStore is concurrency-safe. Cache entries may contain secret material
+// and remain in process memory until expiration or ClearCache.
 type Resolver struct {
-	store         confii.SecretStore
-	cacheEnabled  bool
-	cacheTTL      time.Duration
-	failOnMissing bool
-	prefix        string
+	store        confii.SecretStore
+	cacheEnabled bool
+	cacheTTL     time.Duration
+	prefix       string
 
 	mu    sync.RWMutex
 	cache map[string]cacheEntry
@@ -52,48 +54,34 @@ type cacheEntry struct {
 // ResolverOption configures a Resolver.
 type ResolverOption func(*Resolver)
 
-// WithCache enables or disables caching.
+// WithCache enables or disables successful-read caching. Caching is enabled by
+// default. Disabling it does not remove existing entries; call
+// [Resolver.ClearCache] when cached secret material must be discarded.
 func WithCache(v bool) ResolverOption {
 	return func(r *Resolver) { r.cacheEnabled = v }
 }
 
-// WithCacheTTL sets the cache time-to-live. Zero means no expiration.
+// WithCacheTTL sets the cache time-to-live. Zero means entries do not expire
+// automatically; negative durations cause every cached entry to be treated as
+// expired.
 func WithCacheTTL(d time.Duration) ResolverOption {
 	return func(r *Resolver) { r.cacheTTL = d }
 }
 
-// WithResolverFailOnMissing controls whether unresolvable secrets cause errors.
-//
-// When true (the default), [Resolver.Resolve] returns the underlying store
-// error (wrapping [confii.ErrSecretNotFound] for missing keys) and the
-// context-aware [Resolver.HookCtx] propagates that error to the caller of
-// [Config.GetCtx]. Under this mode, resolution stops at the first failing
-// placeholder and returns that error verbatim, leaving the input unchanged
-// (no partial substitution of earlier successful placeholders is
-// observable). When false, the placeholder is left in place, no error is
-// raised, and the loop continues to substitute remaining placeholders —
-// useful for soft fallbacks or staged rollouts.
-//
-// Note: the legacy context-free [Resolver.Hook] cannot surface errors due
-// to its signature; to make this option effective end-to-end, register
-// [Resolver.HookCtx] via [hook.Processor.RegisterGlobalHookCtx] and read
-// values with [Config.GetCtx].
-func WithResolverFailOnMissing(v bool) ResolverOption {
-	return func(r *Resolver) { r.failOnMissing = v }
-}
-
-// WithResolverPrefix prepends a prefix to all secret keys.
+// WithResolverPrefix prepends p verbatim to every secret key before store
+// lookup. The caller is responsible for separators such as "/".
 func WithResolverPrefix(p string) ResolverOption {
 	return func(r *Resolver) { r.prefix = p }
 }
 
-// NewResolver creates a new secret resolver.
+// NewResolver creates a resolver with caching enabled and no automatic cache
+// expiry. store must be non-nil and must honor context cancellation. Options
+// are applied in order, with later options taking precedence.
 func NewResolver(store confii.SecretStore, opts ...ResolverOption) *Resolver {
 	r := &Resolver{
-		store:         store,
-		cacheEnabled:  true,
-		failOnMissing: true,
-		cache:         make(map[string]cacheEntry),
+		store:        store,
+		cacheEnabled: true,
+		cache:        make(map[string]cacheEntry),
 	}
 	for _, o := range opts {
 		o(r)
@@ -104,13 +92,9 @@ func NewResolver(store confii.SecretStore, opts ...ResolverOption) *Resolver {
 // Resolve replaces all ${secret:...} placeholders in a string value with
 // their resolved secret values.
 //
-// Under [WithResolverFailOnMissing](true), resolution stops at the first
-// failing placeholder and returns that error verbatim, leaving the input
-// unchanged (no partial substitution of earlier successful placeholders
-// is observable to the caller). Under [WithResolverFailOnMissing](false)
-// (legacy soft mode), failed placeholders are left in place and the loop
-// continues to substitute the remaining placeholders; the function then
-// returns the partially-substituted string with a nil error.
+// Resolution stops at the first failing placeholder and returns that error,
+// leaving the input unchanged so a failed operation never publishes a
+// partially resolved value.
 func (r *Resolver) Resolve(ctx context.Context, value string) (string, error) {
 	if !strings.Contains(value, "${secret:") {
 		return value, nil
@@ -118,12 +102,12 @@ func (r *Resolver) Resolve(ctx context.Context, value string) (string, error) {
 
 	var lastErr error
 	result := secretPattern.ReplaceAllStringFunc(value, func(match string) string {
-		// Short-circuit: under failOnMissing, once any placeholder has
-		// failed we must not invoke the store for subsequent matches —
+		// Short-circuit once any placeholder has
+		// failed, the store must not be invoked for subsequent matches —
 		// the caller will receive the original input verbatim alongside
 		// the first error, so any further substitution work is wasted
 		// and would mask the fail-fast contract.
-		if lastErr != nil && r.failOnMissing {
+		if lastErr != nil {
 			return match
 		}
 
@@ -144,63 +128,27 @@ func (r *Resolver) Resolve(ctx context.Context, value string) (string, error) {
 
 		resolved, err := r.resolveKey(ctx, key, jsonPath, version)
 		if err != nil {
-			if r.failOnMissing {
-				lastErr = err
-			}
+			lastErr = err
 			return match // leave placeholder unchanged
 		}
 		return fmt.Sprintf("%v", resolved)
 	})
 
-	if lastErr != nil && r.failOnMissing {
+	if lastErr != nil {
 		// Fail-fast contract: return the original input so callers can
 		// trust that an error response never reflects a partially
 		// resolved string (which could leak earlier successful values
 		// while masking the true failure).
 		return value, lastErr
 	}
-	return result, lastErr
+	return result, nil
 }
 
-// Hook returns a [hook.Func] that resolves secret placeholders in string
-// values during hook processing.
-//
-// Because [hook.Func] is the legacy, context-free signature it cannot
-// propagate the caller's context to the underlying [confii.SecretStore] and
-// cannot surface resolution errors to the caller — even when the resolver
-// was configured with [WithResolverFailOnMissing](true). The resolver
-// invokes Resolve with [context.Background] and, on error, returns the
-// original (unresolved) string. New code should register [Resolver.HookCtx]
-// via [hook.Processor.RegisterGlobalHookCtx] (or sibling RegisterCtx
-// methods) so that per-request context is honored and resolution errors
-// reach the caller of [Config.GetCtx].
+// Hook returns a context-aware [hook.Func] that resolves secret placeholders
+// in string values. Store, cancellation, and missing-secret errors propagate
+// to the configuration operation instead of being converted into unresolved
+// placeholder strings.
 func (r *Resolver) Hook() hook.Func {
-	return func(_ string, value any) any {
-		s, ok := value.(string)
-		if !ok {
-			return value
-		}
-		resolved, err := r.Resolve(context.Background(), s)
-		if err != nil {
-			return value // leave unchanged on error (legacy behavior)
-		}
-		return resolved
-	}
-}
-
-// HookCtx returns a [hook.FuncCtx] that resolves secret placeholders in
-// string values during hook processing using the caller-supplied context.
-//
-// The returned hook honors the context's deadline, cancellation, and
-// values (passing them through to [confii.SecretStore.GetSecret]). When
-// the resolver is configured with [WithResolverFailOnMissing](true), an
-// unresolvable secret causes the hook to return the resolution error
-// (wrapping [confii.ErrSecretNotFound] or a store-specific error) instead
-// of the original placeholder; the error then propagates up through
-// [hook.Processor.ProcessCtx] to [Config.GetCtx]. With
-// [WithResolverFailOnMissing](false) (default), the legacy behavior is
-// preserved: the original placeholder is returned and no error is raised.
-func (r *Resolver) HookCtx() hook.FuncCtx {
 	return func(ctx context.Context, _ string, value any) (any, error) {
 		s, ok := value.(string)
 		if !ok {
@@ -208,23 +156,23 @@ func (r *Resolver) HookCtx() hook.FuncCtx {
 		}
 		resolved, err := r.Resolve(ctx, s)
 		if err != nil {
-			// Resolve only returns a non-nil error when failOnMissing is
-			// true; surface it so the caller of Config.GetCtx fails fast
-			// rather than receiving the unresolved placeholder.
 			return value, err
 		}
 		return resolved, nil
 	}
 }
 
-// ClearCache removes all entries from the internal secret cache.
+// ClearCache removes all cached secret values. It is safe for concurrent use;
+// an in-flight provider read may populate the cache after ClearCache returns.
 func (r *Resolver) ClearCache() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.cache = make(map[string]cacheEntry)
 }
 
-// CacheStats returns a map containing cache statistics including enabled state, size, and cached keys.
+// CacheStats returns a detached map with "enabled", "size", and "keys". Keys
+// are backend key identifiers and may reveal sensitive naming information;
+// ordering is unspecified.
 func (r *Resolver) CacheStats() map[string]any {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -239,9 +187,15 @@ func (r *Resolver) CacheStats() map[string]any {
 	}
 }
 
-// Prefetch pre-populates the cache by resolving the given keys from the underlying store.
+// Prefetch resolves keys in order using the current prefix and cache policy.
+// It stops at the first context or provider error. Successfully resolved keys
+// before that error remain cached; when caching is disabled Prefetch performs
+// the reads but retains nothing.
 func (r *Resolver) Prefetch(ctx context.Context, keys []string) error {
 	for _, key := range keys {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		_, err := r.resolveKey(ctx, key, "", "")
 		if err != nil {
 			return err
@@ -251,6 +205,12 @@ func (r *Resolver) Prefetch(ctx context.Context, keys []string) error {
 }
 
 func (r *Resolver) resolveKey(ctx context.Context, key, jsonPath, version string) (any, error) {
+	if ctx == nil {
+		return nil, errors.New("secret resolver: nil context")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	fullKey := key
 	if r.prefix != "" {
 		fullKey = r.prefix + key

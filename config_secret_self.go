@@ -5,6 +5,7 @@ package confii
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -15,11 +16,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/confiify/confii-go/hook"
+	"github.com/confiify/confii-go/v2/hook"
 )
 
-// selfConfigSecretPattern matches both the backward-compatible default
-// provider form and an explicitly routed named-provider form:
+// selfConfigSecretPattern matches default-provider and explicitly routed forms:
 //
 //	${secret:key[:json_path][:version]}
 //	${secret@provider:key[:json_path][:version]}
@@ -29,9 +29,8 @@ import (
 // placeholders. The @provider qualifier is the declarative routing extension.
 var selfConfigSecretPattern = regexp.MustCompile(`\$\{secret(?:@([A-Za-z0-9][A-Za-z0-9_.-]*))?:([^}:]+)(?::([^}:]*))?(?::([^}:]+))?\}`)
 
-// SelfConfigSecretProviderFactory builds a [SelfConfigSecretStore]
-// from the legacy self-config `secrets:` block or one entry under the named
-// `secrets.providers` map.
+// SelfConfigSecretProviderFactory builds a [SecretReader] from one
+// entry under the `secrets.providers` map.
 //
 // Built-in providers ("env", "dict", "file") register at init time.
 // External providers — typically the build-tag-gated cloud secret
@@ -39,18 +38,25 @@ var selfConfigSecretPattern = regexp.MustCompile(`\$\{secret(?:@([A-Za-z0-9][A-Z
 // [RegisterSelfConfigSecretProvider]. The pattern follows
 // [database/sql] driver registration: a blank import of the cloud
 // subpackage with the appropriate build tag installs its provider.
-type SelfConfigSecretProviderFactory func(cfg map[string]any) (SelfConfigSecretStore, error)
+type SelfConfigSecretProviderFactory func(context.Context, map[string]any) (SecretReader, error)
 
 var selfConfigSecretProviders sync.Map // map[string]SelfConfigSecretProviderFactory
 
-// RegisterSelfConfigSecretProvider registers a factory under the
-// given case-insensitive provider name. A subsequent registration
-// under the same name overwrites the previous entry.
+// RegisterSelfConfigSecretProvider registers a factory under the given
+// case-insensitive provider name. It panics for an empty name, a nil factory,
+// or a duplicate normalized name so initialization order cannot silently
+// replace the implementation selected for a provider alias.
 func RegisterSelfConfigSecretProvider(name string, factory SelfConfigSecretProviderFactory) {
-	if factory == nil {
-		return
+	name = strings.ToLower(strings.TrimSpace(name))
+	if name == "" {
+		panic("confii: RegisterSelfConfigSecretProvider called with empty name")
 	}
-	selfConfigSecretProviders.Store(strings.ToLower(strings.TrimSpace(name)), factory)
+	if factory == nil {
+		panic("confii: RegisterSelfConfigSecretProvider called with nil factory for " + name)
+	}
+	if _, loaded := selfConfigSecretProviders.LoadOrStore(name, factory); loaded {
+		panic("confii: RegisterSelfConfigSecretProvider called twice for " + name)
+	}
 }
 
 // LookupSelfConfigSecretProvider returns the factory registered
@@ -67,72 +73,42 @@ func LookupSelfConfigSecretProvider(name string) (SelfConfigSecretProviderFactor
 }
 
 func init() {
-	RegisterSelfConfigSecretProvider("env", func(cfg map[string]any) (SelfConfigSecretStore, error) {
+	RegisterSelfConfigSecretProvider("env", func(_ context.Context, cfg map[string]any) (SecretReader, error) {
 		return newSelfConfigEnvStore(cfg), nil
 	})
-	RegisterSelfConfigSecretProvider("dict", func(cfg map[string]any) (SelfConfigSecretStore, error) {
+	RegisterSelfConfigSecretProvider("dict", func(_ context.Context, cfg map[string]any) (SecretReader, error) {
 		return newSelfConfigDictStore(cfg)
 	})
-	RegisterSelfConfigSecretProvider("file", func(cfg map[string]any) (SelfConfigSecretStore, error) {
+	RegisterSelfConfigSecretProvider("file", func(_ context.Context, cfg map[string]any) (SecretReader, error) {
 		return newSelfConfigFileStore(cfg)
 	})
 }
 
-// buildSelfConfigSecretHook constructs a context-aware [hook.FuncCtx]
+// buildSelfConfigSecretHook constructs a context-aware [hook.Func]
 // that resolves ${secret:...} placeholders against the provider
 // declared in a self-config `secrets:` block. Provider names are
 // resolved through the [RegisterSelfConfigSecretProvider] registry.
 // The hook fails fast on a missing or store-erroring secret, matching
 // the public secret.Resolver's FailOnMissing(true) default.
-func buildSelfConfigSecretHook(secrets map[string]any) (hook.FuncCtx, error) {
-	h, _, _, err := buildSelfConfigSecretHookForEnvironment(secrets, "")
+func buildSelfConfigSecretHook(ctx context.Context, secrets map[string]any) (hook.Func, error) {
+	h, _, _, err := buildSelfConfigSecretHookForEnvironment(ctx, secrets, "")
 	return h, err
 }
 
-// buildSelfConfigSecretHookForEnvironment supports both the legacy
-// single-provider shape and named providers with an environment-selected
-// default. Provider factories are validated at startup but initialized lazily
+// buildSelfConfigSecretHookForEnvironment supports named providers with an
+// environment-selected default. Provider factories are validated at startup but initialized lazily
 // on first use, so an environment does not need credentials for unrelated
 // providers.
-func buildSelfConfigSecretHookForEnvironment(secrets map[string]any, environment string) (hook.FuncCtx, string, []string, error) {
-	if _, named := secrets["providers"]; named {
-		return buildNamedSelfConfigSecretHook(secrets, environment)
-	}
-	rawProvider, _ := secrets["provider"].(string)
-	provider := strings.ToLower(strings.TrimSpace(rawProvider))
-	if provider == "" {
-		return nil, "", nil, &ConfigError{
-			Op:  "ApplySelfConfig",
-			Err: fmt.Errorf("%w: self-config `secrets:` block is missing a `provider` field", ErrConfigLoad),
-		}
-	}
-	factory, ok := LookupSelfConfigSecretProvider(provider)
-	if !ok {
-		return nil, "", nil, &ConfigError{
-			Op: "ApplySelfConfig",
-			Err: fmt.Errorf(
-				"%w: unsupported self-config secrets provider %q (registered: %s); cloud providers must be opted in via a build-tagged blank import of secret/cloud",
-				ErrConfigLoad, rawProvider, registeredSelfConfigProviderNames(),
-			),
-		}
-	}
-	store, err := factory(secrets)
-	if err != nil {
-		return nil, "", nil, &ConfigError{
-			Op:  "ApplySelfConfig",
-			Err: fmt.Errorf("%w: self-config secrets provider %q failed to build: %w", ErrConfigLoad, rawProvider, err),
-		}
-	}
-	return makeSelfConfigSecretHook(store), provider, []string{provider}, nil
+func buildSelfConfigSecretHookForEnvironment(_ context.Context, secrets map[string]any, environment string) (hook.Func, string, []string, error) {
+	return buildNamedSelfConfigSecretHook(secrets, environment)
 }
 
 type selfConfigProviderSpec struct {
 	providerType string
 	config       map[string]any
 	factory      SelfConfigSecretProviderFactory
-	once         sync.Once
-	store        SelfConfigSecretStore
-	err          error
+	mu           sync.Mutex
+	store        SecretReader
 }
 
 type selfConfigSecretRouter struct {
@@ -140,9 +116,70 @@ type selfConfigSecretRouter struct {
 	providers       map[string]*selfConfigProviderSpec
 }
 
-func buildNamedSelfConfigSecretHook(secrets map[string]any, environment string) (hook.FuncCtx, string, []string, error) {
-	if _, legacy := secrets["provider"]; legacy {
-		return nil, "", nil, selfConfigSecretConfigError("`provider` and `providers` cannot be combined")
+type selfConfigResourceCollectorContextKey struct{}
+
+type selfConfigResourceCollector struct {
+	mu        sync.Mutex
+	resources []any
+	closed    bool
+}
+
+func newSelfConfigResourceCollector() *selfConfigResourceCollector {
+	return &selfConfigResourceCollector{}
+}
+
+func (c *selfConfigResourceCollector) add(resource any) bool {
+	if c == nil || resource == nil {
+		return true
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		return false
+	}
+	c.resources = append(c.resources, resource)
+	return true
+}
+
+func (c *selfConfigResourceCollector) closeAndSnapshot() []any {
+	if c == nil {
+		return nil
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		return nil
+	}
+	c.closed = true
+	resources := append([]any(nil), c.resources...)
+	c.resources = nil
+	return resources
+}
+
+func collectSelfConfigResource(ctx context.Context, resource any) bool {
+	if collector, ok := ctx.Value(selfConfigResourceCollectorContextKey{}).(*selfConfigResourceCollector); ok {
+		return collector.add(resource)
+	}
+	return true
+}
+
+func (c *Config[T]) withManagedResourceContext(ctx context.Context) context.Context {
+	if ctx == nil || c == nil || c.resourceRegistry == nil {
+		return ctx
+	}
+	if existing, ok := ctx.Value(selfConfigResourceCollectorContextKey{}).(*selfConfigResourceCollector); ok && existing == c.resourceRegistry {
+		return ctx
+	}
+	return context.WithValue(ctx, selfConfigResourceCollectorContextKey{}, c.resourceRegistry)
+}
+
+func buildNamedSelfConfigSecretHook(secrets map[string]any, environment string) (hook.Func, string, []string, error) {
+	for key := range secrets {
+		switch key {
+		case "providers", "default_provider", "environment_defaults":
+		default:
+			return nil, "", nil, selfConfigSecretConfigError(fmt.Sprintf("unsupported secrets field %q", key))
+		}
 	}
 	rawProviders, ok := secrets["providers"].(map[string]any)
 	if !ok || len(rawProviders) == 0 {
@@ -162,16 +199,14 @@ func buildNamedSelfConfigSecretHook(secrets map[string]any, environment string) 
 		if !ok {
 			return nil, "", nil, selfConfigSecretConfigError(fmt.Sprintf("provider %q must be a map", rawName))
 		}
-		for _, field := range []string{"type", "provider"} {
-			if rawType, exists := cfg[field]; exists {
-				if value, ok := rawType.(string); !ok || strings.TrimSpace(value) == "" {
-					return nil, "", nil, selfConfigSecretConfigError(fmt.Sprintf("provider %q `%s` must be a non-empty string", rawName, field))
-				}
-			}
+		if _, legacyAlias := cfg["provider"]; legacyAlias {
+			return nil, "", nil, selfConfigSecretConfigError(fmt.Sprintf("provider %q uses removed `provider`; use `type`", rawName))
 		}
-		providerType := strings.ToLower(strings.TrimSpace(firstString(cfg, "type", "provider")))
-		if providerType == "" {
-			providerType = name
+		rawType, exists := cfg["type"]
+		providerType, validType := rawType.(string)
+		providerType = strings.ToLower(strings.TrimSpace(providerType))
+		if !exists || !validType || providerType == "" {
+			return nil, "", nil, selfConfigSecretConfigError(fmt.Sprintf("provider %q requires a non-empty `type`", rawName))
 		}
 		factory, ok := LookupSelfConfigSecretProvider(providerType)
 		if !ok {
@@ -248,10 +283,10 @@ func firstString(cfg map[string]any, keys ...string) string {
 }
 
 func selfConfigSecretConfigError(message string) error {
-	return &ConfigError{Op: "ApplySelfConfig", Err: fmt.Errorf("%w: self-config secrets: %s", ErrConfigLoad, message)}
+	return &ConfigError{Op: "ApplySelfConfig", Code: ConfigErrorCodeLoad, Err: fmt.Errorf("self-config secrets: %s", message)}
 }
 
-func (r *selfConfigSecretRouter) get(ctx context.Context, provider, key, version string) (any, error) {
+func (r *selfConfigSecretRouter) get(ctx context.Context, provider, key, field, version string) (any, error) {
 	if provider == "" {
 		provider = r.defaultProvider
 	}
@@ -262,16 +297,29 @@ func (r *selfConfigSecretRouter) get(ctx context.Context, provider, key, version
 	if !ok {
 		return nil, fmt.Errorf("%w: secret provider alias %q is not configured", ErrSecretAccess, provider)
 	}
-	spec.once.Do(func() {
-		spec.store, spec.err = spec.factory(spec.config)
-		if spec.err == nil && spec.store == nil {
-			spec.err = errors.New("provider factory returned a nil store")
+	spec.mu.Lock()
+	store := spec.store
+	if store == nil {
+		var initErr error
+		store, initErr = spec.factory(ctx, spec.config)
+		if initErr == nil && store == nil {
+			initErr = errors.New("provider factory returned a nil store")
 		}
-	})
-	if spec.err != nil {
-		return nil, fmt.Errorf("%w: secret provider %q (%s) failed to initialize: %v", ErrSecretAccess, provider, spec.providerType, spec.err)
+		if initErr != nil {
+			spec.mu.Unlock()
+			return nil, fmt.Errorf("%w: secret provider %q (%s) failed to initialize: %w", ErrSecretAccess, provider, spec.providerType, initErr)
+		}
+		if !collectSelfConfigResource(ctx, store) {
+			if closer, ok := store.(interface{ Close() error }); ok {
+				_ = closer.Close()
+			}
+			spec.mu.Unlock()
+			return nil, fmt.Errorf("%w: secret provider %q initialized after configuration close", ErrSecretAccess, provider)
+		}
+		spec.store = store
 	}
-	return getSelfConfigSecret(ctx, spec.store, key, version)
+	spec.mu.Unlock()
+	return getSelfConfigSecret(ctx, store, key, field, version)
 }
 
 // registeredSelfConfigProviderNames returns a comma-separated list of
@@ -294,29 +342,27 @@ func registeredSelfConfigProviderNames() string {
 	return strings.Join(names, ", ")
 }
 
-// SelfConfigSecretStore is the read-only interface a self-config
-// secret provider must satisfy. It is narrower than [SecretStore]
-// because the configuration access path only ever reads — no
-// existence check, metadata, list, set, or delete. External
-// providers registered via [RegisterSelfConfigSecretProvider]
-// satisfy this interface directly.
-type SelfConfigSecretStore interface {
-	GetSecret(ctx context.Context, key string) (any, error)
-}
-
-// SelfConfigSecretRequest carries the complete declarative placeholder
-// request. Version-capable providers may implement
-// SelfConfigSecretRequestStore; legacy providers remain source compatible and
-// continue to satisfy SelfConfigSecretStore.
-type SelfConfigSecretRequest struct {
-	Key     string
+// SecretRequest describes one backend-neutral declarative secret read. Key is
+// required; Field and Version are optional selectors whose interpretation is
+// defined by the provider. Providers must return an explicit error when a
+// requested selector is unsupported.
+type SecretRequest struct {
+	// Key identifies the secret within the selected provider.
+	Key string
+	// Field selects a member from a structured secret value.
+	Field string
+	// Version selects a backend-defined historical or immutable version.
 	Version string
 }
 
-// SelfConfigSecretRequestStore is the optional version-aware extension used
-// by declarative secret resolution.
-type SelfConfigSecretRequestStore interface {
-	GetSecretRequest(ctx context.Context, request SelfConfigSecretRequest) (any, error)
+// SecretReader is the required contract for self-configured secret providers.
+// Implementations must honor ctx, be safe for concurrent calls made by
+// Confii's resolution workers, and distinguish genuine absence with
+// [ErrSecretNotFound] from authentication, authorization, transport, and
+// backend failures.
+type SecretReader interface {
+	// ReadSecret resolves request or returns a classified error.
+	ReadSecret(ctx context.Context, request SecretRequest) (any, error)
 }
 
 // selfConfigEnvStore is the OS-environment-variable backed built-in
@@ -343,13 +389,13 @@ func newSelfConfigEnvStore(cfg map[string]any) *selfConfigEnvStore {
 	return s
 }
 
-func (s *selfConfigEnvStore) GetSecret(_ context.Context, key string) (any, error) {
-	envKey := s.envKey(key)
+func (s *selfConfigEnvStore) ReadSecret(_ context.Context, request SecretRequest) (any, error) {
+	envKey := s.envKey(request.Key)
 	val, ok := os.LookupEnv(envKey)
 	if !ok {
 		return nil, fmt.Errorf("%w: env var %s not found", ErrSecretNotFound, envKey)
 	}
-	return val, nil
+	return extractSelfConfigSecretPath(val, request.Field)
 }
 
 func (s *selfConfigEnvStore) envKey(key string) string {
@@ -393,12 +439,12 @@ func newSelfConfigDictStore(cfg map[string]any) (*selfConfigDictStore, error) {
 	}
 }
 
-func (s *selfConfigDictStore) GetSecret(_ context.Context, key string) (any, error) {
-	v, ok := s.entries[key]
+func (s *selfConfigDictStore) ReadSecret(_ context.Context, request SecretRequest) (any, error) {
+	v, ok := s.entries[request.Key]
 	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrSecretNotFound, key)
+		return nil, fmt.Errorf("%w: %s", ErrSecretNotFound, request.Key)
 	}
-	return v, nil
+	return extractSelfConfigSecretPath(v, request.Field)
 }
 
 // selfConfigFileStore reads secret values from files on disk, the
@@ -407,7 +453,7 @@ func (s *selfConfigDictStore) GetSecret(_ context.Context, key string) (any, err
 // to base_dir + KEY + extension; the file's full content is returned,
 // with trailing whitespace trimmed when trim_whitespace is true
 // (default). Keys containing path traversal sequences are rejected
-// in [selfConfigFileStore.GetSecret].
+// in [selfConfigFileStore.ReadSecret].
 type selfConfigFileStore struct {
 	baseDir        string
 	extension      string
@@ -431,7 +477,8 @@ func newSelfConfigFileStore(cfg map[string]any) (*selfConfigFileStore, error) {
 	return s, nil
 }
 
-func (s *selfConfigFileStore) GetSecret(_ context.Context, key string) (any, error) {
+func (s *selfConfigFileStore) ReadSecret(_ context.Context, request SecretRequest) (any, error) {
+	key := request.Key
 	if strings.ContainsAny(key, "\x00") {
 		return nil, fmt.Errorf("%w: invalid secret key %q (path traversal rejected)", ErrSecretNotFound, key)
 	}
@@ -461,36 +508,29 @@ func (s *selfConfigFileStore) GetSecret(_ context.Context, key string) (any, err
 	if s.trimWhitespace {
 		str = strings.TrimSpace(str)
 	}
-	return str, nil
+	return extractSelfConfigSecretPath(str, request.Field)
 }
 
-// makeSelfConfigSecretHook returns a [hook.FuncCtx] that performs
-// in-place ${secret:...} placeholder substitution against store. The
+// makeSelfConfigSecretHook returns a [hook.Func] that performs
+// ${secret:...} placeholder substitution against store. The
 // first missing or store-erroring placeholder aborts substitution
-// and the error propagates back through [hook.Processor.ProcessCtx]
-// to the caller of [Config.GetCtx]. Strings without any placeholder
-// are returned unchanged with no store traffic.
-func makeSelfConfigSecretHook(store SelfConfigSecretStore) hook.FuncCtx {
-	return makeSelfConfigSecretValueHook(func(ctx context.Context, _ string, key, version string) (any, error) {
-		return getSelfConfigSecret(ctx, store, key, version)
+// and the error propagates to the snapshot-building operation. Strings without
+// a placeholder are returned unchanged with no store traffic.
+func makeSelfConfigSecretHook(store SecretReader) hook.Func {
+	return makeSelfConfigSecretValueHook(func(ctx context.Context, _ string, key, field, version string) (any, error) {
+		return getSelfConfigSecret(ctx, store, key, field, version)
 	})
 }
 
-func makeSelfConfigRoutedSecretHook(router *selfConfigSecretRouter) hook.FuncCtx {
+func makeSelfConfigRoutedSecretHook(router *selfConfigSecretRouter) hook.Func {
 	return makeSelfConfigSecretValueHook(router.get)
 }
 
-func getSelfConfigSecret(ctx context.Context, store SelfConfigSecretStore, key, version string) (any, error) {
-	if requestStore, ok := store.(SelfConfigSecretRequestStore); ok {
-		return requestStore.GetSecretRequest(ctx, SelfConfigSecretRequest{Key: key, Version: version})
-	}
-	if version != "" {
-		return nil, fmt.Errorf("%w: provider does not support versioned declarative reads", ErrSecretValidation)
-	}
-	return store.GetSecret(ctx, key)
+func getSelfConfigSecret(ctx context.Context, store SecretReader, key, field, version string) (any, error) {
+	return store.ReadSecret(ctx, SecretRequest{Key: key, Field: field, Version: version})
 }
 
-type selfConfigSecretGetter func(context.Context, string, string, string) (any, error)
+type selfConfigSecretGetter func(context.Context, string, string, string, string) (any, error)
 
 // secretResolutionSession deduplicates provider reads during one eager
 // materialization pass. A single remote secret document can feed multiple
@@ -522,12 +562,14 @@ func withSecretResolutionSession(ctx context.Context) context.Context {
 func getSelfConfigSecretOnce(
 	ctx context.Context,
 	get selfConfigSecretGetter,
-	provider, key, version string,
+	provider, key, field, version string,
 ) (any, error) {
 	session, ok := ctx.Value(secretResolutionSessionContextKey{}).(*secretResolutionSession)
 	if !ok || session == nil {
-		return get(ctx, provider, key, version)
+		return get(ctx, provider, key, field, version)
 	}
+	// Fetch and coalesce the complete provider document independently of Field.
+	// The router extracts each requested field after the shared read completes.
 	cacheKey := provider + "\x00" + key + "\x00" + version
 	session.mu.Lock()
 	if existing, found := session.entries[cacheKey]; found {
@@ -543,12 +585,12 @@ func getSelfConfigSecretOnce(
 	session.entries[cacheKey] = entry
 	session.mu.Unlock()
 
-	entry.value, entry.err = get(ctx, provider, key, version)
+	entry.value, entry.err = get(ctx, provider, key, "", version)
 	close(entry.done)
 	return entry.value, entry.err
 }
 
-func makeSelfConfigSecretValueHook(get selfConfigSecretGetter) hook.FuncCtx {
+func makeSelfConfigSecretValueHook(get selfConfigSecretGetter) hook.Func {
 	return func(ctx context.Context, _ string, value any) (any, error) {
 		s, ok := value.(string)
 		if !ok {
@@ -568,7 +610,7 @@ func makeSelfConfigSecretValueHook(get selfConfigSecretGetter) hook.FuncCtx {
 			key := groups[2]
 			jsonPath := groups[3]
 			version := groups[4]
-			val, err := getSelfConfigSecretOnce(ctx, get, provider, key, version)
+			val, err := getSelfConfigSecretOnce(ctx, get, provider, key, jsonPath, version)
 			if err != nil {
 				firstErr = err
 				return match
@@ -592,6 +634,13 @@ func makeSelfConfigSecretValueHook(get selfConfigSecretGetter) hook.FuncCtx {
 func extractSelfConfigSecretPath(value any, path string) (any, error) {
 	if path == "" {
 		return value, nil
+	}
+	if encoded, ok := value.(string); ok {
+		var decoded any
+		if err := json.Unmarshal([]byte(encoded), &decoded); err != nil {
+			return nil, fmt.Errorf("%w: cannot traverse path %q in non-map secret value", ErrSecretValidation, path)
+		}
+		value = decoded
 	}
 	current := value
 	for _, part := range strings.Split(path, ".") {

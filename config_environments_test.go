@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	confii "github.com/confiify/confii-go"
-	"github.com/confiify/confii-go/loader"
+	confii "github.com/confiify/confii-go/v2"
+	"github.com/confiify/confii-go/v2/loader"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -31,7 +31,7 @@ sources:
 		require.NoError(t, os.WriteFile(filepath.Join(root, "settings", name), []byte("app:\n  ready: true\n"), 0o600))
 	}
 
-	cfg, err := confii.New[any](context.Background(), confii.WithWorkingDir(root))
+	cfg, err := confii.NewWithContext[any](context.Background(), confii.WithWorkingDir(root))
 	require.NoError(t, err)
 	environments, err := cfg.AvailableEnvironments()
 	require.NoError(t, err)
@@ -52,7 +52,7 @@ production:
     host: api.example.com
 metadata: ordinary-scalar
 `), 0o600))
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithEnv("development"),
 		confii.WithLoaders(loader.NewYAML(path)),
 	)
@@ -66,7 +66,7 @@ metadata: ordinary-scalar
 func TestAvailableEnvironmentsReturnsIndependentSlice(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "application.yaml")
 	require.NoError(t, os.WriteFile(path, []byte("default: {}\ndevelopment: {}\n"), 0o600))
-	cfg, err := confii.New[any](context.Background(),
+	cfg, err := confii.NewWithContext[any](context.Background(),
 		confii.WithEnv("development"),
 		confii.WithLoaders(loader.NewYAML(path)),
 	)

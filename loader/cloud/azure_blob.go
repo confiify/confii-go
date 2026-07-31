@@ -15,9 +15,8 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
-	confii "github.com/confiify/confii-go"
-	"github.com/confiify/confii-go/internal/formatparse"
-	"github.com/confiify/confii-go/loader"
+	confii "github.com/confiify/confii-go/v2"
+	"github.com/confiify/confii-go/v2/loader"
 )
 
 // AzureBlobLoader loads configuration from Azure Blob Storage.
@@ -37,7 +36,7 @@ type AzureBlobLoader struct {
 // AzureBlobOption configures an AzureBlobLoader.
 type AzureBlobOption func(*AzureBlobLoader)
 
-// WithAzureAccountKey sets account name and key.
+// WithAzureAccountKey configures Shared Key authentication.
 func WithAzureAccountKey(name, key string) AzureBlobOption {
 	return func(l *AzureBlobLoader) {
 		l.accountName = name
@@ -45,7 +44,8 @@ func WithAzureAccountKey(name, key string) AzureBlobOption {
 	}
 }
 
-// WithAzureSASToken sets account name and SAS token.
+// WithAzureSASToken configures an account name and SAS token. The token may be
+// supplied with or without a leading question mark.
 func WithAzureSASToken(name, token string) AzureBlobOption {
 	return func(l *AzureBlobLoader) {
 		l.accountName = name
@@ -58,7 +58,11 @@ func WithAzureConnectionString(cs string) AzureBlobOption {
 	return func(l *AzureBlobLoader) { l.connectionString = cs }
 }
 
-// NewAzureBlob creates a new Azure Blob Storage loader.
+// NewAzureBlob creates a loader for blobName in containerURL. Authentication
+// precedence is connection string, Shared Key, explicit SAS, SAS embedded in
+// the URL, then DefaultAzureCredential. Environment defaults use
+// AZURE_STORAGE_ACCOUNT, AZURE_STORAGE_KEY, AZURE_SAS_TOKEN, and
+// AZURE_STORAGE_CONNECTION_STRING. Address errors are deferred to Load.
 func NewAzureBlob(containerURL, blobName string, opts ...AzureBlobOption) *AzureBlobLoader {
 	serviceURL, containerName, embeddedSAS, addressErr := parseAzureContainerURL(containerURL)
 	l := &AzureBlobLoader{
@@ -84,7 +88,10 @@ func (l *AzureBlobLoader) Source() string {
 	return fmt.Sprintf("azure://%s/%s", l.containerURL, l.blobName)
 }
 
-// Load fetches configuration from the Azure Blob Storage container at the configured URL and parses its contents.
+// Load downloads and parses the blob while honoring ctx. Format is selected
+// from blobName and defaults to JSON. Address, credential, transport, and read
+// failures wrap [confii.ErrConfigLoad]; parse failures wrap
+// [confii.ErrConfigFormat].
 func (l *AzureBlobLoader) Load(ctx context.Context) (map[string]any, error) {
 	if l.addressError != nil {
 		return nil, confii.NewLoadError(l.Source(), l.addressError)
@@ -105,9 +112,9 @@ func (l *AzureBlobLoader) Load(ctx context.Context) (map[string]any, error) {
 		return nil, confii.NewLoadError(l.Source(), err)
 	}
 
-	format := formatparse.FromExtension(l.blobName)
-	if format == formatparse.FormatUnknown {
-		format = formatparse.FormatJSON
+	format := loader.FormatFromExtension(l.blobName)
+	if format == loader.FormatUnknown {
+		format = loader.FormatJSON
 	}
 
 	return loader.ParseContent(data, format, l.Source())

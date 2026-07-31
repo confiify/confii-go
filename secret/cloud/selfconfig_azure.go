@@ -9,11 +9,11 @@ import (
 	"context"
 	"fmt"
 
-	confii "github.com/confiify/confii-go"
+	confii "github.com/confiify/confii-go/v2"
 )
 
 func init() {
-	confii.RegisterSelfConfigSecretProvider("azure", func(cfg map[string]any) (confii.SelfConfigSecretStore, error) {
+	confii.RegisterSelfConfigSecretProvider("azure", func(_ context.Context, cfg map[string]any) (confii.SecretReader, error) {
 		vaultURL := selfString(cfg, "vault_url", "address", "url")
 		if vaultURL == "" {
 			return nil, fmt.Errorf("azure provider requires vault_url")

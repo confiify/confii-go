@@ -10,7 +10,7 @@ import (
 )
 
 func TestDefaultMerger_DeepMerge(t *testing.T) {
-	m := NewDefault(true)
+	m := NewAdvanced(DeepMergeStrategy, nil)
 
 	base := map[string]any{
 		"database": map[string]any{"host": "localhost", "port": 5432},
@@ -24,13 +24,13 @@ func TestDefaultMerger_DeepMerge(t *testing.T) {
 
 	db := got["database"].(map[string]any)
 	assert.Equal(t, "prod-db", db["host"])
-	assert.Equal(t, 5432, db["port"]) // preserved from base
+	assert.Equal(t, 5432, db["port"])
 	assert.Equal(t, false, got["debug"])
 	assert.Equal(t, "new", got["feature"])
 }
 
 func TestDefaultMerger_ShallowMerge(t *testing.T) {
-	m := NewDefault(false)
+	m := NewAdvanced(ShallowMerge, nil)
 
 	base := map[string]any{
 		"database": map[string]any{"host": "localhost", "port": 5432},
@@ -40,7 +40,6 @@ func TestDefaultMerger_ShallowMerge(t *testing.T) {
 	}
 	got := m.Merge(base, overlay)
 
-	// Shallow merge replaces the entire map.
 	db := got["database"].(map[string]any)
 	assert.Equal(t, "prod-db", db["host"])
 	_, hasPort := db["port"]
@@ -48,7 +47,7 @@ func TestDefaultMerger_ShallowMerge(t *testing.T) {
 }
 
 func TestMergeAll(t *testing.T) {
-	m := NewDefault(true)
+	m := NewAdvanced(DeepMergeStrategy, nil)
 
 	configs := []map[string]any{
 		{"a": 1, "b": 2},
@@ -64,14 +63,14 @@ func TestMergeAll(t *testing.T) {
 }
 
 func TestMergeAll_Empty(t *testing.T) {
-	m := NewDefault(true)
+	m := NewAdvanced(DeepMergeStrategy, nil)
 	got := MergeAll(m)
 	assert.NotNil(t, got)
 	assert.Empty(t, got)
 }
 
 func TestMergeAll_NilConfigs(t *testing.T) {
-	m := NewDefault(true)
+	m := NewAdvanced(DeepMergeStrategy, nil)
 	got := MergeAll(m, map[string]any{"a": 1}, nil, map[string]any{"b": 2})
 	assert.Equal(t, 1, got["a"])
 	assert.Equal(t, 2, got["b"])

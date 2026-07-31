@@ -7,13 +7,14 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
-	"github.com/confiify/confii-go/hook"
+	"github.com/confiify/confii-go/v2/hook"
 )
 
 // ErrorPolicy defines how errors raised by loaders, composers, and other
 // configuration steps are surfaced to the caller. The three policies are
-// strictly distinct (G07):
+// strictly distinct:
 //
 //   - [ErrorPolicyRaise] (default): the error is wrapped in a typed
 //     [*ConfigError] and returned from [New] / [Config.Reload]. The Config
@@ -23,12 +24,7 @@ import (
 //     at warn level and loading continues with the remaining sources. Useful
 //     for genuinely optional sources whose absence should be visible.
 //   - [ErrorPolicyIgnore]: the error is silently swallowed; nothing is logged.
-//     Use only when the source is truly best-effort and you accept that
-//     failures will be invisible.
-//
-// Prior to G07, [ErrorPolicyIgnore] still produced a warn-level log record,
-// making it indistinguishable from [ErrorPolicyWarn]. The two now behave
-// differently as documented.
+//     Use only for best-effort sources where invisible failures are acceptable.
 type ErrorPolicy string
 
 const (
@@ -43,8 +39,7 @@ const (
 	ErrorPolicyWarn ErrorPolicy = "warn"
 
 	// ErrorPolicyIgnore causes loader, composer, and self-config errors to
-	// be silently dropped. No log record is emitted. Distinct from
-	// [ErrorPolicyWarn] as of G07.
+	// be silently dropped. No log record is emitted.
 	ErrorPolicyIgnore ErrorPolicy = "ignore"
 )
 
@@ -65,10 +60,11 @@ func ParseErrorPolicy(s string) (ErrorPolicy, error) {
 		return ErrorPolicyIgnore, nil
 	default:
 		return "", &ConfigError{
-			Op: "ParseErrorPolicy",
+			Op:   "ParseErrorPolicy",
+			Code: ConfigErrorCodeLoad,
 			Err: fmt.Errorf(
-				"%w: invalid on_error policy %q (valid values: %q, %q, %q)",
-				ErrConfigLoad, s,
+				"invalid on_error policy %q (valid values: %q, %q, %q)",
+				s,
 				string(ErrorPolicyRaise),
 				string(ErrorPolicyWarn),
 				string(ErrorPolicyIgnore),
@@ -83,21 +79,22 @@ func ParseErrorPolicy(s string) (ErrorPolicy, error) {
 type options struct {
 	// WorkingDir is the base directory used for self-config discovery
 	// (selfconfig.Read) and as the basePath for the include/defaults
-	// composer (compose.New). When empty, the process CWD (".") is used,
-	// matching pre-G06 behavior. Set via [WithWorkingDir].
+	// composer (compose.New). When empty, the process CWD (".") is used.
 	WorkingDir                          string
 	Env                                 string
 	EnvSwitcher                         string
 	Loaders                             []Loader
 	DynamicReloading                    bool
+	ReloadDebounce                      time.Duration
 	UseEnvExpander                      bool
 	UseTypeCasting                      bool
-	DeepMerge                           bool
-	MergeStrategy                       *MergeStrategy
+	MergeStrategy                       MergeStrategy
 	MergeStrategyMap                    map[string]MergeStrategy
 	EnvPrefix                           string
 	SysenvFallback                      bool
-	SecretResolver                      any // *secret.Resolver, kept as any to avoid circular imports
+	SecretResolver                      ManagedSecretResolver
+	Exporters                           []Exporter
+	Validators                          []Validator
 	Schema                              any
 	SchemaPath                          string
 	ValidateOnLoad                      bool
@@ -109,6 +106,18 @@ type options struct {
 	EnvironmentStrategy                 EnvironmentStrategy
 	EnvironmentConflictPolicy           EnvironmentConflictPolicy
 	environmentConflictPolicyConfigured bool
+	// StartupTimeout is the fallback ceiling for the complete initialization
+	// pipeline when the caller's context has no deadline. A zero value disables
+	// the Confii-added deadline; an explicit caller deadline always wins.
+	StartupTimeout time.Duration
+	// SecretResolutionConcurrency bounds eager top-level secret materialization.
+	SecretResolutionConcurrency int
+	// OperationTimeout bounds context-free runtime convenience methods and
+	// watcher-driven reloads. Explicit *WithContext method deadlines always win.
+	OperationTimeout time.Duration
+	// SensitivePaths marks application-defined paths whose values must be
+	// redacted even when they do not originate from a Confii secret reference.
+	SensitivePaths []string
 
 	// selfConfigSources holds declarative `.confii.*` sources until the
 	// active environment has been resolved. Most source types do not depend
@@ -126,48 +135,104 @@ type options struct {
 	// selfConfigSecretProviders records every configured provider alias for
 	// value-safe introspection. It never contains provider credentials.
 	selfConfigSecretProviders []string
-	// SecretHook is a context-aware hook registered on the Config's hook
-	// processor at construction time so secret placeholders (for example
-	// ${secret:db/password}) are eagerly resolved after source merging and
-	// environment selection, before New returns. It is the
-	// option-level wiring path (G04) parallel to the post-construction
-	// pattern of cfg.HookProcessor().RegisterGlobalHookCtx(...). Self-
-	// config `secrets` declarations populate this field with a built-in
-	// env-store-backed hook when no explicit [WithSecretHook] is supplied;
-	// explicit wins.
-	SecretHook hook.FuncCtx
+	// SecretHook resolves secret placeholders while a configuration snapshot is
+	// materialized. An explicit hook takes precedence over self-configuration.
+	SecretHook hook.Func
+	// hookSetups describe construction-time transformation hooks before the
+	// first configuration snapshot is materialized.
+	hookSetups []hookSetup
 
 	// Tracks which fields were explicitly set by user options.
 	// Used to implement priority: explicit > self-config > built-in default.
 	explicitlySet map[string]bool
 }
 
-// ManagedSecretResolver is the constructor-time resolver contract used when
-// Confii should own both eager materialization and cache invalidation during
-// [Config.RefreshSecrets]. The resolver in the secret package satisfies this
-// interface without creating an import cycle.
+// ManagedSecretResolver supplies the hook used for eager secret resolution and
+// the cache invalidation operation used by [Config.RefreshSecrets]. Hook must
+// be safe for concurrent calls up to the limit configured by
+// [WithSecretResolutionConcurrency]. ClearCache must make the next resolution
+// consult the backing store rather than a resolver-owned cache.
 type ManagedSecretResolver interface {
-	HookCtx() hook.FuncCtx
+	// Hook returns the transformation that resolves secret placeholders.
+	Hook() hook.Func
+	// ClearCache invalidates all resolver-owned cached values.
 	ClearCache()
+}
+
+type hookSetupKind uint8
+
+const (
+	hookSetupKey hookSetupKind = iota
+	hookSetupValue
+	hookSetupCondition
+	hookSetupGlobal
+)
+
+type hookSetup struct {
+	kind      hookSetupKind
+	key       string
+	value     any
+	condition hook.Condition
+	hook      hook.Func
 }
 
 func defaultOptions() options {
 	return options{
-		Env:                       "",
-		UseEnvExpander:            true,
-		UseTypeCasting:            true,
-		DeepMerge:                 true,
-		OnError:                   ErrorPolicyRaise,
-		Logger:                    slog.Default(),
-		EnvironmentStrategy:       EnvironmentStrategyAuto,
-		EnvironmentConflictPolicy: EnvironmentConflictLastWins,
-		explicitlySet:             make(map[string]bool),
+		Env:                         "",
+		UseEnvExpander:              true,
+		UseTypeCasting:              true,
+		MergeStrategy:               StrategyMerge,
+		StrictValidation:            true,
+		OnError:                     ErrorPolicyRaise,
+		Logger:                      slog.Default(),
+		EnvironmentStrategy:         EnvironmentStrategyAuto,
+		EnvironmentConflictPolicy:   EnvironmentConflictLastWins,
+		StartupTimeout:              60 * time.Second,
+		SecretResolutionConcurrency: 4,
+		OperationTimeout:            30 * time.Second,
+		ReloadDebounce:              150 * time.Millisecond,
+		explicitlySet:               make(map[string]bool),
 	}
 }
 
-// WithEnvironmentStrategy selects the project's primary environment model.
-// Auto preserves legacy section-based behavior and infers named_files when an
-// environment_files self-config source is present.
+// WithOperationTimeout sets the fallback deadline used by context-free runtime
+// methods and watcher-triggered reloads. Methods whose names end in WithContext
+// preserve the caller's deadline instead. Zero disables the Confii-added
+// deadline; a negative duration is rejected by [NewWithContext].
+func WithOperationTimeout(timeout time.Duration) Option {
+	return func(o *options) {
+		o.OperationTimeout = timeout
+		o.explicitlySet["operation_timeout"] = true
+	}
+}
+
+// WithSecretResolutionConcurrency bounds parallel provider reads while a
+// snapshot is materialized. The default is four. Values below one are rejected
+// by [NewWithContext] before any source is loaded.
+func WithSecretResolutionConcurrency(limit int) Option {
+	return func(o *options) {
+		o.SecretResolutionConcurrency = limit
+		o.explicitlySet["secret_resolution_concurrency"] = true
+	}
+}
+
+// WithStartupTimeout sets the fallback deadline for configuration
+// initialization when the context supplied to [NewWithContext] has no deadline.
+// A zero duration disables the Confii-added deadline. A negative duration is
+// rejected by the constructor.
+//
+// An existing caller deadline is never replaced or extended by this option.
+func WithStartupTimeout(timeout time.Duration) Option {
+	return func(o *options) {
+		o.StartupTimeout = timeout
+		o.explicitlySet["startup_timeout"] = true
+	}
+}
+
+// WithEnvironmentStrategy selects the project's environment model. Auto uses
+// sectioned documents unless a declared environment_files source makes the
+// named-files model explicit. Hybrid must be selected deliberately when both
+// models are present.
 func WithEnvironmentStrategy(strategy EnvironmentStrategy) Option {
 	return func(o *options) {
 		o.EnvironmentStrategy = strategy
@@ -175,8 +240,9 @@ func WithEnvironmentStrategy(strategy EnvironmentStrategy) Option {
 	}
 }
 
-// WithEnvironmentConflictPolicy controls mixed-model key conflicts in
-// explicit hybrid mode.
+// WithEnvironmentConflictPolicy selects how duplicate keys are handled when
+// [EnvironmentStrategyHybrid] combines sectioned and named-file sources. The
+// option has no effect for the other environment strategies.
 func WithEnvironmentConflictPolicy(policy EnvironmentConflictPolicy) Option {
 	return func(o *options) {
 		o.EnvironmentConflictPolicy = policy
@@ -190,34 +256,13 @@ func (o *options) isSet(key string) bool {
 	return o.explicitlySet[key]
 }
 
-// Option configures a Config instance.
+// Option configures a Config during construction. Constructor options take
+// precedence over equivalent values discovered in project self-configuration.
 type Option func(*options)
 
-// WithWorkingDir sets the base directory used for self-config discovery
-// and for resolving relative `_include` / `_defaults` paths in the
-// composer.
-//
-// G06 (Wave 22): prior to this option [confii.New] always read the
-// self-config file from the process CWD ("." literally) and instantiated
-// the composer with the same hard-coded "." basePath. That coupled the
-// library's discovery semantics to whatever directory the host process
-// happened to be in, which surprised callers who used Confii from
-// long-running daemons, tests, or sub-commands that chdir mid-run. With
-// [WithWorkingDir] the caller picks the discovery base explicitly:
-//
-//   - selfconfig.Read receives this dir, so confii.{yaml,json,toml} and
-//     .confii.* files are searched under the supplied directory (with
-//     ~/.config/confii/ XDG fallback unchanged).
-//   - The selfconfig package caches results keyed by filepath.Abs(dir),
-//     so two Config instances created with different WithWorkingDir
-//     values do NOT share self-config state.
-//   - compose.New is initialized with this dir as basePath, so a YAML
-//     containing `_include: ./other.yaml` resolves `./other.yaml`
-//     relative to dir, not relative to the process CWD.
-//
-// Empty string is treated as "." (the pre-G06 default) for backward
-// compatibility — existing code that does not call WithWorkingDir behaves
-// exactly as it did before Wave 22.
+// WithWorkingDir sets the project directory used for self-configuration
+// discovery and relative composition paths. Relative loader paths retain their
+// loader-defined semantics. An empty value uses the process working directory.
 func WithWorkingDir(dir string) Option {
 	return func(o *options) {
 		o.WorkingDir = dir
@@ -225,21 +270,10 @@ func WithWorkingDir(dir string) Option {
 	}
 }
 
-// WithEnv sets the active environment name (e.g., "production").
-//
-// G02: an explicit [WithEnv] takes priority over any [WithEnvSwitcher]
-// OS-variable lookup or [selfconfig] env-switcher hint, matching the
-// documented precedence "explicit `WithEnv()` > `WithEnvSwitcher()` OS
-// variable > self-config file `default_environment` > empty string".
-//
-// To enforce that precedence regardless of the order in which options are
-// applied, this option also clears any previously-set EnvSwitcher field
-// and marks "env_switcher" as explicitly handled so [applySelfConfig]
-// will not later repopulate it. The semantics: when the caller has named
-// an environment by hand, no OS-variable lookup should second-guess that
-// choice. Precedence resolution is intentionally centralized in the
-// [github.com/confiify/confii-go/envhandler] package
-// (see [envhandler.ResolveEnv]) so it can be unit-tested in isolation.
+// WithEnv sets the active environment name, such as "production". An
+// explicitly supplied environment takes priority over [WithEnvSwitcher] and
+// the self-configured default regardless of option order. Passing an empty
+// string is an explicit selection and therefore also disables switcher lookup.
 func WithEnv(env string) Option {
 	return func(o *options) {
 		o.Env = env
@@ -254,13 +288,13 @@ func WithEnv(env string) Option {
 
 // WithEnvSwitcher sets the OS environment variable name whose value selects the active environment.
 //
-// G02: this option is a no-op when [WithEnv] has already been applied,
+// This option is a no-op when [WithEnv] has already been applied,
 // because explicit code-level environment selection always outranks an
 // OS-variable lookup. The order in which options appear in the [New]
 // argument list does not matter — [WithEnv] wins regardless of order.
 func WithEnvSwitcher(envVar string) Option {
 	return func(o *options) {
-		// G02: explicit WithEnv always wins. Skip recording the
+		// Explicit WithEnv always wins. Skip recording the
 		// env-switcher hint so the resolver does not later overwrite
 		// the explicitly chosen env with an OS-variable value.
 		if o.explicitlySet["env"] {
@@ -271,14 +305,20 @@ func WithEnvSwitcher(envVar string) Option {
 	}
 }
 
-// WithLoaders sets the ordered list of loaders. Later loaders override earlier ones.
+// WithLoaders sets the complete ordered source list. Later loaders have higher
+// precedence under the configured merge strategy. Supplying this option makes
+// the list authoritative over declarative self-config sources; an empty list
+// intentionally disables those sources.
 func WithLoaders(loaders ...Loader) Option {
 	return func(o *options) { o.Loaders = loaders; o.explicitlySet["loaders"] = true }
 }
 
-// WithDynamicReloading enables file watching for automatic reload on change.
+// WithDynamicReloading enables watcher-driven reloads for trackable local file
+// sources after successful construction. Remote and process-environment
+// sources are refreshed only when another reload trigger runs. Call
+// [Config.Close] or [Config.StopWatching] to release the watcher.
 //
-// G14: this option is mutually exclusive with [WithFreezeOnLoad](true)
+// This option is mutually exclusive with [WithFreezeOnLoad](true)
 // — combining them is rejected at [confii.New] time with a typed
 // [*ConfigError] wrapping [ErrConfigLoad], because a frozen Config
 // refuses every reload and the watcher would emit only failure logs.
@@ -288,54 +328,63 @@ func WithDynamicReloading(v bool) Option {
 	return func(o *options) { o.DynamicReloading = v; o.explicitlySet["dynamic_reloading"] = true }
 }
 
-// WithEnvExpander enables or disables ${VAR} expansion in string values.
+// WithReloadDebounce sets the trailing-edge interval used to coalesce bursts
+// of filesystem events before a watcher-driven reload. The default is 150ms.
+// Zero reloads immediately; negative values are rejected by [NewWithContext].
+// Explicit [Config.Reload] calls are never delayed.
+func WithReloadDebounce(interval time.Duration) Option {
+	return func(o *options) {
+		o.ReloadDebounce = interval
+		o.explicitlySet["reload_debounce"] = true
+	}
+}
+
+// WithSensitivePaths marks dot-separated configuration paths as sensitive in
+// every published snapshot. Explicit paths are combined with paths discovered
+// from secret references and are redacted by diffs, version comparisons,
+// source inspection, generated documentation, and schema examples. Marking a
+// parent path also protects all descendants. Paths are validated and copied
+// during construction.
+func WithSensitivePaths(paths ...string) Option {
+	return func(o *options) {
+		o.SensitivePaths = paths
+		o.explicitlySet["sensitive_paths"] = true
+	}
+}
+
+// WithEnvExpander controls ${VAR} expansion during snapshot materialization.
+// Unknown variables remain unchanged. The default is true.
 func WithEnvExpander(v bool) Option {
 	return func(o *options) { o.UseEnvExpander = v; o.explicitlySet["use_env_expander"] = true }
 }
 
-// WithTypeCasting enables or disables automatic type casting of string values.
+// WithTypeCasting controls conversion of canonical string booleans, integers,
+// and floating-point numbers during materialization. The default is true;
+// disabling it preserves loaded strings verbatim.
 func WithTypeCasting(v bool) Option {
 	return func(o *options) { o.UseTypeCasting = v; o.explicitlySet["use_type_casting"] = true }
 }
 
-// WithDeepMerge enables or disables deep merging of nested maps.
-func WithDeepMerge(v bool) Option {
-	return func(o *options) { o.DeepMerge = v; o.explicitlySet["deep_merge"] = true }
+// WithMergeStrategy sets the strategy used wherever no more-specific path
+// override is present. The default is [StrategyMerge].
+func WithMergeStrategy(s MergeStrategy) Option {
+	return func(o *options) { o.MergeStrategy = s; o.explicitlySet["merge_strategy"] = true }
 }
 
-// WithMergeStrategyOption sets the default merge strategy.
-func WithMergeStrategyOption(s MergeStrategy) Option {
-	return func(o *options) { o.MergeStrategy = &s; o.explicitlySet["merge_strategy"] = true }
-}
-
-// WithMergeStrategyMap sets per-path merge strategy overrides. The map
-// is honored on its own — supplying it without also calling
-// [WithMergeStrategyOption] is sufficient to activate the advanced
-// merger. When no global default strategy is provided, the merger
-// falls back to deep-merge for paths not covered by the map.
+// WithMergeStrategyMap sets merge strategies for dot-separated paths. Exact
+// matches take precedence; descendants inherit the most-specific parent path.
+// Paths not covered by the map use [WithMergeStrategy]'s value, or deep merge
+// when no explicit default was supplied. The map is read during construction;
+// callers should not mutate it concurrently.
 func WithMergeStrategyMap(m map[string]MergeStrategy) Option {
 	return func(o *options) { o.MergeStrategyMap = m; o.explicitlySet["merge_strategy_map"] = true }
 }
 
 // WithEnvPrefix auto-adds an environment-variable loader for this prefix.
 //
-// The recorded prefix is used by the sysenv fallback path
-// ([WithSysenvFallback]) to resolve missing keys via OS environment
-// variables. As of Wave 13 G03, [WithEnvPrefix] also appends an
-// auto-installed environment loader equivalent to
-// `loader.NewEnvironment(prefix)` to the loader chain so that environment
-// variables participate in the normal load+merge pipeline (not only the
-// after-the-fact sysenv fallback resolution at Get-time). The loader uses
-// the canonical "__" nesting separator: e.g., `APP_DB__HOST=postgres`
-// becomes `db.host`. The prefix is uppercased to match
-// [loader.EnvironmentLoader] semantics.
-//
-// Double-application is avoided. If the user has already supplied their
-// own `loader.NewEnvironment(prefix)` via [WithLoaders] (with a matching
-// uppercased prefix), the auto-loader is not appended; the user's loader keeps
-// its position in the chain. Constructor option order does not affect this
-// guarantee because [New] finalizes the auto-loader after self-config sources.
-// Detection uses Loader.Source() identity (`environment:<UPPER_PREFIX>`).
+// The prefix is uppercased. A double underscore represents a nested key, so
+// APP_DB__HOST maps to db.host. An equivalent explicitly configured
+// environment loader retains its original position and is not duplicated.
 func WithEnvPrefix(prefix string) Option {
 	return func(o *options) {
 		o.EnvPrefix = prefix
@@ -345,16 +394,15 @@ func WithEnvPrefix(prefix string) Option {
 			return
 		}
 
-		// G03: append the environment loader to the load pipeline so
+		// Append the environment loader to the load pipeline so
 		// env vars are merged in like any other source. Match the
-		// canonical loader.EnvironmentLoader source identifier so we
+		// canonical loader.EnvironmentLoader source identifier so Confii
 		// can dedupe against an explicitly-supplied env loader.
 		upper := strings.ToUpper(prefix)
 		wantSource := "environment:" + upper
 		for _, existing := range o.Loaders {
 			if existing != nil && existing.Source() == wantSource {
-				// User already supplied an equivalent loader.
-				// Skip auto-append to avoid double-application.
+				// Avoid applying an equivalent explicit loader twice.
 				return
 			}
 		}
@@ -390,27 +438,76 @@ func ensureEnvPrefixLoader(o *options) {
 	o.Loaders = append(o.Loaders, &envPrefixAutoLoader{prefix: upper})
 }
 
-// WithSysenvFallback enables fallback to system env vars for missing keys.
+// WithSysenvFallback allows a missing key to be read from the process
+// environment. Dot-separated keys are converted to uppercase underscore names
+// (for example, database.host becomes DATABASE_HOST); [WithEnvPrefix] prepends
+// its normalized prefix. The fallback applies to reads only and does not add
+// the value to the published snapshot.
 func WithSysenvFallback(v bool) Option {
 	return func(o *options) { o.SysenvFallback = v; o.explicitlySet["sysenv_fallback"] = true }
 }
 
-// WithSchema sets the validation schema (struct type or JSON schema dict).
+// WithExporter registers an application-defined serializer by the stable
+// lowercase name returned from [Exporter.Format]. A custom exporter replaces
+// a built-in exporter with the same name, allowing applications to customize
+// JSON, YAML, or TOML output, and may also introduce a new format.
+//
+// Registration is validated by [NewWithContext]. Nil exporters, typed-nil
+// exporters, and empty or non-canonical format names are rejected before any
+// source is loaded. Repeating the option for the same format uses the last
+// registered exporter.
+func WithExporter(exporter Exporter) Option {
+	return func(o *options) {
+		o.Exporters = append(o.Exporters, exporter)
+		o.explicitlySet["exporters"] = true
+	}
+}
+
+// WithValidator adds an application-defined validation rule to the snapshot
+// lifecycle. Registering a validator enables validation. Custom validators run
+// in registration order after JSON Schema validation and before typed-struct
+// validation. A failure rejects construction or the candidate mutation
+// transaction without publishing partial configuration.
+//
+// Confii passes each validator an independent copy of the candidate map, so a
+// validator cannot mutate the snapshot that will be published. Nil and
+// typed-nil validators are rejected by [NewWithContext].
+func WithValidator(validator Validator) Option {
+	return func(o *options) {
+		o.Validators = append(o.Validators, validator)
+		o.ValidateOnLoad = true
+		o.explicitlySet["validators"] = true
+		o.explicitlySet["validate_on_load"] = true
+	}
+}
+
+// WithSchema sets an inline JSON Schema represented as map[string]any. Typed
+// struct validation is derived from Config's type parameter T and its
+// `validate` tags rather than from this option. Validation runs when
+// [WithValidateOnLoad](true) is also enabled.
 func WithSchema(schema any) Option {
 	return func(o *options) { o.Schema = schema; o.explicitlySet["schema"] = true }
 }
 
-// WithSchemaPath sets the path to a JSON Schema file.
+// WithSchemaPath sets the path to a JSON Schema document. The path is compiled
+// during construction and failures wrap [ErrConfigValidation]. An inline
+// schema supplied through [WithSchema] takes precedence.
 func WithSchemaPath(path string) Option {
 	return func(o *options) { o.SchemaPath = path; o.explicitlySet["schema_path"] = true }
 }
 
-// WithValidateOnLoad validates configuration immediately after loading.
+// WithValidateOnLoad controls validation before each candidate snapshot is
+// published, including construction, reload, extension, override, and secret
+// refresh. Config[any] requires a JSON Schema; a struct T is decoded and
+// validated from its `validate` tags.
 func WithValidateOnLoad(v bool) Option {
 	return func(o *options) { o.ValidateOnLoad = v; o.explicitlySet["validate_on_load"] = true }
 }
 
-// WithStrictValidation raises errors on validation failure instead of warning.
+// WithStrictValidation controls typed-struct validation failures. When true
+// (the default), a violation rejects the candidate with
+// [ErrConfigValidation]. When false, typed violations are logged and the
+// candidate may be published. JSON Schema violations remain fatal.
 func WithStrictValidation(v bool) Option {
 	return func(o *options) { o.StrictValidation = v; o.explicitlySet["strict_validation"] = true }
 }
@@ -420,7 +517,7 @@ func WithStrictValidation(v bool) Option {
 // [Config.Reload], [Config.Extend], [Config.RollbackToVersion]) with
 // [ErrConfigFrozen].
 //
-// G14: this option is mutually exclusive with [WithDynamicReloading](true)
+// This option is mutually exclusive with [WithDynamicReloading](true)
 // — combining them is rejected at [confii.New] time with a typed
 // [*ConfigError]. A frozen Config under a watcher would emit only
 // "config is frozen" reload errors. Use one or the other.
@@ -430,8 +527,7 @@ func WithFreezeOnLoad(v bool) Option {
 
 // WithOnError sets the error-handling policy applied when a loader's
 // Load call fails or when composition (`_include` / `_defaults`)
-// processing returns an error. The three behaviors are strictly distinct
-// after G07:
+// processing returns an error. The three behaviors are strictly distinct:
 //
 //   - [ErrorPolicyRaise] (default): the error is returned from [New] or
 //     [Config.Reload]; on Reload the previous state is preserved via
@@ -449,39 +545,93 @@ func WithOnError(p ErrorPolicy) Option {
 	return func(o *options) { o.OnError = p; o.explicitlySet["on_error"] = true }
 }
 
-// WithDebugMode enables detailed source tracking.
+// WithDebugMode controls retention of complete per-key override histories.
+// Basic source attribution remains available when disabled. Enable it when
+// [Config.GetOverrideHistory] or complete debug reports are required.
 func WithDebugMode(v bool) Option {
 	return func(o *options) { o.DebugMode = v; o.explicitlySet["debug_mode"] = true }
 }
 
-// WithLogger sets the logger for the config instance.
+// WithLogger sets the logger used for warnings, lifecycle diagnostics, and
+// recovered callback panics. The logger must be non-nil; omit this option to
+// use [slog.Default].
 func WithLogger(l *slog.Logger) Option {
 	return func(o *options) { o.Logger = l; o.explicitlySet["logger"] = true }
 }
 
-// WithSecretHook registers a context-aware secret-resolution hook on the
+// WithSecretHook registers a secret-resolution hook on the
 // Config's hook processor at construction time. After sources are merged and
 // the active environment is selected, New invokes the hook across the final
 // effective configuration and fails atomically if a required secret cannot be
-// resolved. Ordinary reads then consume the ready in-memory snapshot; the hook
-// remains registered for backward-compatible runtime access paths.
+// resolved. Ordinary reads then consume the ready in-memory snapshot without
+// rerunning the hook. Mutations and explicit refreshes materialize a candidate
+// snapshot through the same frozen plan before publication.
 //
-// G04: this option is the explicit-wins counterpart to a self-config
+// This option is the explicit-wins counterpart to a self-config
 // `secrets:` declaration. When both are supplied, the explicit hook wins
 // and the self-config-derived hook is dropped (consistent with the rest
 // of the explicit > self-config priority).
-func WithSecretHook(h hook.FuncCtx) Option {
+func WithSecretHook(h hook.Func) Option {
 	return func(o *options) { o.SecretHook = h; o.explicitlySet["secret_hook"] = true }
+}
+
+// WithKeyHook registers a transformation for one exact dot-separated key. Key
+// hooks run before value, condition, and global hooks.
+//
+//	cfg, err := confii.New[AppConfig](
+//		confii.WithKeyHook("server.host", func(ctx context.Context, key string, value any) (any, error) {
+//			host, ok := value.(string)
+//			if !ok { return nil, fmt.Errorf("%s must be a string", key) }
+//			return strings.TrimSpace(host), nil
+//		}),
+//	)
+func WithKeyHook(key string, h hook.Func) Option {
+	return func(o *options) {
+		o.hookSetups = append(o.hookSetups, hookSetup{kind: hookSetupKey, key: key, hook: h})
+	}
+}
+
+// WithValueHook registers a transformation selected by deep equality with the
+// value entering the value-hook stage. Key-hook output therefore participates
+// in matching, and maps and slices are supported.
+func WithValueHook(value any, h hook.Func) Option {
+	return func(o *options) {
+		o.hookSetups = append(o.hookSetups, hookSetup{kind: hookSetupValue, value: value, hook: h})
+	}
+}
+
+// WithConditionHook registers a predicate and transformation. The predicate
+// receives the value produced by key and value hooks; false skips the hook,
+// while an error rejects the candidate snapshot.
+func WithConditionHook(condition hook.Condition, h hook.Func) Option {
+	return func(o *options) {
+		o.hookSetups = append(o.hookSetups, hookSetup{kind: hookSetupCondition, condition: condition, hook: h})
+	}
+}
+
+// WithGlobalHook registers a transformation for every leaf value. Global hooks
+// run after key, value, and condition hooks in registration order.
+func WithGlobalHook(h hook.Func) Option {
+	return func(o *options) {
+		o.hookSetups = append(o.hookSetups, hookSetup{kind: hookSetupGlobal, hook: h})
+	}
 }
 
 // WithSecretResolver wires a managed resolver into eager initialization and
 // explicit refresh. Unlike [WithSecretHook], this option also gives Confii a
 // cache invalidation handle, so [Config.RefreshSecrets] reads through to the
 // backing store instead of accepting an unexpired resolver cache entry.
+//
+//	store := secret.NewDictStore(map[string]any{"database/password": "dev-only"})
+//	resolver := secret.NewResolver(store, secret.WithCacheTTL(5*time.Minute))
+//	cfg, err := confii.New[AppConfig](
+//		confii.WithLoaders(loader.NewYAML("config.yaml")),
+//		confii.WithSecretResolver(resolver),
+//	)
+//	// ${secret:database/password} is resolved before New returns.
 func WithSecretResolver(resolver ManagedSecretResolver) Option {
 	return func(o *options) {
 		o.SecretResolver = resolver
-		o.SecretHook = resolver.HookCtx()
 		o.explicitlySet["secret_hook"] = true
 	}
 }
