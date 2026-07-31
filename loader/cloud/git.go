@@ -67,14 +67,18 @@ func (l *GitLoader) Load(ctx context.Context) (map[string]any, error) {
 	if err != nil {
 		return nil, confii.NewLoadError(l.Source(), err)
 	}
+	return l.loadResolved(ctx, rawURL, headers)
+}
 
+// loadResolved fetches an already resolved raw URL through the shared HTTP
+// loader, inheriting its transport, format detection, response bounding, and
+// error classification.
+func (l *GitLoader) loadResolved(ctx context.Context, rawURL string, headers map[string]string) (map[string]any, error) {
 	var httpOpts []loader.HTTPOption
 	if len(headers) > 0 {
 		httpOpts = append(httpOpts, loader.WithHeaders(headers))
 	}
-
-	httpLoader := loader.NewHTTP(rawURL, httpOpts...)
-	return httpLoader.Load(ctx)
+	return loader.NewHTTP(rawURL, httpOpts...).Load(ctx)
 }
 
 func (l *GitLoader) resolveRawURL() (string, map[string]string, error) {

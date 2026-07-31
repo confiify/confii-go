@@ -72,7 +72,7 @@ type Settings struct {
 	LogLevel string `yaml:"log_level" json:"log_level" toml:"log_level"`
 	// SchemaPath identifies a JSON Schema file resolved from the project working directory.
 	SchemaPath string `yaml:"schema_path" json:"schema_path" toml:"schema_path"`
-	// EnvironmentStrategy selects flat, sectioned, hybrid, or automatic interpretation.
+	// EnvironmentStrategy selects auto, sectioned, named_files, or hybrid interpretation.
 	EnvironmentStrategy string `yaml:"environment_strategy" json:"environment_strategy" toml:"environment_strategy"`
 	// EnvironmentConflictPolicy selects error, section-wins, or flat-wins behavior.
 	EnvironmentConflictPolicy string `yaml:"environment_conflict_policy" json:"environment_conflict_policy" toml:"environment_conflict_policy"`
@@ -427,7 +427,12 @@ func readFileMap(path string) (map[string]any, error) {
 	case "json":
 		decoder := json.NewDecoder(bytes.NewReader(data))
 		if err = decoder.Decode(&values); err != nil {
-			break
+			// An empty document selects defaults, matching the YAML and
+			// TOML branches.
+			if err != io.EOF {
+				break
+			}
+			err = nil
 		}
 		var trailing any
 		if trailingErr := decoder.Decode(&trailing); trailingErr != io.EOF {

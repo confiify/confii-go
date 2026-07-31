@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- Make an override restore function a no-op after `Config.Close` so the closed
+  snapshot remains immutable and emits no further lifecycle signals.
+- Detach `reload`, `extend`, and `override_restored` event payloads completely;
+  listeners can no longer reach live configuration through shared slice values.
+- Return structured `ConfigError` values (stable `errors.Is` categories) for a
+  `Set` rejected by `WithOverride(false)`, version save and rollback admission
+  failures, nil diff targets, documentation/export format errors, serializer
+  failures, and export or debug-report write failures.
+- Classify AWS Secrets Manager not-found responses by the SDK's typed
+  `ResourceNotFoundException` and GCP already-exists responses by gRPC status
+  code instead of matching error message text, with typed-versus-message
+  regression coverage for both providers.
+- Reject an explicit secret version against a Vault KV v1 mount instead of
+  silently serving the current value.
+- Treat an empty `.confii.json` self-configuration file as defaults, matching
+  the YAML and TOML behavior.
+- Migrate the integration self-configuration fixture from removed
+  `default_files` and `deep_merge` fields to canonical `sources` configuration.
+
 ### Changed
 
 - Adopt Go semantic import versioning for the v2 API. The core module is now

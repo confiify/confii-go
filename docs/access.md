@@ -42,16 +42,19 @@ the in-memory effective configuration before this call.
 ```go
 val, err := cfg.Get("database.host")
 if err != nil {
-    // Key not found -- err is a *NotFoundError with suggestions
+    // Key not found -- err is a *ConfigError with Code
+    // config_not_found; detect it with
+    // errors.Is(err, confii.ErrConfigNotFound).
     log.Fatal(err)
 }
 fmt.Println(val) // "prod-db.example.com"
 ```
 
-The error includes the requested key and a list of available keys, which helps catch typos:
+The error includes the requested key and a bounded, sorted list of available
+keys, which helps catch typos:
 
 ```text
-key "databse.host" not found; available keys: [database.host, database.port, ...]
+Get: key "databse.host": config key not found [available_keys=[database.host, database.port, ...]]
 ```
 
 ### GetOr

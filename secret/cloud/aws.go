@@ -9,6 +9,7 @@ package cloud
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
+	"github.com/aws/aws-sdk-go-v2/service/secretsmanager/types"
 	confii "github.com/confiify/confii-go/v2"
 )
 
@@ -210,7 +212,11 @@ func (s *AWSSecretsManager) ListSecrets(ctx context.Context, prefix string) ([]s
 	return keys, nil
 }
 
+// isAWSNotFound reports the SDK's typed missing-resource condition. It must
+// not match on message text: not-found is the only classification that lets
+// multi-store fallback continue, so a broader match would route auth, network,
+// or endpoint failures past the fail-closed contract.
 func isAWSNotFound(err error) bool {
-	return strings.Contains(err.Error(), "ResourceNotFoundException") ||
-		strings.Contains(err.Error(), "not found")
+	var notFound *types.ResourceNotFoundException
+	return errors.As(err, &notFound)
 }

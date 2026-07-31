@@ -286,7 +286,7 @@ confii load -l yaml:config.yaml -l env:APP
 Retrieve a single configuration value by key path.
 
 ```bash
-confii get [env] <key> -l type:source [...]
+confii get <key> [-e environment] -l type:source [...]
 ```
 
 **Examples:**
@@ -295,12 +295,12 @@ confii get [env] <key> -l type:source [...]
 # Use .confii.yaml's default_environment / env_switcher
 confii get database.host
 
-# Get a scalar value
-confii get production database.host -l yaml:config.yaml
+# Get a scalar value from an explicit environment
+confii get database.host -e production -l yaml:config.yaml
 # Output: prod-db.example.com
 
 # Get a nested object (printed as indented JSON)
-confii get production database -l yaml:config.yaml
+confii get database -e production -l yaml:config.yaml
 # Output:
 # {
 #   "host": "prod-db.example.com",

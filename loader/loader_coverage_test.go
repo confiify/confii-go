@@ -315,7 +315,9 @@ func TestINILoader_InvalidContent(t *testing.T) {
 
 	l := NewINI(path)
 
-	_, _ = l.Load(context.Background())
+	_, err := l.Load(context.Background())
+	assert.Error(t, err)
+	assert.True(t, errors.Is(err, confii.ErrConfigFormat))
 }
 
 func TestTOMLLoader_InvalidContent(t *testing.T) {

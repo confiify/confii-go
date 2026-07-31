@@ -44,6 +44,8 @@ type overrideFrame struct {
 // mutable, even if it was frozen before the first override. Restoring the last
 // override reinstates the original frozen state. Failing to call restore keeps
 // the override and mutable state active for the lifetime of the Config.
+// Calling restore after [Config.Close] is a no-op: the closed snapshot
+// remains immutable and no callbacks or events are delivered.
 func (c *Config[T]) Override(overrides map[string]any) (restore func(), err error) {
 	ctx, cancel := c.implicitOperationContext()
 	defer cancel()
@@ -186,7 +188,10 @@ func (c *Config[T]) OverrideWithContext(ctx context.Context, overrides map[strin
 func (c *Config[T]) makeOverrideRestore(frame *overrideFrame) func() {
 	return func() {
 		c.mu.Lock()
-		if !frame.applied {
+		// A closed Config is a final immutable snapshot. Restore is a
+		// mutation, so after Close it becomes a no-op rather than
+		// republishing state or emitting lifecycle signals.
+		if c.closed || !frame.applied {
 			c.mu.Unlock()
 			return
 		}
@@ -286,8 +291,10 @@ func (c *Config[T]) makeOverrideRestore(frame *overrideFrame) func() {
 
 		c.mu.Unlock()
 
+		// Deep-copy the payload: copyMap shares slice values with the
+		// republished live state, and listeners must not mutate it.
 		c.deliverCommittedChange(context.Background(), change, func(observer *observe.Metrics) {
 			observer.RecordOverrideRestored()
-		}, "override_restored", newEnv)
+		}, "override_restored", dictutil.DeepCopy(newEnv))
 	}
 }

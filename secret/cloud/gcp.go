@@ -15,6 +15,8 @@ import (
 	confii "github.com/confiify/confii-go/v2"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // GCPSecretManager implements SecretStore for GCP Secret Manager.
@@ -104,7 +106,9 @@ func (s *GCPSecretManager) SetSecret(ctx context.Context, key string, value any,
 			},
 		},
 	})
-	if err != nil && !strings.Contains(err.Error(), "AlreadyExists") {
+	// Match the typed gRPC status rather than message text so only the
+	// genuine already-exists condition is tolerated.
+	if err != nil && !isGCPAlreadyExists(err) {
 		return err
 	}
 
@@ -116,6 +120,13 @@ func (s *GCPSecretManager) SetSecret(ctx context.Context, key string, value any,
 		},
 	})
 	return err
+}
+
+// isGCPAlreadyExists reports the typed gRPC condition returned when a secret
+// already exists. Message text is deliberately ignored so unrelated provider
+// failures cannot be treated as successful create-or-update admission.
+func isGCPAlreadyExists(err error) bool {
+	return status.Code(err) == codes.AlreadyExists
 }
 
 // DeleteSecret permanently deletes key and all versions. Secret options are ignored.

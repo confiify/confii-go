@@ -100,7 +100,7 @@ func (c *Config[T]) SetWithContext(ctx context.Context, keyPath string, value an
 		candidate := c.snapshotRuntimeMutationCandidate()
 		if !setOptions.allowOverride && dictutil.HasNested(candidate.envConfig, keyPath) {
 			c.mu.RUnlock()
-			return fmt.Errorf("key %q already exists (override=false)", keyPath)
+			return NewInvalidError("Set", keyPath, errors.New("key already exists (override=false)"))
 		}
 		if err := candidate.set(keyPath, rawStored, effectiveStored, "runtime", c.env); err != nil {
 			c.mu.RUnlock()

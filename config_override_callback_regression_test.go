@@ -71,12 +71,10 @@ func TestOverride_LIFO_OutOfOrderRestore_NoPhantom(t *testing.T) {
 		":after restoring A out of order, k must still reflect B's payload")
 
 	rB()
-	v2, err := cfg.Get("k")
-	if err == nil {
-		assert.NotEqual(t, "A", v2,
-			":after both restores, k must NOT resurrect A's value (phantom)")
-	}
-
+	_, err = cfg.Get("k")
+	require.Error(t, err,
+		":after both restores, k must be absent — no phantom resurrection of A's value")
+	assert.ErrorIs(t, err, confii.ErrConfigNotFound)
 }
 
 func TestOverride_LIFO_InOrderRestore_BehavesLikePreV23(t *testing.T) {

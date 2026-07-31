@@ -293,15 +293,33 @@ func TestRead_NonCWDIsCachedByAbsPath(t *testing.T) {
 }
 
 func TestRead_XDGConfigFallback(t *testing.T) {
-
-	dir := t.TempDir()
-
+	home := t.TempDir()
+	xdg := filepath.Join(home, ".config", "confii")
+	require.NoError(t, os.MkdirAll(xdg, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(xdg, "confii.yaml"),
+		[]byte("default_environment: from_xdg\n"), 0o644))
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("HOMEDRIVE", "")
+	t.Setenv("HOMEPATH", "")
 	ClearCache()
+	t.Cleanup(ClearCache)
 
+	// With no project self-config the XDG fallback is authoritative.
+	dir := t.TempDir()
 	settings, err := Read(dir)
 	require.NoError(t, err)
+	require.NotNil(t, settings)
+	assert.Equal(t, "from_xdg", settings.DefaultEnvironment)
 
-	_ = settings
+	// A project self-config takes precedence over the XDG fallback.
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".confii.yaml"),
+		[]byte("default_environment: from_project\n"), 0o644))
+	ClearCache()
+	settings, err = Read(dir)
+	require.NoError(t, err)
+	require.NotNil(t, settings)
+	assert.Equal(t, "from_project", settings.DefaultEnvironment)
 }
 
 func TestRead_EmptyConfigFile(t *testing.T) {

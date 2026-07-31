@@ -62,7 +62,7 @@ func TestJSONSchemaValidator_InvalidSchema(t *testing.T) {
 		"type": "invalid_type",
 	})
 
-	if err != nil {
-		assert.Contains(t, err.Error(), "schema")
-	}
+	require.Error(t, err,
+		"an unrecognized type value must fail schema compilation")
+	assert.Contains(t, err.Error(), "schema")
 }

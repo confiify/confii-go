@@ -4,8 +4,11 @@
 package cmd
 
 import (
+	"fmt"
 	"strings"
 	"testing"
+
+	confii "github.com/confiify/confii-go/v2"
 )
 
 func TestMigrateCommand_DispatchesOnSourceType(t *testing.T) {
@@ -53,8 +56,29 @@ func TestMigrateCommand_DispatchesOnSourceType(t *testing.T) {
 			if cfg == nil {
 				t.Fatalf("expected non-nil config")
 			}
+			// Every fixture stores host=localhost; a dispatch bug that
+			// loads the wrong format could still yield a non-nil but
+			// empty or garbage config, so verify the migrated content.
+			if !migratedValueExists(t, cfg, "localhost") {
+				t.Errorf("migrated config %v must contain the fixture host value %q",
+					cfg.Keys(""), "localhost")
+			}
 		})
 	}
+}
+
+// migratedValueExists reports whether any migrated leaf renders as want.
+// Key normalization differs per source format, so content is verified by
+// value rather than by a format-specific key spelling.
+func migratedValueExists(t *testing.T, cfg *confii.Config[any], want string) bool {
+	t.Helper()
+	for _, key := range cfg.Keys("") {
+		value, err := cfg.Get(key)
+		if err == nil && fmt.Sprint(value) == want {
+			return true
+		}
+	}
+	return false
 }
 
 func TestMigrateCommand_RequiresExplicitSourceType(t *testing.T) {

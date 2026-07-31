@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/confiify/confii-go/v2/compose"
+	"github.com/confiify/confii-go/v2/internal/dictutil"
 	"github.com/confiify/confii-go/v2/observe"
 	"github.com/confiify/confii-go/v2/sourcetrack"
 )
@@ -114,9 +115,12 @@ func (c *Config[T]) sourceTransactionAttempt(
 	c.mu.Unlock()
 
 	duration := time.Since(started)
+	// The event payload must not alias published state: copyMap shares
+	// slice values, so a deep copy keeps listeners from mutating live
+	// configuration through the payload.
 	c.deliverCommittedChange(ctx, change, func(observer *observe.Metrics) {
 		recordSourceTransactionSuccess(observer, operation, duration)
-	}, operation.event, copyMap(newEnv), duration)
+	}, operation.event, dictutil.DeepCopy(newEnv), duration)
 	return nil
 }
 

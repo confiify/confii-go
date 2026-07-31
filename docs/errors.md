@@ -54,3 +54,20 @@ deadlines, filesystem failures, SDK errors, and application validator errors.
 example, key-not-found errors retain the complete `available_keys` slice even
 though the rendered message limits the list. Validation errors similarly keep
 structured violations without embedding configuration values in the message.
+
+## Inspection and export failures
+
+Inspection APIs use the same contract as loading, access, and mutation APIs:
+
+| Failure | Category | Structured fields |
+| --- | --- | --- |
+| Nil target passed to `Diff` | `config_invalid` | `Op: "Diff"` |
+| Unsupported `GenerateDocs` or `Export` format | `config_invalid` | `Op` and `Context["format"]` |
+| Documentation encoding or exporter failure | `config_access` | `Op`, format context, and wrapped cause |
+| Export or debug-report write failure | `config_access` | `Op`, output path in `Source`, and wrapped filesystem cause |
+
+When serialization succeeds but writing an export file fails, `Export` returns
+both the serialized bytes and the structured write error. This lets callers
+recover or redirect the already-produced sensitive output without retrying the
+exporter. The returned bytes can contain resolved secrets and must be handled
+accordingly.

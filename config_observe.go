@@ -5,6 +5,7 @@ package confii
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/confiify/confii-go/v2/diff"
@@ -24,11 +25,12 @@ func (c *Config[T]) Diff(other *Config[T]) ([]diff.ConfigDiff, error) {
 }
 
 // DiffWithContext is the context-aware form of [Config.Diff]. The context is
-// checked while snapshots are copied; a nil or canceled context returns an
-// error and no partial comparison.
+// checked while snapshots are copied. A nil target returns a structured
+// [ErrConfigInvalid] error; a nil or canceled context returns an error and no
+// partial comparison.
 func (c *Config[T]) DiffWithContext(ctx context.Context, other *Config[T]) ([]diff.ConfigDiff, error) {
 	if other == nil {
-		return nil, fmt.Errorf("diff: other config is nil")
+		return nil, NewInvalidError("Diff", "", errors.New("other config is nil"))
 	}
 	left, err := c.ToDictWithContext(ctx)
 	if err != nil {
@@ -131,7 +133,7 @@ func (c *Config[T]) SaveVersion(metadata map[string]any) (*observe.Version, erro
 // have been saved when cancellation is observed immediately after the write.
 func (c *Config[T]) SaveVersionWithContext(ctx context.Context, metadata map[string]any) (*observe.Version, error) {
 	if ctx == nil {
-		return nil, fmt.Errorf("save version: nil context")
+		return nil, NewInvalidError("SaveVersion", "", errors.New("nil context"))
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -172,7 +174,7 @@ func (c *Config[T]) RollbackToVersion(versionID string) error {
 // "rollback" followed by "change" lifecycle events after publication.
 func (c *Config[T]) RollbackToVersionWithContext(ctx context.Context, versionID string) error {
 	if ctx == nil {
-		return fmt.Errorf("rollback version: nil context")
+		return NewInvalidError("RollbackToVersion", versionID, errors.New("nil context"))
 	}
 	if err := ctx.Err(); err != nil {
 		return err
@@ -189,12 +191,17 @@ func (c *Config[T]) RollbackToVersionWithContext(ctx context.Context, versionID 
 	mgr := c.versionMgr
 	c.mu.RUnlock()
 	if mgr == nil {
-		return fmt.Errorf("versioning not enabled")
+		return NewInvalidError("RollbackToVersion", versionID, errors.New("versioning not enabled"))
 	}
 
 	v := mgr.GetVersion(versionID)
 	if v == nil {
-		return fmt.Errorf("version %s not found", versionID)
+		return &ConfigError{
+			Op:   "RollbackToVersion",
+			Key:  versionID,
+			Code: ConfigErrorCodeNotFound,
+			Err:  fmt.Errorf("version %s not found", versionID),
+		}
 	}
 
 	snapshot := dictutil.DeepCopy(v.Config)

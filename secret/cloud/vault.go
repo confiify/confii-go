@@ -198,13 +198,20 @@ func NewOpenBaoWithContext(ctx context.Context, opts ...VaultOption) (*VaultStor
 }
 
 // GetSecret retrieves key from the configured KV mount. KV v2 accepts
-// [confii.WithVersion]; KV v1 ignores an empty version and has no historical
-// version support. [confii.WithField] returns one top-level field from the
-// secret map. Missing keys wrap [confii.ErrSecretNotFound], missing fields wrap
-// [confii.ErrSecretValidation], and transport or decoding failures wrap
-// [confii.ErrSecretAccess].
+// [confii.WithVersion]; KV v1 has no historical version support, so a
+// non-empty version wraps [confii.ErrSecretValidation] rather than silently
+// serving the current value. [confii.WithField] returns one top-level field
+// from the secret map. Missing keys wrap [confii.ErrSecretNotFound], missing
+// fields wrap [confii.ErrSecretValidation], and transport or decoding failures
+// wrap [confii.ErrSecretAccess].
 func (s *VaultStore) GetSecret(ctx context.Context, key string, opts ...confii.SecretOption) (any, error) {
 	o := confii.ResolveSecretOptions(opts...)
+	if s.kvVersion != 2 && o.Version != "" {
+		return nil, fmt.Errorf(
+			"%w: KV v1 mount %q does not support secret versions (requested version %q for %s)",
+			confii.ErrSecretValidation, s.mountPoint, o.Version, key,
+		)
+	}
 
 	var secretPath string
 	if s.kvVersion == 2 {

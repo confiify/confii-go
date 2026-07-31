@@ -306,3 +306,29 @@ func TestVault_TokenAuth_AuthenticateReturnsToken(t *testing.T) {
 		t.Errorf("Authenticate: got %q, want %q", got, "static-token")
 	}
 }
+
+func TestVault_GetSecret_KVv1_ExplicitVersionRejected(t *testing.T) {
+	f := newVaultFixture(t)
+	f.handle("/v1/secret/myapp/db", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": map[string]any{"password": "kv1-secret"},
+		})
+	})
+
+	store, err := NewHashiCorpVault(WithVaultURL(f.server.URL),
+		WithVaultToken("dev-root-token"),
+		WithVaultKVVersion(1),
+	)
+	if err != nil {
+		t.Fatalf("NewHashiCorpVault: %v", err)
+	}
+
+	_, err = store.GetSecret(context.Background(), "myapp/db", confii.WithVersion("2"))
+	if err == nil {
+		t.Fatal("GetSecret: KV v1 with an explicit version must return an error, not the current value")
+	}
+	if !errors.Is(err, confii.ErrSecretValidation) {
+		t.Errorf("GetSecret: error %v must wrap confii.ErrSecretValidation", err)
+	}
+}

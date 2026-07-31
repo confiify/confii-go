@@ -329,9 +329,19 @@ func (c *Config[T]) PrintDebugInfo(keyPath string) string {
 // ExportDebugReport writes all tracked source records and override histories as
 // indented JSON; newly created files use mode 0600. The report can contain
 // configuration values, including resolved values, and must be stored and
-// transmitted as sensitive data. Filesystem and encoding failures are returned.
+// transmitted as sensitive data. Filesystem and encoding failures return a
+// structured [ErrConfigAccess] error with the output path in
+// [ConfigError.Source].
 func (c *Config[T]) ExportDebugReport(outputPath string) error {
-	return c.sourceTracker.ExportDebugReport(outputPath)
+	if err := c.sourceTracker.ExportDebugReport(outputPath); err != nil {
+		return &ConfigError{
+			Op:     "ExportDebugReport",
+			Source: outputPath,
+			Code:   ConfigErrorCodeAccess,
+			Err:    fmt.Errorf("write report: %w", err),
+		}
+	}
+	return nil
 }
 
 // SourceTracker returns the Config's concurrency-safe source tracker. Callers
@@ -343,8 +353,8 @@ func (c *Config[T]) SourceTracker() *sourcetrack.Tracker {
 
 // GenerateDocs renders the current key inventory as "markdown" or "json".
 // Entries contain the key, Go type, current value, and source. Secret-backed
-// values are redacted. The format name is case-sensitive; unsupported formats
-// return an error.
+// values are redacted. The format name is case-sensitive. Unsupported formats
+// return [ErrConfigInvalid]; JSON encoding failures return [ErrConfigAccess].
 func (c *Config[T]) GenerateDocs(format string) (string, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -386,7 +396,17 @@ func (c *Config[T]) GenerateDocs(format string) (string, error) {
 	switch format {
 	case "json":
 		data, err := json.MarshalIndent(entries, "", "  ")
-		return string(data), err
+		if err != nil {
+			return "", &ConfigError{
+				Op:   "GenerateDocs",
+				Code: ConfigErrorCodeAccess,
+				Err:  fmt.Errorf("encode json: %w", err),
+				Context: map[string]any{
+					"format": format,
+				},
+			}
+		}
+		return string(data), nil
 
 	case "markdown":
 		var b strings.Builder
@@ -398,7 +418,14 @@ func (c *Config[T]) GenerateDocs(format string) (string, error) {
 		return b.String(), nil
 
 	default:
-		return "", fmt.Errorf("unsupported docs format: %s (use \"markdown\" or \"json\")", format)
+		return "", &ConfigError{
+			Op:   "GenerateDocs",
+			Code: ConfigErrorCodeInvalid,
+			Err:  fmt.Errorf("unsupported format %q (use \"markdown\" or \"json\")", format),
+			Context: map[string]any{
+				"format": format,
+			},
+		}
 	}
 }
 
@@ -420,7 +447,10 @@ func (c *Config[T]) Export(format string, outputPath ...string) ([]byte, error) 
 }
 
 // ExportWithContext is the context-aware form of [Config.Export]. A nil or
-// canceled context is returned before serialization. The method exports the
+// canceled context is returned before serialization. Unsupported formats
+// return [ErrConfigInvalid]. Serializer and output-write failures return
+// [ErrConfigAccess] while preserving their concrete cause; a write failure is
+// accompanied by the serialized bytes. The method exports the
 // already-materialized snapshot and therefore performs no provider I/O or hook
 // execution during a successful read. Resolved secret values are not redacted.
 func (c *Config[T]) ExportWithContext(ctx context.Context, format string, outputPath ...string) ([]byte, error) {
@@ -431,16 +461,38 @@ func (c *Config[T]) ExportWithContext(ctx context.Context, format string, output
 
 	exporter, ok := c.exporters[format]
 	if !ok {
-		return nil, fmt.Errorf("unsupported export format: %s", format)
+		return nil, &ConfigError{
+			Op:   "Export",
+			Code: ConfigErrorCodeInvalid,
+			Err:  fmt.Errorf("unsupported format %q", format),
+			Context: map[string]any{
+				"format": format,
+			},
+		}
 	}
 	result, err := exporter.Export(data)
 	if err != nil {
-		return nil, fmt.Errorf("export %s: %w", format, err)
+		return nil, &ConfigError{
+			Op:   "Export",
+			Code: ConfigErrorCodeAccess,
+			Err:  fmt.Errorf("serialize %s: %w", format, err),
+			Context: map[string]any{
+				"format": format,
+			},
+		}
 	}
 
 	if len(outputPath) > 0 && outputPath[0] != "" {
 		if err := os.WriteFile(outputPath[0], result, 0600); err != nil {
-			return result, err
+			return result, &ConfigError{
+				Op:     "Export",
+				Source: outputPath[0],
+				Code:   ConfigErrorCodeAccess,
+				Err:    fmt.Errorf("write output: %w", err),
+				Context: map[string]any{
+					"format": format,
+				},
+			}
 		}
 	}
 

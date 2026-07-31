@@ -454,3 +454,18 @@ func TestReadFileReportsReadAndExtensionErrors(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unsupported self-config extension")
 }
+
+// An empty self-config file selects defaults identically in every supported
+// format; JSON must not fail with a bare EOF while YAML and TOML succeed.
+func TestRead_EmptyFileSelectsDefaultsInEveryFormat(t *testing.T) {
+	for _, name := range []string{".confii.yaml", ".confii.json", ".confii.toml"} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(dir, name), nil, 0o600))
+
+			settings, err := Read(dir)
+			require.NoError(t, err, "empty %s must select defaults, not fail to parse", name)
+			require.NotNil(t, settings)
+		})
+	}
+}
