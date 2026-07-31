@@ -7,109 +7,36 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"time"
-
-	"github.com/confiify/confii-go/v2/internal/dictutil"
-	"github.com/confiify/confii-go/v2/observe"
 )
 
-// Extend adds an additional loader at runtime and merges its config into
-// the live state.
-//
-// The loader output is composed, resolved for the active environment,
-// materialized, and validated before publication. Any failure preserves the
-// previous configuration, source metadata, and typed snapshot. Successful
-// extension emits the extend and change signals. Callbacks run without the
-// configuration lock and may safely call Config methods.
-func (c *Config[T]) extendCandidate(ctx context.Context, l Loader) error {
-	c.mu.Lock()
-	// Use a manual unlock flag because callbacks run after the lock is released.
-	// Failure paths fall through the deferred fallback; the success
-	// path manually unlocks before invoking change callbacks so
-	// callbacks may call back into the Config without deadlocking.
-	unlocked := false
-	var failureEventErr error
-	var failureEventDuration time.Duration
-	var failureEmitter *observe.EventEmitter
-	defer func() {
-		if !unlocked {
-			c.mu.Unlock()
-		}
-		if failureEventErr != nil && failureEmitter != nil {
-			failureEmitter.Emit("extend_failed", failureEventErr, failureEventDuration)
-		}
-	}()
-
-	if c.frozen {
-		return NewFrozenError("Extend")
-	}
-	if c.closed {
-		return NewClosedError("Extend")
-	}
-
-	// Snapshot live state for transactional rollback.
-	oldEnv := copyMap(c.envConfig)
-	oldUnresolvedEnv := copyMap(c.unresolvedEnvConfig)
-	oldMerged := copyMap(c.mergedConfig)
-	trackerSnap := c.sourceTracker.Snapshot()
-	oldLayers := copyLoaderLayers(c.loaderLayers)
-	oldDependencies := copyLoaderDependencies(c.loaderDependencies)
-	start := time.Now()
-
-	// rollback restores the complete transaction state before reporting a
-	// load, composition, materialization, or validation failure.
-	rollback := func(failureErr error) {
-		c.envConfig = oldEnv
-		c.unresolvedEnvConfig = oldUnresolvedEnv
-		c.mergedConfig = oldMerged
-		c.sourceTracker.Restore(trackerSnap)
-		c.loaderLayers = oldLayers
-		c.loaderDependencies = oldDependencies
-		dur := time.Since(start)
-		if c.observer != nil {
-			c.observer.RecordExtendFailed(dur)
-		}
-		failureEventErr = failureErr
-		failureEventDuration = dur
-		failureEmitter = c.eventEmitter
-	}
-
+// prepareExtendCandidate loads and composes one additional source into an
+// isolated candidate. It reports whether the candidate should be published;
+// ignored failures and empty loader results are successful no-ops.
+func (c *Config[T]) prepareExtendCandidate(ctx context.Context, l Loader) (sourceTransactionOutcome, error) {
 	// Load the new source.
 	data, err := l.Load(ctx)
 	if err != nil {
 		if cancellation := operationCancellation(ctx, err); cancellation != nil {
-			rollback(cancellation)
-			return cancellation
+			return sourceTransactionOutcome{}, cancellation
 		}
 		switch c.opts.OnError {
 		case ErrorPolicyRaise:
-			rollback(err)
-			return err
+			return sourceTransactionOutcome{}, err
 		case ErrorPolicyWarn:
 			c.logger.Warn(
 				"loader error",
 				slog.String("source", l.Source()),
 				slog.String("error", err.Error()),
 			)
-			// Warn skips the loader: nothing to commit, but no failure
-			// either. Snapshots are not restored because nothing was
-			// mutated; return without commit-time observability.
-			return nil
+			return sourceTransactionOutcome{}, nil
 		case ErrorPolicyIgnore:
-			// Silent: distinct from Warn, do not emit a log record.
-			return nil
+			return sourceTransactionOutcome{}, nil
 		default:
-			// Unknown policy values are treated as Raise so that
-			// misconfiguration surfaces loudly, mirroring c.load.
-			rollback(err)
-			return err
+			return sourceTransactionOutcome{}, err
 		}
 	}
 	if data == nil {
-		// Graceful absence: the loader had nothing to contribute. No
-		// snapshot rollback needed because nothing was mutated, and no
-		// commit-time observability fires.
-		return nil
+		return sourceTransactionOutcome{}, nil
 	}
 
 	// Process _include, _defaults, and _merge_strategy directives. Composition
@@ -117,13 +44,11 @@ func (c *Config[T]) extendCandidate(ctx context.Context, l Loader) error {
 	composed, dependencies, err := c.composer.ComposeWithDependenciesWithContext(ctx, data, l.Source())
 	if err != nil {
 		if cancellation := operationCancellation(ctx, err); cancellation != nil {
-			rollback(cancellation)
-			return cancellation
+			return sourceTransactionOutcome{}, cancellation
 		}
 		switch c.opts.OnError {
 		case ErrorPolicyRaise:
-			rollback(err)
-			return err
+			return sourceTransactionOutcome{}, err
 		case ErrorPolicyWarn:
 			c.logger.Warn(
 				"composition error",
@@ -136,8 +61,7 @@ func (c *Config[T]) extendCandidate(ctx context.Context, l Loader) error {
 			composed = data
 			dependencies = nil
 		default:
-			rollback(err)
-			return err
+			return sourceTransactionOutcome{}, err
 		}
 	}
 
@@ -145,7 +69,7 @@ func (c *Config[T]) extendCandidate(ctx context.Context, l Loader) error {
 	// initial loading.
 	resolved := c.envHandler.Resolve(composed, c.env)
 
-	// Merge into candidate state. A later failure restores the snapshot.
+	// Merge into candidate state. A later failure discards the candidate.
 	c.mergedConfig = c.merger.Merge(c.mergedConfig, composed)
 	rawBase := c.unresolvedEnvConfig
 	if rawBase == nil {
@@ -157,20 +81,13 @@ func (c *Config[T]) extendCandidate(ctx context.Context, l Loader) error {
 			Op:  "Extend",
 			Err: fmt.Errorf("%w: materialize effective configuration: %w", ErrConfigLoad, err),
 		}
-		rollback(materializeErr)
-		return materializeErr
+		return sourceTransactionOutcome{}, materializeErr
 	}
 
 	if err := c.validateMaterializedCandidate(c.envConfig); err != nil {
-		rollback(err)
-		return err
+		return sourceTransactionOutcome{}, err
 	}
 
-	// Commit only after the candidate has loaded, composed, and validated.
-	// The commit updates non-rollback-protected
-	// state (loaders slice, file tracker, source tracker for the new
-	// loader and validated-model cache invalidation) and emits commit-time
-	// observability.
 	c.loaders = append(c.loaders, l)
 	c.loaderLayers = append(c.loaderLayers, copyMap(composed))
 	c.loaderDependencies = append(c.loaderDependencies, append([]string(nil), dependencies...))
@@ -194,39 +111,7 @@ func (c *Config[T]) extendCandidate(ctx context.Context, l Loader) error {
 	// contributed (matching c.load's per-loader TrackConfig pattern).
 	loaderType := loaderTypeName(l)
 	c.sourceTracker.TrackConfig(resolved, l.Source(), loaderType, c.env, "")
-
-	c.validatedModel = nil
-	c.revision++
-	duration := time.Since(start)
-	if c.observer != nil {
-		c.observer.RecordExtend(duration)
-	}
-
-	// Snapshot callbacks and flattened state under the write lock, then release
-	// the lock before dispatching callbacks.
-	callbacks := c.snapshotChangeCallbacks()
-	oldFlat := dictutil.Flatten(oldEnv)
-	newFlat := dictutil.Flatten(c.envConfig)
-	newEnv := copyMap(c.envConfig)
-	observer := c.observer
-	emitter := c.eventEmitter
-
-	c.mu.Unlock()
-	unlocked = true
-
-	if emitter != nil {
-		emitter.Emit("extend", newEnv, duration)
-	}
-	c.notifyChangesUnlocked(callbacks, oldFlat, newFlat)
-
-	if observer != nil {
-		observer.RecordChange()
-	}
-	if emitter != nil {
-		emitter.Emit("change", oldEnv, newEnv)
-	}
-
-	return nil
+	return sourceTransactionOutcome{publish: true}, nil
 }
 
 // trackCompositionDependency registers an included file for incremental

@@ -38,8 +38,9 @@ an API change.
 | `config_access.go` | getters, typed access, defensive read snapshots |
 | `config_mutation.go` | `Set`, runtime mutation, and change callbacks |
 | `config_inspect.go` | source inspection, documentation, and export |
-| `config_reload.go` | full/incremental reload, validation gates, rollback |
-| `config_extend.go` | transactional runtime loader extension |
+| `config_reload.go` | full/incremental reload candidate preparation and validation gates |
+| `config_extend.go` | runtime loader-extension candidate preparation |
+| `config_source_transaction.go` | shared Reload/Extend capture, publication, retry, and lifecycle signals |
 | `config_override.go` | composable override stack and restoration |
 | `config_lifecycle.go` | freezing, environment identity, and file watching |
 | `config_observe.go` | metrics, events, drift, and version management |
@@ -514,19 +515,22 @@ of regression.
 
 ### Atomic state consistency
 
-Every component touched by a phased operation (`Reload`, `Extend`,
-`Override`) participates in the rollback closure for that operation.
-Components currently included:
+`Reload` and `Extend` mutate private candidates and publish them only after all
+loading, materialization, and validation succeeds. `Override` mutates live
+state under the write lock and therefore retains an explicit rollback path.
+Transactional state currently includes:
 
-- `envConfig` / `mergedConfig`
+- `unresolvedEnvConfig` / `envConfig` / `mergedConfig`
+- ordered `loaders`, composed `loaderLayers`, and `loaderDependencies`
 - `sourceTracker` (via `Snapshot` / `Restore`)
 - `fileTracker` (via `Snapshot` / `Restore`)
+- `sourcePlan` and the typed-model cache generation
 - override-stack base (when applicable)
 
-If you add a new component to the `Config[T]` struct, audit every
-phased operation and decide whether the component participates in
-rollback. If yes, give it a `Snapshot` / `Restore` API and wire it
-into the rollback closure. If no, document why not.
+If you add a new component to `Config[T]`, audit every phased operation. State
+derived from source loading must be copied by `snapshotSourceCandidate` and
+published by `publishSourceCandidate`. Live mutation paths must either operate
+on a private candidate or restore the component explicitly on failure.
 
 ### Lock-then-snapshot for observability
 

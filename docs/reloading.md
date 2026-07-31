@@ -170,7 +170,7 @@ selects local sources for an incremental reload.
 ## Best Practices for Production
 
 !!! tip "Use with validation"
-    Enable `WithValidateOnLoad(true)` so that invalid config changes are automatically rejected and rolled back:
+    Enable `WithValidateOnLoad(true)` so invalid candidates are rejected before publication:
 
     ```go
     cfg, _ := confii.NewWithContext[AppConfig](ctx,
@@ -180,7 +180,7 @@ selects local sources for an incremental reload.
     )
     ```
 
-    If the new config fails validation, the reload is rolled back to the previous state.
+    If the new config fails validation, Confii discards the private candidate and readers continue to observe the previous snapshot.
 
 !!! tip "Combine with observability"
     Enable metrics and events to monitor reloads in production:

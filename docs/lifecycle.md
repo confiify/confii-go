@@ -9,7 +9,7 @@ without blocking readers. See [Context, cancellation, and operation lifecycles](
 
 ## Reload
 
-Reload re-reads all configuration sources, re-merges them, and updates the in-memory config. If any source fails and `ErrorPolicyRaise` is set, the reload rolls back to the previous state automatically.
+Reload re-reads configuration sources and builds a private, fully materialized candidate. Confii publishes it atomically only after loading and validation succeed. If a source fails under `ErrorPolicyRaise`, the candidate is discarded and readers continue to observe the previous snapshot.
 
 === "Full Reload"
 

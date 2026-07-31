@@ -94,7 +94,7 @@ func (m *Metrics) RecordAccess(key string, duration time.Duration) {
 }
 
 // RecordReload records one successfully committed reload and its duration.
-// Use [Metrics.RecordReloadFailed] for rejected or rolled-back attempts.
+// Use [Metrics.RecordReloadFailed] for rejected candidates.
 func (m *Metrics) RecordReload(duration time.Duration) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -108,12 +108,12 @@ func (m *Metrics) RecordReload(duration time.Duration) {
 
 // RecordReloadFailed records a reload attempt that did not commit.
 //
-// This lets observability distinguish a successful reload
-// from a rolled-back one. The duration is the wall-clock time spent
-// inside [confii.Config.Reload] up to and including the rollback. The
+// This lets observability distinguish a successful reload from a candidate
+// rejected before publication. The duration is the wall-clock time spent
+// inside [confii.Config.Reload] preparing and rejecting that candidate. The
 // reloadCount counter is left unchanged — callers querying
 // [Metrics.Statistics] see only successful reloads in reload_count and
-// the count of rollbacks in reload_failed_count.
+// rejected candidates in reload_failed_count.
 func (m *Metrics) RecordReloadFailed(duration time.Duration) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -138,13 +138,12 @@ func (m *Metrics) RecordExtend(duration time.Duration) {
 
 // RecordExtendFailed records an Extend attempt that did not commit.
 //
-// This lets observability distinguish a successful
-// runtime extension from a rolled-back one. Failures may originate in
-// the loader itself (under ErrorPolicyRaise), in composition, in env
-// resolution (no current failure mode but reserved), in validation, or
-// from the snapshot/restore plumbing. extendCount stays unchanged so
-// querying [Metrics.Statistics] separately reports committed extensions
-// in extend_count and rolled-back ones in extend_failed_count.
+// This lets observability distinguish a successful runtime extension from a
+// candidate rejected before publication. Failures may originate in the loader
+// itself (under ErrorPolicyRaise), composition, materialization, or validation.
+// extendCount stays unchanged so querying [Metrics.Statistics] separately
+// reports committed extensions in extend_count and rejected candidates in
+// extend_failed_count.
 func (m *Metrics) RecordExtendFailed(duration time.Duration) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
