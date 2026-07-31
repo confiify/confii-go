@@ -95,6 +95,60 @@ func TestConstructionOwnsMergeStrategyMap(t *testing.T) {
 	assert.Equal(t, []any{"base", "overlay"}, value)
 }
 
+func TestValidateAndOwnOptionsRejectsEveryInvalidPlanVariant(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*options)
+	}{
+		{
+			name: "invalid path-specific merge strategy",
+			mutate: func(opts *options) {
+				opts.MergeStrategyMap = map[string]MergeStrategy{"database": MergeStrategy(99)}
+			},
+		},
+		{
+			name: "managed resolver returning nil hook",
+			mutate: func(opts *options) {
+				opts.SecretResolver = &nilAdmissionResolver{}
+				opts.explicitlySet["secret_hook"] = true
+			},
+		},
+		{
+			name: "explicit nil secret hook",
+			mutate: func(opts *options) {
+				opts.SecretHook = nil
+				opts.explicitlySet["secret_hook"] = true
+			},
+		},
+		{
+			name: "empty key hook path",
+			mutate: func(opts *options) {
+				opts.hookSetups = []hookSetup{{kind: hookSetupKey, key: "  ", hook: func(context.Context, string, any) (any, error) {
+					return nil, nil
+				}}}
+			},
+		},
+		{
+			name: "empty merge path",
+			mutate: func(opts *options) {
+				opts.MergeStrategyMap = map[string]MergeStrategy{"": StrategyMerge}
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			opts := defaultOptions()
+			test.mutate(&opts)
+			err := validateAndOwnOptions(&opts)
+			require.ErrorIs(t, err, ErrConfigInvalid)
+			var configErr *ConfigError
+			require.ErrorAs(t, err, &configErr)
+			assert.Equal(t, "New", configErr.Op)
+		})
+	}
+}
+
 func TestRuntimeOperationsRejectNilOptionsAndTypedNilLoader(t *testing.T) {
 	cfg, err := New[any](WithLoaders(&contextMapLoader{name: "base", data: map[string]any{"key": "value"}}))
 	require.NoError(t, err)

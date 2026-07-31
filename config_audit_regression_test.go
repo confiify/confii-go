@@ -218,6 +218,13 @@ func TestInspectionFailures_StructuredErrors(t *testing.T) {
 		assert.Equal(t, "xml", configErr.Context["format"])
 	})
 
+	t.Run("export rejects canceled context before serialization", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		_, err := cfg.ExportWithContext(ctx, "json")
+		assert.ErrorIs(t, err, context.Canceled)
+	})
+
 	t.Run("exporter failure", func(t *testing.T) {
 		_, err := cfg.Export("audit_failure")
 		configErr := assertStructured(t, err, confii.ErrConfigAccess, "Export")

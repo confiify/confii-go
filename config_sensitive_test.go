@@ -75,6 +75,37 @@ func TestSourceTrackerReturnsDetachedClone(t *testing.T) {
 	assert.Equal(t, redactedSecretValue, info.Value)
 }
 
+func TestSensitiveSourceInspectionRedactsCurrentAndHistoricalValues(t *testing.T) {
+	cfg := resolvedSecretConfig(t, "resolved-secret")
+
+	// Add a second tracked value so every source-inspection surface contains
+	// both a current value and history that must remain confidential.
+	cfg.sourceTracker.TrackValue("database.password", "rotated-secret", "runtime", "runtime", cfg.env)
+
+	info := cfg.GetSourceInfo("database.password")
+	require.NotNil(t, info)
+	assert.Equal(t, redactedSecretValue, info.Value)
+	require.NotEmpty(t, info.History)
+	for _, entry := range info.History {
+		assert.Equal(t, redactedSecretValue, entry.Value)
+	}
+
+	history := cfg.GetOverrideHistory("database.password")
+	require.NotEmpty(t, history)
+	for _, entry := range history {
+		assert.Equal(t, redactedSecretValue, entry.Value)
+	}
+
+	conflicts := cfg.GetConflicts()
+	conflict := conflicts["database.password"]
+	require.NotNil(t, conflict)
+	assert.Equal(t, redactedSecretValue, conflict.Value)
+	require.NotEmpty(t, conflict.History)
+	for _, entry := range conflict.History {
+		assert.Equal(t, redactedSecretValue, entry.Value)
+	}
+}
+
 func TestVersionRollbackRestoresSensitivityMetadata(t *testing.T) {
 	cfg := resolvedSecretConfig(t, "versioned-secret")
 	cfg.EnableVersioning("", 3)

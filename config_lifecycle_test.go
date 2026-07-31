@@ -264,6 +264,21 @@ func TestBuilder_ReloadDebounceAndSensitivePaths(t *testing.T) {
 	assert.Equal(t, redactedSecretValue, cfg.Explain("credentials.token")["current_value"])
 }
 
+func TestWatchedFilesDeduplicatesLoaderAndDependencyPaths(t *testing.T) {
+	cfg := &Config[any]{
+		loaders: []Loader{
+			&contextMapLoader{name: "shared.yaml"},
+			&contextMapLoader{name: "shared.yaml"},
+			&contextMapLoader{name: "root.yaml"},
+		},
+		loaderDependencies: [][]string{
+			{"shared.yaml", "included.yaml", "included.yaml"},
+		},
+	}
+
+	assert.Equal(t, []string{"included.yaml", "root.yaml", "shared.yaml"}, cfg.watchedFiles())
+}
+
 func TestBuilder_EnableDisableEnvExpander(t *testing.T) {
 	t.Setenv("LIFECYCLE_TEST_VAR", "expanded")
 
