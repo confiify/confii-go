@@ -6,6 +6,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-08-01
+
+### Added
+
+- Add opt-in value resolvers for `${file:path}`, `${env:NAME}`,
+  `${json:path#field}`, `${yaml:path#field}`, `${json:self#field}`, and
+  `${yaml:self#field}`. File and structured resolvers are rooted in the
+  project directory, preserve full-value types when the placeholder is the
+  entire value, and keep resolver failures transactional.
+- Add explicitly disabled powerful resolvers for `${url:...}` and `${cmd:...}`
+  so applications can opt in only for fully trusted configuration.
+- Add custom resolver registration so applications can extend placeholder
+  resolution without forking Confii.
+- Add visual onboarding and concept documentation, including mental models,
+  learning paths, recipes, troubleshooting, production guidance, and diagrams
+  for configuration flow, source precedence, composition, secrets, lifecycle,
+  and operations.
+- Add local PR readiness gates with `make pr-check` and
+  `make patch-coverage-check` so DCO, lint, tests, race checks, fuzz smoke
+  tests, statement coverage, patch coverage, and docs checks can be run before
+  GitHub CI.
+
+### Fixed
+
+- Make self-reference resolver context race-free by snapshotting unresolved
+  environment configuration under lock before materialization.
+- Improve resolver and watcher coverage, including Windows-safe filesystem
+  edge tests and deterministic closed-channel watcher loop coverage.
+
 ## [2.0.0] - 2026-07-31
 
 ### Added

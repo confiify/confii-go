@@ -5,8 +5,18 @@ The canonical, release-by-release changelog is maintained in
 
 ## Upcoming release
 
-No changes are currently assigned beyond v2.0.0. Consult the Unreleased section
-of the canonical changelog as post-release work begins.
+Version 2.1.0 adds opt-in value resolvers for file, environment, structured
+document, self-reference, URL, command, and custom placeholders. It also expands
+the documentation with visual learning paths and adds local PR readiness gates
+for patch coverage and CI-style validation. Consult the canonical changelog for
+complete release notes.
+
+## v2.1.0
+
+Version 2.1.0 introduces the resolver system and onboarding documentation
+enhancements after the v2.0.0 lifecycle release. See
+[Custom Value Resolvers](extensibility.md#custom-value-resolvers) and the
+canonical changelog for details.
 
 ## v2.0.0
 
