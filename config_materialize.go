@@ -11,6 +11,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/confiify/confii-go/v2/configmap"
+	"github.com/confiify/confii-go/v2/hook"
 	"github.com/confiify/confii-go/v2/internal/dictutil"
 )
 
@@ -28,6 +30,7 @@ func (c *Config[T]) materializeEffectiveConfig(ctx context.Context) error {
 	}
 	ctx = c.withManagedResourceContext(ctx)
 	raw := dictutil.DeepCopy(c.envConfig)
+	ctx = hook.WithResolverSelf(ctx, raw)
 	resolved, err := c.applySecretHookRecursive(withSecretResolutionSession(ctx), "", raw)
 	if err != nil {
 		return err
@@ -48,6 +51,8 @@ func (c *Config[T]) materializeEffectiveValue(ctx context.Context, keyPath strin
 		return nil, err
 	}
 	ctx = withSecretResolutionSession(c.withManagedResourceContext(ctx))
+	root := c.materializationSelfRoot(keyPath, value)
+	ctx = hook.WithResolverSelf(ctx, root)
 	switch typed := dictutil.DeepCopyValue(value).(type) {
 	case map[string]any:
 		return c.applySecretHookRecursive(ctx, keyPath, typed)
@@ -56,6 +61,19 @@ func (c *Config[T]) materializeEffectiveValue(ctx context.Context, keyPath strin
 	default:
 		return c.materializeLeaf(ctx, keyPath, typed)
 	}
+}
+
+func (c *Config[T]) materializationSelfRoot(keyPath string, value any) map[string]any {
+	c.mu.RLock()
+	root := dictutil.DeepCopy(c.unresolvedEnvConfig)
+	c.mu.RUnlock()
+	if root == nil {
+		root = make(map[string]any)
+	}
+	if keyPath != "" {
+		_ = configmap.Set(root, keyPath, dictutil.DeepCopyValue(value))
+	}
+	return root
 }
 
 func (c *Config[T]) materializeLeaf(ctx context.Context, keyPath string, value any) (any, error) {
@@ -270,7 +288,8 @@ func (c *Config[T]) refreshSecretsAttempt(ctx context.Context, started time.Time
 	before := dictutil.DeepCopy(c.envConfig)
 	c.mu.RUnlock()
 
-	resolved, err := c.applySecretHookRecursive(withSecretResolutionSession(c.withManagedResourceContext(ctx)), "", dictutil.DeepCopy(raw))
+	workCtx := hook.WithResolverSelf(c.withManagedResourceContext(ctx), raw)
+	resolved, err := c.applySecretHookRecursive(withSecretResolutionSession(workCtx), "", dictutil.DeepCopy(raw))
 	if err != nil {
 		return &ConfigError{
 			Op:   "RefreshSecrets",

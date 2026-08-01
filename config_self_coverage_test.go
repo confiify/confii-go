@@ -50,6 +50,10 @@ func TestSelfConfigAccountsForEveryStartupOption(t *testing.T) {
 		"DynamicReloading":            {"DynamicReloading"},
 		"ReloadDebounce":              {"ReloadDebounce"},
 		"UseEnvExpander":              {"UseEnvExpander"},
+		"UseFileResolver":             {"UseFileResolver"},
+		"UseStructuredResolver":       {"UseStructuredResolver"},
+		"UseURLResolver":              {"UseURLResolver"},
+		"UseCommandResolver":          {"UseCommandResolver"},
 		"UseTypeCasting":              {"UseTypeCasting"},
 		"MergeStrategy":               {"Merge"},
 		"MergeStrategyMap":            {"Merge"},
@@ -71,6 +75,7 @@ func TestSelfConfigAccountsForEveryStartupOption(t *testing.T) {
 	intentionalCodeOnly := map[string]string{
 		"WorkingDir":     "selects the directory in which self-config is discovered",
 		"SecretResolver": "programmatic resolver wiring; declarative providers use Secrets",
+		"valueResolvers": "holds application-defined Go value resolver functions",
 		"Exporters":      "holds application-defined Go serializers",
 		"Validators":     "holds application-defined Go validation rules",
 		"Schema":         "holds an in-memory Go value; declarative schemas use SchemaPath",

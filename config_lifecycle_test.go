@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/confiify/confii-go/v2/hook"
 	"github.com/confiify/confii-go/v2/selfconfig"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -604,6 +605,10 @@ func TestWithLogger_UsedInConfig(t *testing.T) {
 func TestDefaultOptions(t *testing.T) {
 	opts := defaultOptions()
 	assert.True(t, opts.UseEnvExpander)
+	assert.False(t, opts.UseFileResolver)
+	assert.False(t, opts.UseStructuredResolver)
+	assert.False(t, opts.UseURLResolver)
+	assert.False(t, opts.UseCommandResolver)
 	assert.True(t, opts.UseTypeCasting)
 	assert.Equal(t, StrategyMerge, opts.MergeStrategy)
 	assert.Equal(t, ErrorPolicyRaise, opts.OnError)
@@ -668,6 +673,28 @@ func TestWithEnvExpander_Option(t *testing.T) {
 	assert.True(t, opts.isSet("use_env_expander"))
 }
 
+func TestWithFileResolver_Option(t *testing.T) {
+	opts := defaultOptions()
+	WithFileResolver(true)(&opts)
+	assert.True(t, opts.UseFileResolver)
+	assert.True(t, opts.isSet("use_file_resolver"))
+}
+
+func TestValueResolverOptions(t *testing.T) {
+	opts := defaultOptions()
+	WithStructuredResolver(true)(&opts)
+	WithURLResolver(true)(&opts)
+	WithCommandResolver(true)(&opts)
+	WithValueResolver("custom", func(context.Context, hook.ResolverRequest) (any, error) { return "ok", nil })(&opts)
+	assert.True(t, opts.UseStructuredResolver)
+	assert.True(t, opts.UseURLResolver)
+	assert.True(t, opts.UseCommandResolver)
+	assert.True(t, opts.isSet("use_structured_resolver"))
+	assert.True(t, opts.isSet("use_url_resolver"))
+	assert.True(t, opts.isSet("use_command_resolver"))
+	assert.Contains(t, opts.valueResolvers, "custom")
+}
+
 func TestWithTypeCasting_Option(t *testing.T) {
 	opts := defaultOptions()
 	WithTypeCasting(false)(&opts)
@@ -692,6 +719,10 @@ sysenv_fallback: true
 merge:
   default: shallow_merge
 use_env_expander: false
+use_file_resolver: true
+use_structured_resolver: true
+use_url_resolver: true
+use_command_resolver: true
 use_type_casting: false
 validate_on_load: true
 strict_validation: true
@@ -729,6 +760,10 @@ sources:
 	assert.True(t, opts.SysenvFallback)
 	assert.Equal(t, StrategyShallowMerge, opts.MergeStrategy)
 	assert.False(t, opts.UseEnvExpander)
+	assert.True(t, opts.UseFileResolver)
+	assert.True(t, opts.UseStructuredResolver)
+	assert.True(t, opts.UseURLResolver)
+	assert.True(t, opts.UseCommandResolver)
 	assert.False(t, opts.UseTypeCasting)
 	assert.True(t, opts.ValidateOnLoad)
 	assert.True(t, opts.StrictValidation)

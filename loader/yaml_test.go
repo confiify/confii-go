@@ -230,6 +230,60 @@ func TestYAMLLoader_StringKeysUnchanged(t *testing.T) {
 	assert.Equal(t, []any{"alpha", "beta"}, tags)
 }
 
+func TestYAMLLoader_AnchorsAliasesAndMergeKeys(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "anchors.yaml")
+	body := "" +
+		"defaults: &defaults\n" +
+		"  host: localhost\n" +
+		"  port: 5432\n" +
+		"  pool:\n" +
+		"    min: 1\n" +
+		"    max: 5\n" +
+		"development:\n" +
+		"  <<: *defaults\n" +
+		"  host: dev-db.local\n" +
+		"production:\n" +
+		"  <<: *defaults\n" +
+		"  pool:\n" +
+		"    max: 20\n" +
+		"shared: &shared\n" +
+		"  retries: 3\n" +
+		"service_a: *shared\n" +
+		"service_b: *shared\n"
+	require.NoError(t, os.WriteFile(path, []byte(body), 0o600))
+
+	result, err := NewYAML(path).Load(context.Background())
+	require.NoError(t, err)
+
+	development, ok := result["development"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "dev-db.local", development["host"])
+	assert.Equal(t, 5432, development["port"])
+	devPool, ok := development["pool"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, 1, devPool["min"])
+	assert.Equal(t, 5, devPool["max"])
+
+	production, ok := result["production"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "localhost", production["host"])
+	assert.Equal(t, 5432, production["port"])
+	prodPool, ok := production["pool"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, 20, prodPool["max"])
+
+	serviceA, ok := result["service_a"].(map[string]any)
+	require.True(t, ok)
+	serviceB, ok := result["service_b"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, 3, serviceA["retries"])
+	assert.Equal(t, 3, serviceB["retries"])
+
+	serviceA["retries"] = 9
+	assert.Equal(t, 3, serviceB["retries"], "normalized YAML aliases must not share mutable maps")
+}
+
 func TestYAMLLoader_SliceWithMapElements(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "list.yaml")

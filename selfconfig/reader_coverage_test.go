@@ -181,6 +181,10 @@ func TestRead_JSONWithAllBooleanFields(t *testing.T) {
 		"validate_on_load":true,
 		"strict_validation":false,
 		"use_env_expander":true,
+		"use_file_resolver":true,
+		"use_structured_resolver":true,
+		"use_url_resolver":true,
+		"use_command_resolver":true,
 		"use_type_casting":false,
 		"dynamic_reloading":true,
 		"reload_debounce":"250ms",
@@ -204,6 +208,14 @@ func TestRead_JSONWithAllBooleanFields(t *testing.T) {
 	assert.False(t, *settings.StrictValidation)
 	require.NotNil(t, settings.UseEnvExpander)
 	assert.True(t, *settings.UseEnvExpander)
+	require.NotNil(t, settings.UseFileResolver)
+	assert.True(t, *settings.UseFileResolver)
+	require.NotNil(t, settings.UseStructuredResolver)
+	assert.True(t, *settings.UseStructuredResolver)
+	require.NotNil(t, settings.UseURLResolver)
+	assert.True(t, *settings.UseURLResolver)
+	require.NotNil(t, settings.UseCommandResolver)
+	assert.True(t, *settings.UseCommandResolver)
 	require.NotNil(t, settings.UseTypeCasting)
 	assert.False(t, *settings.UseTypeCasting)
 	require.NotNil(t, settings.DynamicReloading)

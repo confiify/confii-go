@@ -33,6 +33,38 @@ cd examples/basic && go run .
 !!! tip "Check each example's directory"
     Most examples include a `config.yaml` or similar file alongside `main.go`. The example reads from these local files, so always `cd` into the example directory before running.
 
+## Recommended Learning Order
+
+If you are new to Confii, run examples in this order:
+
+1. `basic` -- plain loading and scalar access.
+2. `typed` -- `Config[T]`, `Typed`, and struct tags.
+3. `self-config` -- zero-code `.confii.yaml` discovery.
+4. `environment` -- defaults plus selected environment values.
+5. `multi-source` -- source precedence.
+6. `validation` -- reject invalid candidates before publication.
+7. `secrets` -- eager placeholder resolution with a local store.
+8. `lifecycle` -- reload, override, freeze, and callbacks.
+9. `introspection` -- explain where values came from.
+
+For a full application, move next to the companion
+[`confii-go-examples`](https://github.com/confiify/confii-go-examples)
+repository.
+
+## Expected Output Pattern
+
+Most examples print one or more resolved values and then exit. If an example
+uses an environment selector, run it twice to see the difference:
+
+```bash
+cd examples/environment
+go run .
+APP_ENV=production go run .
+```
+
+Use `confii plan` and `confii explain` in a self-configured project when you
+want the exact source order and key provenance.
+
 ---
 
 ## Getting Started
@@ -55,6 +87,17 @@ cd examples/basic && go run .
 | [`merge-strategies`](https://github.com/confiify/confii-go/tree/main/examples/merge-strategies) | Per-path merge strategies | `WithMergeStrategyMap`, 7 strategies |
 | [`composition`](https://github.com/confiify/confii-go/tree/main/examples/composition) | `_include` and `_defaults` directives | Hydra-style composition, cycle detection |
 | [`cloud`](https://github.com/confiify/confii-go/tree/main/examples/cloud) | Cloud loaders and secret stores | S3, SSM, Azure, GCP, Vault |
+
+---
+
+## Cloud and Full Application Examples
+
+The focused `examples/cloud` directory shows provider APIs in isolation. For a
+realistic consumer project with Docker Compose, LocalStack, Vault/OpenBao,
+OIDC, protected APIs, PostgreSQL, and CLI preflights, use the separate
+[`confii-go-examples`](https://github.com/confiify/confii-go-examples)
+repository. It is the best place to study production-shaped wiring after the
+core examples make sense.
 
 ---
 

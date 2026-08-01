@@ -4,6 +4,8 @@ This guide starts with an empty directory and ends with a typed Go application
 whose configuration changes by environment. It uses `confii init`, so the files
 you create here are the same structure Confii recommends for a real project.
 
+![Confii configuration startup flow](assets/configuration-flow.svg)
+
 ## Prerequisites
 
 - Go 1.25 or newer

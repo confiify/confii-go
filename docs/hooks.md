@@ -4,6 +4,8 @@ Confii v2 treats hooks as configuration transformations. Hooks are registered
 before construction, frozen into the materialization plan, and run before a
 snapshot is published:
 
+![Confii configuration startup flow](assets/configuration-flow.svg)
+
 ```text
 load → compose → select environment → transform hooks → resolve secrets
      → validate → publish immutable snapshot
@@ -80,6 +82,46 @@ cache management is owned elsewhere.
 Missing secrets and provider failures always return errors in v2. Optionality
 belongs in an explicit schema or reference model; unresolved placeholders are
 never silently published.
+
+## Value Resolvers
+
+Value resolvers are specialized global hooks for `${scheme:...}` expressions.
+They run after environment expansion and before type casting, application hooks,
+and secret resolution. That order lets a referenced file or self field contain
+`${secret:...}` and still have the secret resolved by the normal secret phase.
+
+Built-in resolver families are opt-in:
+
+```go
+cfg, err := confii.New[AppConfig](
+    confii.WithWorkingDir("/srv/app"),
+    confii.WithStructuredResolver(true), // ${json:path#field}, ${yaml:path#field}, self refs
+    confii.WithFileResolver(true),       // ${file:path}
+    confii.WithURLResolver(false),       // keep network I/O off unless needed
+    confii.WithCommandResolver(false),   // keep shell execution off unless needed
+)
+```
+
+Custom resolvers use `WithValueResolver`:
+
+```go
+cfg, err := confii.New[AppConfig](
+    confii.WithValueResolver("upper", func(ctx context.Context, req hook.ResolverRequest) (any, error) {
+        return strings.ToUpper(req.Target), nil
+    }),
+)
+```
+
+Configuration:
+
+```yaml
+label: ${upper:hello}
+```
+
+If the reference is the complete scalar, the resolver's Go value is preserved.
+If it is embedded inside a larger string, Confii stringifies the returned value.
+Unknown schemes are left unchanged so another hook or application layer may
+handle them.
 
 ## Runtime read behavior
 

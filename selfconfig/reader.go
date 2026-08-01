@@ -62,6 +62,14 @@ type Settings struct {
 	StrictValidation *bool `yaml:"strict_validation" json:"strict_validation" toml:"strict_validation"`
 	// UseEnvExpander enables expansion of environment-variable expressions.
 	UseEnvExpander *bool `yaml:"use_env_expander" json:"use_env_expander" toml:"use_env_expander"`
+	// UseFileResolver enables ${file:path} expansion rooted at the project directory.
+	UseFileResolver *bool `yaml:"use_file_resolver" json:"use_file_resolver" toml:"use_file_resolver"`
+	// UseStructuredResolver enables ${json:...} and ${yaml:...} value references.
+	UseStructuredResolver *bool `yaml:"use_structured_resolver" json:"use_structured_resolver" toml:"use_structured_resolver"`
+	// UseURLResolver enables ${url:...} value references.
+	UseURLResolver *bool `yaml:"use_url_resolver" json:"use_url_resolver" toml:"use_url_resolver"`
+	// UseCommandResolver enables ${cmd:...} value references.
+	UseCommandResolver *bool `yaml:"use_command_resolver" json:"use_command_resolver" toml:"use_command_resolver"`
 	// UseTypeCasting converts supported scalar strings to bool, int, or float values.
 	UseTypeCasting *bool `yaml:"use_type_casting" json:"use_type_casting" toml:"use_type_casting"`
 	// DynamicReloading watches local file sources and republishes valid changes.

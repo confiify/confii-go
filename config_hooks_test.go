@@ -7,6 +7,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
 	confii "github.com/confiify/confii-go/v2"
@@ -127,6 +129,30 @@ func TestHooks_CustomTransformRunsBeforeSecretResolution(t *testing.T) {
 	value, err := cfg.Get("credential")
 	require.NoError(t, err)
 	assert.Equal(t, "resolved-after-custom-hook", value)
+}
+
+func TestHooks_FileResolverRunsBeforeSecretResolution(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "token.txt"), []byte("token=${secret:token}"), 0o600))
+
+	resolver := secret.NewResolver(secret.NewDictStore(map[string]any{
+		"token": "resolved-token",
+	}))
+	cfg, err := confii.New[any](
+		confii.WithWorkingDir(dir),
+		confii.WithLoaders(&hooksTestLoader{source: "stub", data: map[string]any{
+			"credential": "${file:token.txt}",
+		}}),
+		confii.WithEnvExpander(false),
+		confii.WithFileResolver(true),
+		confii.WithTypeCasting(false),
+		confii.WithSecretResolver(resolver),
+	)
+	require.NoError(t, err)
+
+	value, err := cfg.Get("credential")
+	require.NoError(t, err)
+	assert.Equal(t, "token=resolved-token", value)
 }
 
 func TestHooks_KeyPathAppliesBeforeTypedDecode(t *testing.T) {

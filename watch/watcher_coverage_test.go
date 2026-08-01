@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fsnotify/fsnotify"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -294,4 +295,62 @@ drain:
 	}
 
 	assert.GreaterOrEqual(t, atomic.LoadInt64(count), int64(1))
+}
+
+func TestWatcherLoopReturnsWhenEventsChannelCloses(t *testing.T) {
+	events := make(chan fsnotify.Event)
+	close(events)
+
+	w := &Watcher{
+		watcher: &fsnotify.Watcher{
+			Events: events,
+			Errors: make(chan error),
+		},
+		files:   make(map[string]struct{}),
+		present: make(map[string]bool),
+		ctx:     context.Background(),
+		done:    make(chan struct{}),
+		logger:  slog.Default(),
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		w.loop()
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("watcher loop did not return after events channel closed")
+	}
+}
+
+func TestWatcherLoopReturnsWhenErrorsChannelCloses(t *testing.T) {
+	errors := make(chan error)
+	close(errors)
+
+	w := &Watcher{
+		watcher: &fsnotify.Watcher{
+			Events: make(chan fsnotify.Event),
+			Errors: errors,
+		},
+		files:   make(map[string]struct{}),
+		present: make(map[string]bool),
+		ctx:     context.Background(),
+		done:    make(chan struct{}),
+		logger:  slog.Default(),
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		w.loop()
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("watcher loop did not return after errors channel closed")
+	}
 }

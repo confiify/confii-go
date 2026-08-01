@@ -8,6 +8,8 @@ Ordinary getters therefore read a ready in-memory snapshot and do not trigger
 provider traffic. Stores are pluggable -- from in-memory dictionaries to AWS
 Secrets Manager, Azure Key Vault, GCP Secret Manager, Vault, and OpenBao.
 
+![Confii secret resolution flow](assets/secrets-flow.svg)
+
 ---
 
 ## How Placeholders Work

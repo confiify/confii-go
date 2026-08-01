@@ -36,6 +36,7 @@
 - [Security & Supply-Chain Assurance](#security--supply-chain-assurance)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
+- [Learning & Onboarding](#learning--onboarding)
 - **Configuring Confii**
   - [Creating a Config Instance](#creating-a-config-instance) — constructor, builder, self-config, options
   - [Configuration Sources](#configuration-sources) — files, env vars, HTTP, cloud
@@ -67,6 +68,8 @@
 ## Why Confii?
 
 Go has several configuration libraries, but none provides a complete configuration *management* solution. Most handle loading and reading — Confii handles the full lifecycle.
+
+![Confii configuration startup flow](docs/assets/configuration-flow.svg)
 
 | Capability | Confii | Viper | Koanf | Others |
 | --- | :---: | :---: | :---: | :---: |
@@ -282,6 +285,29 @@ runtime overrides, the single-file alternative, and expected output.
 
 ---
 
+## Learning & Onboarding
+
+Use these guides when you are choosing an approach or trying to debug a
+configuration:
+
+- [Mental Model](docs/mental-model.md) — how self-config, loaders, merge,
+  environments, secrets, hooks, validation, and snapshots fit together.
+- [Learning Paths](docs/learning-paths.md) — shortest documentation routes for
+  typed config, environments, secrets, cloud config, production services, and
+  customization.
+- [Recipes](docs/recipes.md) — task-oriented copyable flows for common jobs.
+- [Troubleshooting](docs/troubleshooting.md) — symptom-driven fixes for source
+  order, environment selection, provider setup, validation, and working
+  directory issues.
+- [Extensibility](docs/extensibility.md) — custom loaders, secret stores,
+  validators, hooks, exporters, and provider registries.
+- [Testing](docs/testing.md) and [Production Checklist](docs/production-checklist.md)
+  — application test patterns and deployment readiness checks.
+- [Glossary](docs/glossary.md) — shared vocabulary for layers, candidates,
+  snapshots, self-config, materialization, and providers.
+
+---
+
 ## Configuring Confii
 
 Confii supports three construction styles. Each style controls how
@@ -412,7 +438,12 @@ cfg, err := confii.NewBuilder[AppConfig]().
 | `WithValidator(validator)` | Add a transactional validation rule and enable validation | none |
 | `WithExporter(exporter)` | Add or replace an export format serializer | JSON/YAML/TOML built in |
 | `WithSchema(schema)` / `WithSchemaPath(path)` | JSON Schema for validation | none |
-| `WithEnvExpander(bool)` | Enable `${VAR}` expansion in values | `true` |
+| `WithEnvExpander(bool)` | Enable `${VAR}` and `${env:VAR}` expansion in values | `true` |
+| `WithFileResolver(bool)` | Enable `${file:path}` raw file-content expansion rooted at `WithWorkingDir` | `false` |
+| `WithStructuredResolver(bool)` | Enable `${json:path#field}`, `${yaml:path#field}`, `${json:self#field}`, and `${yaml:self#field}` references | `false` |
+| `WithURLResolver(bool)` | Enable `${url:...}` response-body expansion | `false` |
+| `WithCommandResolver(bool)` | Enable `${cmd:...}` shell-command stdout expansion | `false` |
+| `WithValueResolver(scheme, resolver)` | Add or override a custom `${scheme:...}` resolver | none |
 | `WithTypeCasting(bool)` | Auto-convert strings to bool/int/float | `true` |
 | `WithSysenvFallback(bool)` | Dynamically consult OS env vars for missing `Get`/`Has` paths without changing the published snapshot | `false` |
 | `WithDynamicReloading(bool)` | Enable fsnotify file watching | `false` |
@@ -428,6 +459,8 @@ cfg, err := confii.NewBuilder[AppConfig]().
 ### Configuration Sources
 
 Confii loads from files, environment variables, HTTP, and cloud storage — all through a unified `Loader` interface. Later loaders override earlier ones with deep merge enabled by default.
+
+![Confii source precedence](docs/assets/sources-precedence.svg)
 
 | Source | Constructor | Build Tag |
 | --- | --- | --- |
@@ -453,6 +486,8 @@ Confii loads from files, environment variables, HTTP, and cloud storage — all 
 
 Hydra-style `_include` and `_defaults` directives let you split config across files with cycle detection (max depth 10):
 
+![Confii composition and merge flow](docs/assets/composition-merge.svg)
+
 ```yaml
 _defaults:
   - "timeout: 30"
@@ -475,6 +510,8 @@ Included files are resolved relative to the source file's directory. Directive k
 ### Environment Resolution
 
 Config files with `default` + environment-specific sections are automatically merged:
+
+![Confii environment models](docs/assets/environment-models.svg)
 
 ```yaml
 default:
@@ -621,7 +658,12 @@ that same plan transactionally. See [Hook System](docs/hooks.md).
 
 **Built-in hooks** (enabled via options):
 
-- `WithEnvExpander(true)` — replaces `${VAR}` with OS environment variables
+- `WithEnvExpander(true)` — replaces `${VAR}` and `${env:VAR}` with OS environment variables
+- `WithFileResolver(true)` — replaces `${file:path}` with raw file contents before secret resolution
+- `WithStructuredResolver(true)` — resolves `${json:path#field}`, `${yaml:path#field}`, and `self` field references before secret resolution
+- `WithURLResolver(true)` — resolves `${url:...}` response bodies; enable only for trusted config
+- `WithCommandResolver(true)` — resolves `${cmd:...}` through the platform shell; enable only for trusted config
+- `WithValueResolver("scheme", resolver)` — adds or overrides a custom `${scheme:...}` resolver
 - `WithTypeCasting(true)` — converts strings to bool/int/float automatically
 
 > **Full example:** [`examples/hooks/`](examples/hooks/main.go)
@@ -665,6 +707,8 @@ if err == nil {
 Secrets are resolved eagerly after source merging and environment selection.
 `confii.New` returns only after the effective configuration is ready, so normal
 getters do not contact Vault or a cloud provider.
+
+![Confii secret resolution flow](docs/assets/secrets-flow.svg)
 
 ```go
 store := secret.NewDictStore(map[string]any{"db/password": "s3cret"})
@@ -729,6 +773,8 @@ The runtime API manages an initialized configuration throughout the
 application lifecycle.
 
 ### Lifecycle Management
+
+![Confii runtime lifecycle](docs/assets/runtime-lifecycle.svg)
 
 ```go
 // Reload from sources
@@ -808,6 +854,8 @@ For troubleshooting config issues, auditing changes, and understanding where val
 ### Introspection & Source Tracking
 
 Know exactly where every value came from and how it got there:
+
+![Confii debugging and operations surfaces](docs/assets/debugging-operations.svg)
 
 ```go
 cfg.Explain("database.host")              // value, source, override count, full history

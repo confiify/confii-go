@@ -81,6 +81,18 @@ func applySelfConfig(opts *options) error {
 	if !opts.isSet("use_env_expander") && settings.UseEnvExpander != nil {
 		opts.UseEnvExpander = *settings.UseEnvExpander
 	}
+	if !opts.isSet("use_file_resolver") && settings.UseFileResolver != nil {
+		opts.UseFileResolver = *settings.UseFileResolver
+	}
+	if !opts.isSet("use_structured_resolver") && settings.UseStructuredResolver != nil {
+		opts.UseStructuredResolver = *settings.UseStructuredResolver
+	}
+	if !opts.isSet("use_url_resolver") && settings.UseURLResolver != nil {
+		opts.UseURLResolver = *settings.UseURLResolver
+	}
+	if !opts.isSet("use_command_resolver") && settings.UseCommandResolver != nil {
+		opts.UseCommandResolver = *settings.UseCommandResolver
+	}
 	if !opts.isSet("use_type_casting") && settings.UseTypeCasting != nil {
 		opts.UseTypeCasting = *settings.UseTypeCasting
 	}

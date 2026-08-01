@@ -3,6 +3,8 @@
 This page covers the three ways to configure a Confii instance, every available
 option, and how priority resolution works between them.
 
+![Confii configuration startup flow](assets/configuration-flow.svg)
+
 For a complete empty-directory setup before using this reference, follow the
 [Quick Start](quickstart.md).
 
@@ -95,6 +97,10 @@ discovery is attempted under `~/.config/confii/`.
       default: deep_merge
       paths: {}
     use_env_expander: true
+    use_file_resolver: false
+    use_structured_resolver: false
+    use_url_resolver: false
+    use_command_resolver: false
     use_type_casting: true
 
     # Validation
@@ -120,6 +126,10 @@ discovery is attempted under `~/.config/confii/`.
       "env_prefix": "APP",
       "merge": {"default": "deep_merge", "paths": {}},
       "use_env_expander": true,
+      "use_file_resolver": false,
+      "use_structured_resolver": false,
+      "use_url_resolver": false,
+      "use_command_resolver": false,
       "use_type_casting": true,
       "validate_on_load": false,
       "strict_validation": true,
@@ -149,6 +159,10 @@ discovery is attempted under `~/.config/confii/`.
     env_prefix = "APP"
     merge = { default = "deep_merge", paths = {} }
     use_env_expander = true
+    use_file_resolver = false
+    use_structured_resolver = false
+    use_url_resolver = false
+    use_command_resolver = false
     use_type_casting = true
     validate_on_load = false
     strict_validation = false
@@ -182,7 +196,11 @@ decision.
 | `env_prefix` | `string` | `""` | Auto-add a final `EnvironmentLoader` with this prefix after declarative sources |
 | `merge.default` | `string` | `"deep_merge"` | Default strategy: `replace`, `shallow_merge`, `deep_merge`, `append`, `prepend`, `intersection`, or `union` |
 | `merge.paths` | `map[string]string` | `{}` | Per-dotted-path strategy overrides |
-| `use_env_expander` | `bool` | `true` | Enable `${VAR}` expansion in string values |
+| `use_env_expander` | `bool` | `true` | Enable `${VAR}` and `${env:VAR}` expansion in string values |
+| `use_file_resolver` | `bool` | `false` | Enable opt-in `${file:path}` raw file-content expansion rooted at `WithWorkingDir` |
+| `use_structured_resolver` | `bool` | `false` | Enable opt-in `${json:path#field}`, `${yaml:path#field}`, `${json:self#field}`, and `${yaml:self#field}` references |
+| `use_url_resolver` | `bool` | `false` | Enable opt-in `${url:...}` response-body expansion |
+| `use_command_resolver` | `bool` | `false` | Enable opt-in `${cmd:...}` shell-command stdout expansion |
 | `use_type_casting` | `bool` | `true` | Auto-convert strings to bool/int/float |
 | `sysenv_fallback` | `bool` | `false` | Opt into dynamic OS-env lookup for missing scalar `Get`/`Has` paths; values are not added to the published snapshot |
 | `validate_on_load` | `bool` | `false` | Validate struct tags after loading |
@@ -396,7 +414,12 @@ Confii never replaces or extends an existing context deadline. If
 | `WithEnvPrefix(prefix)` | Auto-add an `EnvironmentLoader` with this prefix (e.g. `"APP"` reads `APP_*` vars). | none |
 | `WithMergeStrategy(strategy)` | Set the default merge strategy for all paths. | `Merge` |
 | `WithMergeStrategyMap(map)` | Set per-path merge strategy overrides (e.g. `"database"` uses `Replace`). | none |
-| `WithEnvExpander(bool)` | Enable `${VAR}` expansion in string values using OS environment variables. | `true` |
+| `WithEnvExpander(bool)` | Enable `${VAR}` and `${env:VAR}` expansion in string values using OS environment variables. | `true` |
+| `WithFileResolver(bool)` | Enable `${file:path}` raw file-content expansion rooted at `WithWorkingDir`. | `false` |
+| `WithStructuredResolver(bool)` | Enable `${json:path#field}`, `${yaml:path#field}`, `${json:self#field}`, and `${yaml:self#field}` value references. | `false` |
+| `WithURLResolver(bool)` | Enable `${url:...}` response-body expansion. | `false` |
+| `WithCommandResolver(bool)` | Enable `${cmd:...}` shell-command stdout expansion. | `false` |
+| `WithValueResolver(scheme, resolver)` | Add or override a custom `${scheme:...}` resolver. | none |
 | `WithTypeCasting(bool)` | Auto-convert string values to `bool`/`int`/`float64` when accessed. | `true` |
 | `WithSysenvFallback(bool)` | Fall back to OS environment variables when a key is not found in config. | `false` |
 | `WithValidateOnLoad(bool)` | Validate the typed struct (via `go-playground/validator` tags) immediately after loading. | `false` |
@@ -497,6 +520,10 @@ Given this self-config file:
 merge:
   default: shallow_merge
 use_env_expander: true
+use_file_resolver: false
+use_structured_resolver: false
+use_url_resolver: false
+use_command_resolver: false
 default_environment: staging
 ```
 
@@ -515,6 +542,10 @@ The resolved values are:
 | --- | --- | --- | --- | --- |
 | `deep_merge` | `false` | `true` | **`true`** | explicit wins |
 | `use_env_expander` | `true` | *(not set)* | **`true`** | self-config wins over built-in |
+| `use_file_resolver` | `false` | *(not set)* | **`false`** | built-in default remains off |
+| `use_structured_resolver` | `false` | *(not set)* | **`false`** | built-in default remains off |
+| `use_url_resolver` | `false` | *(not set)* | **`false`** | built-in default remains off |
+| `use_command_resolver` | `false` | *(not set)* | **`false`** | built-in default remains off |
 | `env` | `staging` | `production` | **`production`** | explicit wins |
 | `freeze_on_load` | *(not set)* | *(not set)* | **`false`** | built-in default |
 

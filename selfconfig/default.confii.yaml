@@ -70,6 +70,10 @@ merge:
 
 # Value processing.
 use_env_expander: true
+use_file_resolver: false
+use_structured_resolver: false
+use_url_resolver: false
+use_command_resolver: false
 use_type_casting: true
 
 # Validation. schema_path points to a JSON Schema document. Typed Go configs

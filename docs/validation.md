@@ -5,6 +5,8 @@ validation for Go type safety, JSON Schema validation for schema-driven
 contracts, and application-defined validators for domain rules. They can be
 used independently or combined in one transactional validation plan.
 
+![Confii configuration startup flow](assets/configuration-flow.svg)
+
 ---
 
 ## Struct Tag Validation

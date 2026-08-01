@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="560" viewBox="0 0 1200 560" role="img" aria-labelledby="title desc">
+  <title id="title">Confii architecture map</title>
+  <desc id="desc">Core data path from loaders through composition, merge, environment resolution, secrets, hooks, validation, and published Config state.</desc>
+  <defs><marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,12 L12,6 z" fill="#334155"/></marker><style>.bg{fill:#f8fafc}.panel{fill:#fff;stroke:#cbd5e1;stroke-width:2;rx:16}.blue{fill:#eef2ff;stroke:#4f46e5;stroke-width:2;rx:10}.green{fill:#ecfdf5;stroke:#059669;stroke-width:2;rx:10}.orange{fill:#fff7ed;stroke:#ea580c;stroke-width:2;rx:10}.purple{fill:#f5f3ff;stroke:#7c3aed;stroke-width:2;rx:10}.title{font:700 28px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#0f172a}.label{font:700 16px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#0f172a}.small{font:13px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#334155}.arrow{stroke:#334155;stroke-width:2.6;fill:none;marker-end:url(#arrow);stroke-linecap:round;stroke-linejoin:round}.note{font:13px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#64748b}</style></defs>
+  <rect class="bg" width="1200" height="560"/>
+  <text class="title" x="40" y="54">Architecture Map</text>
+  <rect class="panel" x="30" y="86" width="1140" height="405"/>
+
+  <rect class="blue" x="70" y="135" width="180" height="70"/><text class="label" x="112" y="166">Loaders</text><text class="small" x="112" y="188">files, env, cloud</text>
+  <line class="arrow" x1="250" y1="170" x2="318" y2="170"/>
+  <rect class="orange" x="340" y="135" width="180" height="70"/><text class="label" x="382" y="166">Composer</text><text class="small" x="382" y="188">include/defaults</text>
+  <line class="arrow" x1="520" y1="170" x2="588" y2="170"/>
+  <rect class="orange" x="610" y="135" width="180" height="70"/><text class="label" x="660" y="166">Merger</text><text class="small" x="660" y="188">strategies</text>
+  <line class="arrow" x1="790" y1="170" x2="858" y2="170"/>
+  <rect class="blue" x="880" y="135" width="220" height="70"/><text class="label" x="918" y="166">Environment</text><text class="small" x="918" y="188">named or sectioned</text>
+
+  <path class="arrow" d="M990 205 L990 248 L295 248 L295 286"/>
+  <rect class="purple" x="185" y="286" width="220" height="70"/><text class="label" x="222" y="317">Secret resolver</text><text class="small" x="222" y="339">provider registries</text>
+  <line class="arrow" x1="405" y1="321" x2="473" y2="321"/>
+  <rect class="purple" x="495" y="286" width="190" height="70"/><text class="label" x="558" y="317">Hooks</text><text class="small" x="558" y="339">transform</text>
+  <line class="arrow" x1="685" y1="321" x2="753" y2="321"/>
+  <rect class="purple" x="775" y="286" width="220" height="70"/><text class="label" x="820" y="317">Validators</text><text class="small" x="820" y="339">schema, typed, custom</text>
+
+  <path class="arrow" d="M885 356 L885 397 L650 397 L650 430"/>
+  <rect class="green" x="505" y="430" width="290" height="54"/><text class="label" x="548" y="464">Published Config[T]</text>
+  <text class="note" x="70" y="450">Trackers record source, dependency, access, and event metadata around the data path.</text>
+</svg>

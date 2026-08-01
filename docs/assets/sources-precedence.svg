@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="440" viewBox="0 0 1200 440" role="img" aria-labelledby="title desc">
+  <title id="title">Confii source precedence</title>
+  <desc id="desc">Configuration sources merge from lowest to highest precedence, with later sources overriding earlier values.</desc>
+  <defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L9,3 z" fill="#334155"/></marker><style>.bg{fill:#f8fafc}.panel{fill:#fff;stroke:#cbd5e1;stroke-width:2;rx:14}.box{fill:#eff6ff;stroke:#2563eb;stroke-width:2;rx:10}.cloud{fill:#fff7ed;stroke:#ea580c;stroke-width:2;rx:10}.env{fill:#f5f3ff;stroke:#7c3aed;stroke-width:2;rx:10}.title{font:700 28px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#0f172a}.label{font:700 17px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#0f172a}.small{font:14px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#334155}.arrow{stroke:#334155;stroke-width:2.5;fill:none;marker-end:url(#arrow)}</style></defs>
+  <rect class="bg" width="1200" height="440"/>
+  <text class="title" x="36" y="54">Source Loading Order</text>
+  <rect class="panel" x="30" y="90" width="1140" height="270"/>
+  <rect class="box" x="65" y="165" width="180" height="76"/><text class="label" x="96" y="198">Defaults</text><text class="small" x="96" y="220">lowest precedence</text>
+  <line class="arrow" x1="245" y1="203" x2="305" y2="203"/>
+  <rect class="box" x="320" y="165" width="180" height="76"/><text class="label" x="350" y="198">Env file</text><text class="small" x="350" y="220">selected override</text>
+  <line class="arrow" x1="500" y1="203" x2="560" y2="203"/>
+  <rect class="cloud" x="575" y="165" width="180" height="76"/><text class="label" x="623" y="198">HTTP/S3</text><text class="small" x="623" y="220">remote config</text>
+  <line class="arrow" x1="755" y1="203" x2="815" y2="203"/>
+  <rect class="cloud" x="830" y="165" width="160" height="76"/><text class="label" x="873" y="198">SSM</text><text class="small" x="873" y="220">parameters</text>
+  <line class="arrow" x1="990" y1="203" x2="1040" y2="203"/>
+  <rect class="env" x="1055" y="165" width="90" height="76"/><text class="label" x="1076" y="198">Env</text><text class="small" x="1071" y="220">highest</text>
+  <text class="small" x="65" y="305">Each loader contributes a layer. Confii merges layers in order; later layers replace or merge duplicate keys according to merge strategy.</text>
+</svg>

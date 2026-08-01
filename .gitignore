@@ -53,6 +53,8 @@ graphify-out/
 
 # Local review and release-audit working documents
 V2-Changes.md
+.local-doc-evidence/
+.gocache/
 
 # OS files
 .DS_Store

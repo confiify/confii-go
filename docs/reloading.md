@@ -2,6 +2,8 @@
 
 Confii watches configuration files on disk and automatically reloads when changes are detected, using [fsnotify](https://github.com/fsnotify/fsnotify) under the hood.
 
+![Confii runtime lifecycle](assets/runtime-lifecycle.svg)
+
 ---
 
 ## Enabling File Watching

@@ -3,6 +3,8 @@
 Confii includes a command-line tool for initializing, loading, inspecting,
 validating, exporting, and comparing configurations.
 
+![Confii source precedence](assets/sources-precedence.svg)
+
 ---
 
 ## Installation

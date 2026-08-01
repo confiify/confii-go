@@ -2,6 +2,8 @@
 
 Confii tracks the origin of every configuration value -- which file it came from, which loader loaded it, how many times it was overridden, and the full override history. This makes debugging configuration issues straightforward.
 
+![Confii debugging and operations surfaces](assets/debugging-operations.svg)
+
 ---
 
 ## Explain
