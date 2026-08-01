@@ -1,38 +1,117 @@
 # Release process
 
 Confii is a multi-module repository. A release is complete only when the root,
-cloud-loader, and cloud-secret tags all identify the same reviewed commit.
+cloud-loader, and cloud-secret tags all identify the same reviewed commit. The
+normal release path is scripted so maintainers do not have to reconstruct the
+sequence from memory.
 
-## Prepare
+## Release flow
 
-1. Work from a clean release branch based on `origin/main`.
-2. Update `CHANGELOG.md` and the internal module requirements to the intended
-   version. The root module uses `vX.Y.Z`; nested module tags use their module
-   directory prefix.
-3. Run the release gates:
+```mermaid
+flowchart LR
+  A[Clean main checkout] --> B[Prepare release PR]
+  B --> C[Run local gates]
+  C --> D[Push PR branch]
+  D --> E[Watch PR checks]
+  E --> F{PR merged?}
+  F -->|no| E
+  F -->|yes| G[Tag merge commit]
+  G --> H[Push tags atomically]
+  H --> I[Watch release workflow]
+  I --> J[Published release]
+```
 
-   ```bash
-   make ci-full
-   make lint
-   make vulncheck
-   make supply-chain-check
-   mkdocs build --strict
-   ```
+## Prepare the release PR
 
-4. Open a pull request and require the CI, CodeQL, dependency-review,
-   govulncheck, docs, and Scorecard policies configured for the repository.
-5. Merge without bypassing branch protection, then verify the merge commit on
-   `main` has passed all required checks.
-
-## Tag and publish
-
-Create signed, annotated tags on the same verified commit. For `v2.0.0`:
+Run the release preparation script with the intended semantic version:
 
 ```bash
-git tag -s loader/cloud/v2.0.0 -m "loader/cloud v2.0.0"
-git tag -s secret/cloud/v2.0.0 -m "secret/cloud v2.0.0"
-git tag -s v2.0.0 -m "confii-go v2.0.0"
-git push --atomic origin loader/cloud/v2.0.0 secret/cloud/v2.0.0 v2.0.0
+make release-prepare-pr VERSION=v2.1.1
+```
+
+This command:
+
+- fetches `origin`,
+- creates `release-vX.Y.Z` from `origin/main`,
+- updates internal module requirements for the root, loader cloud, secret cloud,
+  and cloud example modules,
+- updates the default cloud-consumer test version,
+- creates a `CHANGELOG.md` stub if the version is missing,
+- runs release gates,
+- commits with DCO sign-off,
+- pushes the branch, and
+- opens the release PR.
+
+By default the script runs the heavy local gates:
+
+```bash
+make ci-full
+make lint
+make vulncheck
+make supply-chain-check
+make docs-check
+```
+
+For a dry metadata-only preparation, skip the gates or PR creation explicitly:
+
+```bash
+RELEASE_RUN_GATES=0 make release-prepare-pr VERSION=v2.1.1
+RELEASE_OPEN_PR=0 make release-prepare-pr VERSION=v2.1.1
+```
+
+Review the generated changelog entry before merge. If the script inserted a
+`TODO`, replace it with the actual release summary before asking for review.
+
+## Watch the PR
+
+Watch required checks until they pass or fail:
+
+```bash
+make release-watch-pr PR=95
+```
+
+If a check fails, the watcher prints the current PR check summary and recent
+failed workflow runs for the PR branch. Inspect a failed run with:
+
+```bash
+make release-diagnose-run RUN_ID=30701360546
+```
+
+The diagnose command shows failed jobs and failure-oriented log excerpts. Use
+that output to fix the branch, then rerun:
+
+```bash
+make release-watch-pr PR=95
+```
+
+## After merge
+
+After the release PR is merged, run the post-merge release command:
+
+```bash
+make release-after-merge VERSION=v2.1.1 PR=95
+```
+
+This command:
+
+- verifies the PR is merged,
+- fetches `origin`,
+- fast-forwards local `main`,
+- verifies `main` matches the PR merge commit,
+- refuses to continue if any release tag already exists,
+- creates signed annotated tags:
+  - `loader/cloud/vX.Y.Z`
+  - `secret/cloud/vX.Y.Z`
+  - `vX.Y.Z`
+- verifies all tags resolve to the same merge commit,
+- pushes the tags atomically,
+- waits for the root-tag release workflow, and
+- verifies the published GitHub release.
+
+To create and verify tags locally without pushing them:
+
+```bash
+RELEASE_PUSH_TAGS=0 make release-after-merge VERSION=v2.1.1 PR=95
 ```
 
 The root tag starts the release workflow. It re-runs module, race, and cloud
@@ -43,34 +122,13 @@ release checksum manifest, and stages the GitHub release as a draft. The
 release gate imports and re-exports every SBOM with commit-pinned
 [bomctl](https://github.com/bomctl/bomctl), proving that the documents are
 semantically consumable through the protobom model rather than merely valid
-JSON. The workflow rejects incomplete release metadata before publication, generates
-SLSA provenance for every checksummed archive, attaches the signed Sigstore bundle as
-`confii-<tag>.intoto.jsonl`, and only then publishes the release.
+JSON. The workflow rejects incomplete release metadata before publication,
+generates SLSA provenance for every checksummed archive, attaches the signed
+Sigstore bundle as `confii-<tag>.intoto.jsonl`, and only then publishes the
+release.
 
-After the workflow succeeds, verify one archive and verify all modules through
-a clean consumer:
-
-```bash
-gh release download v2.0.0 \
-  --pattern 'confii-v2.0.0-linux-amd64.tar.gz' \
-  --pattern 'confii-v2.0.0-linux-amd64.tar.gz.sbom.json' \
-  --pattern 'checksums.txt' \
-  --pattern '*.openvex.json' \
-  --pattern 'confii-v2.0.0.intoto.jsonl'
-sha256sum --check --ignore-missing checksums.txt
-jq -e '.spdxVersion == "SPDX-2.3" and (.packages | length > 0)' \
-  confii-v2.0.0-linux-amd64.tar.gz.sbom.json
-gh attestation verify confii-v2.0.0-linux-amd64.tar.gz \
-  --repo confiify/confii-go \
-  --bundle confii-v2.0.0.intoto.jsonl \
-  --signer-workflow confiify/confii-go/.github/workflows/release.yaml
-go list -m github.com/confiify/confii-go/v2@v2.0.0
-go list -m github.com/confiify/confii-go/loader/cloud/v2@v2.0.0
-go list -m github.com/confiify/confii-go/secret/cloud/v2@v2.0.0
-```
-
-Tags and published releases are immutable. If a release is defective, publish
-a new patch version; never move or replace a published tag.
+Tags and published releases are immutable. If a release is defective, publish a
+new patch version; never move or replace a published tag.
 
 ## Continuity drill
 
