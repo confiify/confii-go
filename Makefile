@@ -300,6 +300,28 @@ $(BOMCTL_BIN):
 	@mkdir -p "$(@D)"
 	GOBIN="$(abspath $(@D))" $(GO) install github.com/bomctl/bomctl@$(BOMCTL_VERSION)
 
+# ---- Release ----
+
+.PHONY: release-prepare-pr
+release-prepare-pr: ## Prepare, validate, push, and open a release PR (usage: make release-prepare-pr VERSION=vX.Y.Z)
+	@test -n "$(VERSION)" || { echo "VERSION is required, for example VERSION=v2.1.1" >&2; exit 2; }
+	sh scripts/release-prepare-pr.sh "$(VERSION)"
+
+.PHONY: release-watch-pr
+release-watch-pr: ## Watch release PR checks and summarize failures (usage: make release-watch-pr PR=95)
+	@test -n "$(PR)" || { echo "PR is required, for example PR=95" >&2; exit 2; }
+	sh scripts/release-watch-pr.sh "$(PR)"
+
+.PHONY: release-diagnose-run
+release-diagnose-run: ## Show failed jobs and log excerpts for a GitHub Actions run (usage: make release-diagnose-run RUN_ID=123)
+	@test -n "$(RUN_ID)" || { echo "RUN_ID is required" >&2; exit 2; }
+	sh scripts/release-diagnose-run.sh "$(RUN_ID)"
+
+.PHONY: release-after-merge
+release-after-merge: ## Tag, push, watch, and verify a merged release (usage: make release-after-merge VERSION=vX.Y.Z PR=95)
+	@test -n "$(VERSION)" || { echo "VERSION is required, for example VERSION=v2.1.1" >&2; exit 2; }
+	sh scripts/release-after-merge.sh "$(VERSION)" "$(PR)"
+
 # ---- CI ----
 
 .PHONY: ci
