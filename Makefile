@@ -312,6 +312,14 @@ ci-full: mod-verify fmt-check vet-all reuse-lint supply-chain-check reproducible
 	@echo ""
 	@echo "Full CI passed."
 
+.PHONY: pr-check
+pr-check: ## Run the local PR-readiness gate (set PR_CHECK_LEVEL=full for heavy checks)
+	sh scripts/pr-check.sh
+
+.PHONY: patch-coverage-check
+patch-coverage-check: ## Check local patch coverage against PATCH_COVERAGE_BASE..HEAD
+	sh scripts/check-patch-coverage.sh
+
 # ---- Development ----
 
 .PHONY: deps

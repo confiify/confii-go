@@ -5,6 +5,8 @@ Confii provides thread-safe lifecycle operations for reloading, extending, freez
 Runtime I/O is context-controlled and Reload/Extend prepare private candidates
 without blocking readers. See [Context, cancellation, and operation lifecycles](context.md).
 
+![Confii runtime lifecycle](assets/runtime-lifecycle.svg)
+
 ---
 
 ## Reload

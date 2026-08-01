@@ -11,6 +11,8 @@ properties that other parts of the codebase depend on for correctness.
 Violating one is more likely to surface as a hard-to-reproduce
 production bug than as a CI failure.
 
+![Confii architecture map](assets/architecture-map.svg)
+
 ---
 
 ## Table of Contents

@@ -8,9 +8,26 @@ Confii supports two deliberate environment models:
   environment sections in one file and resolve the selected section at load
   time.
 
+![Confii environment resolution models](assets/environment-models.svg)
+
 Run `confii init` to choose either layout and generate matching self-config.
 Do not combine both models in normal operation; Confii rejects accidental
 mixing unless a controlled migration explicitly selects `hybrid`.
+
+## Which Model Should I Choose?
+
+| Situation | Recommended model |
+| --- | --- |
+| New service with deployment environments | Named files |
+| Small app or demo with one compact file | Sectioned file |
+| Migrating existing mixed layouts | Temporary hybrid with explicit conflict policy |
+| Tenant-specific overlays | Named files plus runtime `Extend` or an explicit tenant loader |
+| Container chooses runtime environment | `env_switcher` such as `APP_ENV` |
+| Local developer fallback | `default_environment` |
+
+Environment names are literal. `production` selects `production.yaml`;
+`prod` selects `prod.yaml`. Confii does not alias `prod` to `production` or
+`dev` to `development`.
 
 Inspect the resolved selection and the available environments at any time:
 

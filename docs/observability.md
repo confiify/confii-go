@@ -6,6 +6,8 @@ For trace and request correlation, `OnChangeWithContext` and
 `EventSubscriber.OnWithContext` receive the originating operation context. See
 [Context, cancellation, and operation lifecycles](context.md).
 
+![Confii debugging and operations surfaces](assets/debugging-operations.svg)
+
 ---
 
 ## Metrics Collection

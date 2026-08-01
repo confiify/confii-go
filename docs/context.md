@@ -5,6 +5,8 @@ configuration data. Contexts bound loader calls, cloud authentication, secret
 reads, composition, hooks, validation, reloads, extensions, exports, diffs,
 and runtime materialization.
 
+![Confii runtime lifecycle](assets/runtime-lifecycle.svg)
+
 ## Construction
 
 Use `New` for a bounded, self-contained startup:

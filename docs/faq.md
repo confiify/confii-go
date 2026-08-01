@@ -114,23 +114,41 @@ Implement the `SecretStore` interface:
 
 ```go
 type SecretStore interface {
-    GetSecret(ctx context.Context, key string) (any, error)
+    GetSecret(ctx context.Context, key string, opts ...SecretOption) (any, error)
+    SetSecret(ctx context.Context, key string, value any, opts ...SecretOption) error
+    DeleteSecret(ctx context.Context, key string, opts ...SecretOption) error
+    ListSecrets(ctx context.Context, prefix string) ([]string, error)
 }
 ```
 
-Example:
+Minimal read-focused example:
 
 ```go
 type RedisSecretStore struct {
     client *redis.Client
 }
 
-func (s *RedisSecretStore) GetSecret(ctx context.Context, key string) (any, error) {
+func (s *RedisSecretStore) GetSecret(ctx context.Context, key string, opts ...confii.SecretOption) (any, error) {
     val, err := s.client.Get(ctx, "secrets:"+key).Result()
+    if errors.Is(err, redis.Nil) {
+        return nil, fmt.Errorf("%w: %s", confii.ErrSecretNotFound, key)
+    }
     if err != nil {
-        return nil, err
+        return nil, fmt.Errorf("%w: read %s: %v", confii.ErrSecretStore, key, err)
     }
     return val, nil
+}
+
+func (s *RedisSecretStore) SetSecret(ctx context.Context, key string, value any, opts ...confii.SecretOption) error {
+    return s.client.Set(ctx, "secrets:"+key, value, 0).Err()
+}
+
+func (s *RedisSecretStore) DeleteSecret(ctx context.Context, key string, opts ...confii.SecretOption) error {
+    return s.client.Del(ctx, "secrets:"+key).Err()
+}
+
+func (s *RedisSecretStore) ListSecrets(ctx context.Context, prefix string) ([]string, error) {
+    return nil, fmt.Errorf("%w: listing is not implemented", confii.ErrSecretStore)
 }
 ```
 
@@ -144,6 +162,9 @@ cfg, err := confii.NewWithContext[any](ctx,
     confii.WithSecretResolver(resolver),
 )
 ```
+
+See [Extensibility](extensibility.md#custom-secret-stores) for the full
+contract, error semantics, and testing checklist.
 
 ---
 

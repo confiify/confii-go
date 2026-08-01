@@ -22,8 +22,11 @@ func TestEnvExpanderHook(t *testing.T) {
 		want  any
 	}{
 		{"simple expansion", "${DB_HOST}", "prod-db"},
+		{"named expansion", "${env:DB_HOST}", "prod-db"},
 		{"multiple expansions", "${DB_HOST}:${DB_PORT}", "prod-db:5432"},
+		{"mixed expansion", "${env:DB_HOST}:${DB_PORT}", "prod-db:5432"},
 		{"no match left unchanged", "${NONEXISTENT}", "${NONEXISTENT}"},
+		{"named no match left unchanged", "${env:NONEXISTENT}", "${env:NONEXISTENT}"},
 		{"no placeholder", "plain_value", "plain_value"},
 		{"non-string passthrough", 42, 42},
 		{"partial match", "host=${DB_HOST}", "host=prod-db"},

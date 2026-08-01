@@ -2,6 +2,8 @@
 
 Confii supports Hydra-style configuration composition through `_include`, `_defaults`, and `_merge_strategy` directives. These let you split configuration across multiple files, define base values inline, and control how pieces are assembled.
 
+![Confii composition and merge flow](assets/composition-merge.svg)
+
 ---
 
 ## Overview

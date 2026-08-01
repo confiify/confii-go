@@ -12,6 +12,8 @@ hide:
   <strong>Complete Configuration Management for Go</strong>
 </p>
 
+![Confii configuration startup flow](assets/configuration-flow.svg)
+
 <p align="center">
   <a href="https://pkg.go.dev/github.com/confiify/confii-go/v2"><img src="https://pkg.go.dev/badge/github.com/confiify/confii-go/v2.svg" alt="Go Reference"></a>
   <a href="https://github.com/confiify/confii-go/releases/latest"><img src="https://img.shields.io/github/v/release/confiify/confii-go?sort=semver" alt="Latest Release"></a>
@@ -139,3 +141,16 @@ typed access, runtime overrides, and the one-file environment alternative.
 
 [:material-arrow-right: Full Quick Start Guide](quickstart.md){ .md-button }
 [:material-github: View Examples](https://github.com/confiify/confii-go/tree/main/examples){ .md-button .md-button--primary }
+
+## Documentation
+
+| Need | Start here |
+| --- | --- |
+| Understand the pipeline | [Mental Model](mental-model.md) |
+| Choose the right path | [Learning Paths](learning-paths.md) |
+| Copy a task flow | [Recipes](recipes.md) |
+| Fix a confusing value or provider issue | [Troubleshooting](troubleshooting.md) |
+| Customize Confii | [Extensibility](extensibility.md) |
+| Test an application using Confii | [Testing Applications](testing.md) |
+| Prepare for production | [Production Checklist](production-checklist.md) |
+| Align terminology | [Glossary](glossary.md) |

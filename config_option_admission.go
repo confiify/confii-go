@@ -55,6 +55,17 @@ func validateAndOwnOptions(opts *options) error {
 			return invalidConstructionOption(fmt.Sprintf("loader %d is nil", index))
 		}
 	}
+	for scheme, resolver := range opts.valueResolvers {
+		if strings.TrimSpace(scheme) == "" {
+			return invalidConstructionOption("value resolver scheme must not be empty")
+		}
+		if strings.ContainsAny(scheme, "${}:#") {
+			return invalidConstructionOption(fmt.Sprintf("invalid value resolver scheme %q", scheme))
+		}
+		if resolver == nil {
+			return invalidConstructionOption(fmt.Sprintf("value resolver %q is nil", scheme))
+		}
+	}
 	if opts.isSet("secret_hook") && opts.SecretResolver != nil {
 		if isNilExtension(opts.SecretResolver) {
 			return invalidConstructionOption("secret resolver is nil")
@@ -95,6 +106,7 @@ func validateAndOwnOptions(opts *options) error {
 	opts.Exporters = append([]Exporter(nil), opts.Exporters...)
 	opts.Validators = append([]Validator(nil), opts.Validators...)
 	opts.hookSetups = append([]hookSetup(nil), opts.hookSetups...)
+	opts.valueResolvers = maps.Clone(opts.valueResolvers)
 	if schema, ok := opts.Schema.(map[string]any); ok {
 		opts.Schema = dictutil.DeepCopy(schema)
 	}

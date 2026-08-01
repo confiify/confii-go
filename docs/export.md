@@ -2,6 +2,8 @@
 
 Confii can export configuration data to JSON, YAML, and TOML formats, and generate documentation from the current config state.
 
+![Confii debugging and operations surfaces](assets/debugging-operations.svg)
+
 ---
 
 ## Export

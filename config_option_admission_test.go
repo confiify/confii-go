@@ -63,6 +63,9 @@ func TestNewRejectsInvalidAdmissionWithoutPanicking(t *testing.T) {
 		{name: "panicking option", option: func(*options) { panic("option panic") }},
 		{name: "panicking resolver hook", option: WithSecretResolver(&panickingAdmissionResolver{})},
 		{name: "panicking exporter format", option: WithExporter(&panickingAdmissionExporter{})},
+		{name: "empty value resolver scheme", option: WithValueResolver(" ", func(context.Context, hook.ResolverRequest) (any, error) { return nil, nil })},
+		{name: "invalid value resolver scheme", option: WithValueResolver("bad:scheme", func(context.Context, hook.ResolverRequest) (any, error) { return nil, nil })},
+		{name: "nil value resolver", option: WithValueResolver("custom", nil)},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

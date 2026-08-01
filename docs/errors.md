@@ -4,6 +4,8 @@ Confii returns structured `*confii.ConfigError` values for configuration
 failures. The structure separates a stable machine-readable category from the
 concrete operational cause and operator-facing message.
 
+![Confii runtime lifecycle](assets/runtime-lifecycle.svg)
+
 ```go
 value, err := cfg.Get("database.host")
 if err != nil {

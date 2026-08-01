@@ -2,6 +2,8 @@
 
 Confii can compare two configurations and produce a structured diff, or detect unintended changes (drift) against a known baseline.
 
+![Confii debugging and operations surfaces](assets/debugging-operations.svg)
+
 ---
 
 ## Diffing Two Configs

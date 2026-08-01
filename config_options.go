@@ -87,6 +87,10 @@ type options struct {
 	DynamicReloading                    bool
 	ReloadDebounce                      time.Duration
 	UseEnvExpander                      bool
+	UseFileResolver                     bool
+	UseStructuredResolver               bool
+	UseURLResolver                      bool
+	UseCommandResolver                  bool
 	UseTypeCasting                      bool
 	MergeStrategy                       MergeStrategy
 	MergeStrategyMap                    map[string]MergeStrategy
@@ -141,6 +145,8 @@ type options struct {
 	// hookSetups describe construction-time transformation hooks before the
 	// first configuration snapshot is materialized.
 	hookSetups []hookSetup
+	// valueResolvers contains caller-provided ${scheme:...} resolvers.
+	valueResolvers map[string]hook.ResolverFunc
 
 	// Tracks which fields were explicitly set by user options.
 	// Used to implement priority: explicit > self-config > built-in default.
@@ -352,10 +358,55 @@ func WithSensitivePaths(paths ...string) Option {
 	}
 }
 
-// WithEnvExpander controls ${VAR} expansion during snapshot materialization.
-// Unknown variables remain unchanged. The default is true.
+// WithEnvExpander controls ${VAR} and ${env:VAR} expansion during snapshot
+// materialization. Unknown variables remain unchanged. The default is true.
 func WithEnvExpander(v bool) Option {
 	return func(o *options) { o.UseEnvExpander = v; o.explicitlySet["use_env_expander"] = true }
+}
+
+// WithFileResolver controls ${file:path} expansion during snapshot
+// materialization. Relative paths resolve from WithWorkingDir, or from the
+// process working directory when no working directory is configured. The
+// default is false because this feature intentionally grants configuration
+// files read access to local project files.
+func WithFileResolver(v bool) Option {
+	return func(o *options) { o.UseFileResolver = v; o.explicitlySet["use_file_resolver"] = true }
+}
+
+// WithStructuredResolver controls ${json:path#field}, ${yaml:path#field},
+// ${json:self#field}, and ${yaml:self#field} expansion during snapshot
+// materialization. It works for configurations loaded from any source format
+// because it operates after parsing on Confii's configuration tree. The default
+// is false.
+func WithStructuredResolver(v bool) Option {
+	return func(o *options) { o.UseStructuredResolver = v; o.explicitlySet["use_structured_resolver"] = true }
+}
+
+// WithURLResolver controls ${url:http://...} expansion during snapshot
+// materialization. The default is false because this feature performs network
+// I/O selected by configuration values.
+func WithURLResolver(v bool) Option {
+	return func(o *options) { o.UseURLResolver = v; o.explicitlySet["use_url_resolver"] = true }
+}
+
+// WithCommandResolver controls ${cmd:command} expansion during snapshot
+// materialization. The command runs through the platform shell and stdout
+// becomes the resolved value. The default is false because this feature grants
+// trusted configuration command-execution capability.
+func WithCommandResolver(v bool) Option {
+	return func(o *options) { o.UseCommandResolver = v; o.explicitlySet["use_command_resolver"] = true }
+}
+
+// WithValueResolver registers a custom ${scheme:...} resolver. Custom
+// resolvers run in the same materialization phase as built-in value resolvers
+// and override a built-in resolver when the scheme name is the same.
+func WithValueResolver(scheme string, resolver hook.ResolverFunc) Option {
+	return func(o *options) {
+		if o.valueResolvers == nil {
+			o.valueResolvers = make(map[string]hook.ResolverFunc)
+		}
+		o.valueResolvers[scheme] = resolver
+	}
 }
 
 // WithTypeCasting controls conversion of canonical string booleans, integers,

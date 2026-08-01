@@ -4,6 +4,8 @@ Confii loads configuration from files, environment variables, HTTP endpoints, an
 cloud storage -- all through a unified `Loader` interface. Sources are loaded in
 order: **later loaders override earlier ones** when deep merge is enabled.
 
+![Confii source precedence](assets/sources-precedence.svg)
+
 ```go
 cfg, err := confii.NewWithContext[any](ctx,
     confii.WithLoaders(
@@ -39,6 +41,75 @@ accepts `.yaml` and `.yml`, INI accepts `.ini` and `.cfg`, and dotenv accepts
 
 Confii supports five file formats out of the box with no build tags required.
 
+### Format Syntax Worth Using
+
+Each loader delegates syntax to a mature parser, then converts the result into
+Confii's configuration map. These parser features are safe to teach new
+developers because they are part of the supported loader path:
+
+| Format | Best fit | Parser-backed features worth knowing | Confii-specific notes |
+| --- | --- | --- | --- |
+| YAML | Human-authored layered app config | Anchors, aliases, merge keys, block scalars, nested lists/maps, non-string YAML keys | Parsed with `go.yaml.in/yaml/v3`; keys are normalized to strings; one YAML document per source |
+| JSON | Generated config, API payloads, lockstep tooling output | Strict objects, arrays, booleans, numbers, nulls | Parsed with `encoding/json`; numbers load as `float64`; no comments, trailing commas, anchors, or merge keys |
+| TOML | Human-edited typed config | Tables, dotted keys, arrays, inline tables, multiline strings, date/time values | Parsed with `BurntSushi/toml`; integer values commonly load as `int64`; JSON-looking documents are rejected when TOML is declared |
+| INI | Legacy/simple sectioned config | Root key/value pairs, sections, comments, simple scalar values | Parsed with `gopkg.in/ini.v1`; root keys are promoted to the config root; sections become nested maps |
+| Dotenv | Local developer settings and secrets | `export` prefix, comments, single/double quotes, multiline quoted values, variable expansion | Parsed with `godotenv`; dot-separated names become nested paths; scalar strings are converted when unambiguous |
+
+Use native parser features for readability inside one file. Use Confii features
+when behavior must cross source boundaries: ordered loaders for precedence,
+`_include` for composition, `_defaults` for reusable defaults, merge strategies
+for per-path merge behavior, and environment selection for runtime overlays.
+
+### Value References
+
+Value references are resolved after any supported source format has been parsed,
+so the same syntax can appear in YAML, JSON, TOML, INI, dotenv, HTTP-loaded
+config, cloud-loaded config, and custom loaders. They are disabled unless the
+developer enables the resolver family explicitly.
+
+| Reference | Option | Self-config | Default | Result |
+| --- | --- | --- | --- | --- |
+| `${file:path}` | `WithFileResolver(true)` | `use_file_resolver: true` | off | Raw file contents |
+| `${json:path#field}` | `WithStructuredResolver(true)` | `use_structured_resolver: true` | off | Field from a JSON file |
+| `${yaml:path#field}` | `WithStructuredResolver(true)` | `use_structured_resolver: true` | off | Field from a YAML file |
+| `${json:self#field}` | `WithStructuredResolver(true)` | `use_structured_resolver: true` | off | Field from the current unresolved config |
+| `${yaml:self#field}` | `WithStructuredResolver(true)` | `use_structured_resolver: true` | off | Field from the current unresolved config |
+| `${url:https://...}` | `WithURLResolver(true)` | `use_url_resolver: true` | off | HTTP response body text |
+| `${cmd:command}` | `WithCommandResolver(true)` | `use_command_resolver: true` | off | Command stdout text |
+
+When the reference is the entire scalar value, Confii preserves the resolved Go
+type. For example, `${yaml:shared.yaml#server.port}` can resolve to an integer.
+When the reference is embedded inside a larger string, Confii stringifies the
+resolved value and splices it into the surrounding text.
+
+```yaml title="shared.yaml"
+server:
+  port: 8080
+  token: ${secret:service/token}
+```
+
+```yaml title="config.yaml"
+server:
+  port: ${yaml:shared.yaml#server.port}
+  token: ${yaml:shared.yaml#server.token}
+```
+
+Value references run before secret resolution, so secrets inside referenced
+files or referenced self fields are still resolved by `${secret:...}` later in
+the materialization pipeline.
+
+!!! warning "URL and command references"
+    `${url:...}` performs network I/O selected by configuration values.
+    `${cmd:...}` executes through the platform shell. Both are intentionally
+    off by default and should only be enabled for fully trusted configuration.
+
+!!! note "Formats with `#` comments"
+    `#field` is part of the structured reference syntax. In formats where `#`
+    starts an inline comment before Confii receives the value, such as INI and
+    many dotenv grammars, prefer whole-document references like
+    `${yaml:shared.yaml}` or use a source format that preserves `#` in scalar
+    strings.
+
 ### YAML
 
 ```go
@@ -56,6 +127,69 @@ database:
     password: ${secret:db/password}
 ```
 
+YAML sources are parsed with `go.yaml.in/yaml/v3`, then normalized into
+Confii's `map[string]any` data model. Standard YAML anchors, aliases, and merge
+keys therefore work inside a single YAML document:
+
+```yaml title="config.yaml"
+database_defaults: &database_defaults
+  port: 5432
+  pool:
+    min: 1
+    max: 5
+
+database:
+  <<: *database_defaults
+  host: dev-db.local
+```
+
+After parsing, Confii sees the same shape as if `port` and `pool` had been
+written under `database` directly. Anchors are a YAML feature, so they do not
+cross file boundaries and they are not available in JSON, TOML, INI, dotenv, or
+environment-variable sources. Use ordered loaders, `.confii.yaml` sources,
+`_include`, `_defaults`, and merge strategies when reuse or overrides must span
+files, formats, or environments.
+
+Block scalars are useful for short certificates, SQL, policy text, and other
+multi-line values:
+
+```yaml title="config.yaml"
+tls:
+  ca_pem: |
+    -----BEGIN CERTIFICATE-----
+    ...
+    -----END CERTIFICATE-----
+```
+
+For larger or shared file content, enable Confii's file resolver and keep the
+payload in a separate project file:
+
+```go
+cfg, err := confii.New[any](
+    confii.WithWorkingDir("/srv/app"),
+    confii.WithFileResolver(true),
+    confii.WithLoaders(loader.NewYAML("config.yaml")),
+)
+```
+
+```yaml title="config.yaml"
+tls:
+  ca_pem: ${file:certs/ca.pem}
+```
+
+`${file:...}` includes raw file text during materialization. It runs before
+secret resolution, so placeholders inside the included text are still resolved
+later:
+
+```text title="certs/token.txt"
+token=${secret:service/token}
+```
+
+The resolver is intentionally opt-in and rooted at `WithWorkingDir` to avoid
+letting untrusted configuration read arbitrary local files. Use `_include` when
+you want to compose structured YAML/JSON/TOML configuration maps; use
+`${file:...}` when the value itself should be the file contents.
+
 ### JSON
 
 ```go
@@ -71,6 +205,11 @@ l := loader.NewJSON("config.json")
 }
 ```
 
+JSON should be the default for generated sources because it is strict and
+portable across tools. Keep two Confii details in mind: the top level must be an
+object, and numbers follow Go's `encoding/json` behavior when decoded into
+`any`, so they load as `float64`.
+
 ### TOML
 
 ```go
@@ -83,6 +222,25 @@ host = "localhost"
 port = 5432
 ```
 
+TOML is a good fit when humans want a typed, less indentation-sensitive format:
+
+```toml title="config.toml"
+server.port = 8080
+server.tags = ["api", "internal"]
+
+[database]
+host = "localhost"
+pool = { min = 1, max = 10 }
+
+[[workers]]
+name = "importer"
+enabled = true
+```
+
+Dotted keys and tables both produce nested maps. Arrays and inline tables are
+preserved as structured values, and integers commonly load as `int64` through
+the TOML parser.
+
 ### INI
 
 ```go
@@ -94,6 +252,22 @@ l := loader.NewINI("config.ini")
 host = localhost
 port = 5432
 ```
+
+Keys before the first section are promoted to the config root, while each
+section becomes a nested map:
+
+```ini title="config.ini"
+app_name = confii
+debug = true
+
+[database]
+host = localhost
+port = 5432
+```
+
+INI values are strings at the file level, then Confii converts unambiguous
+booleans, integers, and floats. Prefer INI for simple legacy configuration, not
+deep object graphs.
 
 ### .env (Dotenv)
 
@@ -112,6 +286,20 @@ variable-expansion grammar. Confii then converts unambiguous scalar values and
 maps dot-separated names such as `database.host` into nested configuration.
 Malformed records follow `WithEnvFileErrorPolicy`; warning logs identify the
 source and line without logging the record's potentially sensitive content.
+Inside any string value, the default env-expander hook supports both `${NAME}`
+and the explicit `${env:NAME}` form.
+
+```bash title=".env"
+export APP_NAME=confii
+database.host=localhost
+database.port=5432
+LOG_LINE="first line
+second line"
+API_URL="https://${API_HOST}/v1"
+```
+
+Use dotenv for local environment-like input. If you need list or object syntax,
+prefer YAML, JSON, or TOML and keep dotenv for final local overrides.
 
 !!! tip "Combining file formats"
     A project may combine source formats. A common pattern uses YAML for the main

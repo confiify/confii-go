@@ -49,7 +49,12 @@ nav:
   - Getting Started:
     - Installation: installation.md
     - Quick Start: quickstart.md
+    - Mental Model: mental-model.md
+    - Learning Paths: learning-paths.md
     - Configuration: configuration.md
+    - Recipes: recipes.md
+    - Troubleshooting: troubleshooting.md
+    - Glossary: glossary.md
   - Features:
     - Sources: sources.md
     - Environment Resolution: environment.md
@@ -60,6 +65,7 @@ nav:
     - Hooks: hooks.md
     - Validation: validation.md
     - Secrets: secrets.md
+    - Extensibility: extensibility.md
   - Operations:
     - Lifecycle: lifecycle.md
     - Context & Cancellation: context.md
@@ -69,6 +75,8 @@ nav:
     - Versioning: versioning.md
     - Observability: observability.md
     - Export: export.md
+    - Testing Applications: testing.md
+    - Production Checklist: production-checklist.md
   - CLI: cli.md
   - Examples: examples.md
   - FAQ: faq.md

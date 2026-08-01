@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="560" viewBox="0 0 1200 560" role="img" aria-labelledby="title desc">
+  <title id="title">Confii debugging and operations surfaces</title>
+  <desc id="desc">A published snapshot supports introspection, diffing, versioning, exports, documentation, metrics, and events.</desc>
+  <defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L9,3 z" fill="#334155"/></marker><style>.bg{fill:#f8fafc}.panel{fill:#fff;stroke:#cbd5e1;stroke-width:2;rx:14}.core{fill:#ecfdf5;stroke:#059669;stroke-width:2;rx:12}.box{fill:#eff6ff;stroke:#2563eb;stroke-width:2;rx:10}.purple{fill:#f5f3ff;stroke:#7c3aed;stroke-width:2;rx:10}.orange{fill:#fff7ed;stroke:#ea580c;stroke-width:2;rx:10}.title{font:700 28px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#0f172a}.label{font:700 17px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#0f172a}.small{font:14px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#334155}.arrow{stroke:#334155;stroke-width:2.5;fill:none;marker-end:url(#arrow)}</style></defs>
+  <rect class="bg" width="1200" height="560"/>
+  <text class="title" x="36" y="54">Debugging and Operations Surfaces</text>
+  <rect class="panel" x="30" y="90" width="1140" height="395"/>
+  <rect class="core" x="465" y="220" width="270" height="96"/><text class="label" x="510" y="255">Published snapshot</text><text class="small" x="510" y="278">effective config + source tracker</text><text class="small" x="510" y="300">sensitive paths retained</text>
+  <rect class="box" x="90" y="140" width="220" height="70"/><text class="label" x="122" y="172">Explain / Layers</text><text class="small" x="122" y="194">where values came from</text>
+  <line class="arrow" x1="310" y1="175" x2="465" y2="245"/>
+  <rect class="box" x="90" y="330" width="220" height="70"/><text class="label" x="122" y="362">Debug report</text><text class="small" x="122" y="384">redacted diagnostics</text>
+  <line class="arrow" x1="310" y1="365" x2="465" y2="290"/>
+  <rect class="purple" x="490" y="120" width="220" height="70"/><text class="label" x="522" y="152">Diff / drift</text><text class="small" x="522" y="174">compare snapshots</text>
+  <line class="arrow" x1="600" y1="190" x2="600" y2="220"/>
+  <rect class="purple" x="890" y="140" width="220" height="70"/><text class="label" x="922" y="172">Versioning</text><text class="small" x="922" y="194">save, compare, rollback</text>
+  <line class="arrow" x1="890" y1="175" x2="735" y2="245"/>
+  <rect class="orange" x="890" y="330" width="220" height="70"/><text class="label" x="922" y="362">Metrics / events</text><text class="small" x="922" y="384">operational visibility</text>
+  <line class="arrow" x1="890" y1="365" x2="735" y2="290"/>
+  <rect class="orange" x="490" y="365" width="220" height="70"/><text class="label" x="522" y="397">Export / docs</text><text class="small" x="522" y="419">JSON, YAML, TOML, markdown</text>
+  <line class="arrow" x1="600" y1="365" x2="600" y2="316"/>
+</svg>

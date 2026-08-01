@@ -67,6 +67,14 @@ func TestDefaultYAMLIsSafeAndMatchesBuiltInDefaults(t *testing.T) {
 
 	require.NotNil(t, settings.UseEnvExpander)
 	assert.True(t, *settings.UseEnvExpander)
+	require.NotNil(t, settings.UseFileResolver)
+	assert.False(t, *settings.UseFileResolver)
+	require.NotNil(t, settings.UseStructuredResolver)
+	assert.False(t, *settings.UseStructuredResolver)
+	require.NotNil(t, settings.UseURLResolver)
+	assert.False(t, *settings.UseURLResolver)
+	require.NotNil(t, settings.UseCommandResolver)
+	assert.False(t, *settings.UseCommandResolver)
 	require.NotNil(t, settings.UseTypeCasting)
 	assert.True(t, *settings.UseTypeCasting)
 

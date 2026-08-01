@@ -3,6 +3,8 @@
 Later sources have higher precedence. Confii v2 uses one merge model with a
 default strategy and optional dotted-path overrides.
 
+![Confii composition and merge flow](assets/composition-merge.svg)
+
 ## Self-config
 
 ```yaml

@@ -288,6 +288,9 @@ func NewWithContext[T any](ctx context.Context, cfgOpts ...Option) (*Config[T], 
 	if opts.UseEnvExpander {
 		c.hookProcessor.RegisterGlobalHook(hook.NewEnvExpanderHook())
 	}
+	if resolverHook := buildValueResolverHook(opts, composerBase); resolverHook != nil {
+		c.hookProcessor.RegisterGlobalHook(resolverHook)
+	}
 	if opts.UseTypeCasting {
 		c.hookProcessor.RegisterGlobalHook(hook.NewTypeCastHook())
 	}

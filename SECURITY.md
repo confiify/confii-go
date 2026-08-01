@@ -91,6 +91,11 @@ We appreciate security researchers who help keep Confii safe. With your permissi
 
 - Never commit secrets or credentials in configuration files
 - Use `${secret:key}` placeholders with a proper secret store in production
+- Keep `${file:path}` resolution disabled unless project configuration is
+  trusted and the referenced files are intentionally inside `WithWorkingDir`
+- Keep `${url:...}` and `${cmd:...}` resolution disabled unless configuration is
+  fully trusted; URL resolution performs network I/O and command resolution
+  executes through the platform shell
 - Enable `WithFreezeOnLoad(true)` in production to prevent runtime config mutation
 - Use build tags to include only the cloud providers you need
 - Keep your Go toolchain and Confii version up to date
@@ -229,9 +234,38 @@ base directory.
 > Self-Config Secret Registry section in
 > [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
+**T-10. Path traversal in `${file:path}` value resolution.** The
+file resolver intentionally gives trusted project configuration a way
+to read local file contents into scalar values. If it accepted
+absolute paths or symlinks outside the project root, an adversarial
+config source could exfiltrate arbitrary local files. Structured
+`${json:path#field}` and `${yaml:path#field}` references have the same
+filesystem boundary.
+
+> *Mitigation.* `${file:path}` resolution is disabled by default and
+> must be enabled with `WithFileResolver(true)` or
+> `use_file_resolver: true`. Structured file references are also
+> disabled by default and require `WithStructuredResolver(true)` or
+> `use_structured_resolver: true`. Relative paths are rooted at
+> `WithWorkingDir`; absolute paths and symlinks are accepted only when
+> the final target remains inside that root. Resolved files must be
+> regular files and are size-bounded.
+
+**T-11. Network and shell execution through value references.**
+`${url:...}` lets configuration choose outbound HTTP(S) requests.
+`${cmd:...}` lets configuration execute shell commands. Both are
+unsafe for untrusted config sources.
+
+> *Mitigation.* URL and command references are disabled by default and
+> require `WithURLResolver(true)` / `use_url_resolver: true` or
+> `WithCommandResolver(true)` / `use_command_resolver: true`.
+> URL responses and command stdout are size-bounded, URL resolution
+> accepts only HTTP(S), and command execution uses the caller's context
+> plus a default timeout.
+
 ### Operational-visibility threats
 
-**T-10. Silent callback panics.** A `recover()` block that does not
+**T-12. Silent callback panics.** A `recover()` block that does not
 log the recovered value hides a misbehaving callback indefinitely.
 Operators have no signal a handler is broken until downstream
 consumers go dark.

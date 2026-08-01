@@ -9,7 +9,7 @@ Thank you for your interest in contributing to Confii! This guide will help you 
 3. Create a branch: `git checkout -b feature/your-feature`
 4. Make your changes
 5. Sign off every commit: `git commit --signoff`
-6. Run checks: `make ci-full`
+6. Run checks: `make pr-check`
 7. Push and open a pull request
 
 ## Developer Certificate of Origin
@@ -36,7 +36,32 @@ make deps
 
 ## Running Checks
 
-Before submitting a PR, run:
+Before submitting a PR, run the local PR-readiness gate:
+
+```bash
+make pr-check
+```
+
+This command exists because several pull-request failures are expensive to
+discover only after pushing. It runs the checks we can realistically mirror
+locally: DCO, formatting, vet, golangci-lint, shuffled tests, race tests, short
+fuzz targets, statement coverage, local patch coverage, and docs checks when
+documentation-triggering files changed. It also keeps a single place to add
+new probes when CI teaches us about a failure mode.
+
+Use the full sweep before larger or release-sensitive changes:
+
+```bash
+PR_CHECK_LEVEL=full PR_FUZZTIME=30s make pr-check
+```
+
+The full sweep adds module integrity, integration tests, cloud consumer tests,
+branch coverage, reproducible build, API compatibility, REUSE, and supply-chain
+metadata checks. GitHub-only services such as dependency review and Codecov
+still run in CI, but `make pr-check` includes local approximations for their
+common failure modes where possible.
+
+Useful individual checks:
 
 ```bash
 make mod-verify   # every module is tidy and checksummed
@@ -47,11 +72,12 @@ make reuse-lint   # machine-readable copyright and license coverage
 make ci-full      # core, race, integration, and cloud consumer tests
 make vulncheck    # govulncheck for the core module
 make docs-check
+make patch-coverage-check
 ```
 
 All checks must pass. CI independently checks every pull-request commit and
 rejects a sign-off that is missing or does not match that commit's author
-identity. Target 90%+ test coverage for new code.
+identity. Target 90%+ statement coverage and 90%+ patch coverage for new code.
 
 ## Code Style
 
@@ -85,6 +111,7 @@ All new functionality **must** include tests. This is enforced through:
 Run the full test suite locally before submitting:
 
 ```bash
+make pr-check      # local PR-readiness gate
 make test          # unit tests
 make test-race     # with race detector
 make test-cover    # with coverage report

@@ -2,6 +2,8 @@
 
 Confii can snapshot configuration state, compare versions over time, and rollback to a previous state. Versions are persisted to disk as JSON files.
 
+![Confii debugging and operations surfaces](assets/debugging-operations.svg)
+
 ---
 
 ## Enabling Versioning

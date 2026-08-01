@@ -15,7 +15,9 @@ import (
 type fuzzStore struct{}
 
 func (s *fuzzStore) GetSecret(_ context.Context, key string, _ ...confii.SecretOption) (any, error) {
-	return key, nil
+	// Keep synthetic secret values free of placeholder syntax so the
+	// idempotence check tests resolver convergence, not recursive fake data.
+	return "resolved:" + strings.NewReplacer("${", "$ {", "}", " }").Replace(key), nil
 }
 
 func (s *fuzzStore) SetSecret(_ context.Context, _ string, _ any, _ ...confii.SecretOption) error {
