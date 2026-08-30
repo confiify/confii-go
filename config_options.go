@@ -80,29 +80,32 @@ type options struct {
 	// WorkingDir is the base directory used for self-config discovery
 	// (selfconfig.Read) and as the basePath for the include/defaults
 	// composer (compose.New). When empty, the process CWD (".") is used.
-	WorkingDir                          string
-	Env                                 string
-	EnvSwitcher                         string
-	Loaders                             []Loader
-	DynamicReloading                    bool
-	ReloadDebounce                      time.Duration
-	UseEnvExpander                      bool
-	UseFileResolver                     bool
-	UseStructuredResolver               bool
-	UseURLResolver                      bool
-	UseCommandResolver                  bool
-	UseTypeCasting                      bool
-	MergeStrategy                       MergeStrategy
-	MergeStrategyMap                    map[string]MergeStrategy
-	EnvPrefix                           string
-	SysenvFallback                      bool
-	SecretResolver                      ManagedSecretResolver
-	Exporters                           []Exporter
-	Validators                          []Validator
-	Schema                              any
-	SchemaPath                          string
-	ValidateOnLoad                      bool
-	StrictValidation                    bool
+	WorkingDir            string
+	Env                   string
+	EnvSwitcher           string
+	Loaders               []Loader
+	DynamicReloading      bool
+	ReloadDebounce        time.Duration
+	UseEnvExpander        bool
+	UseFileResolver       bool
+	UseStructuredResolver bool
+	UseURLResolver        bool
+	UseCommandResolver    bool
+	UseTypeCasting        bool
+	MergeStrategy         MergeStrategy
+	MergeStrategyMap      map[string]MergeStrategy
+	EnvPrefix             string
+	SysenvFallback        bool
+	SecretResolver        ManagedSecretResolver
+	Exporters             []Exporter
+	Validators            []Validator
+	Schema                any
+	SchemaPath            string
+	ValidateOnLoad        bool
+	StrictValidation      bool
+	// RejectUnknownKeys fails the typed decode when the configuration
+	// carries keys that the typed model does not declare.
+	RejectUnknownKeys                   bool
 	FreezeOnLoad                        bool
 	OnError                             ErrorPolicy
 	DebugMode                           bool
@@ -411,7 +414,9 @@ func WithValueResolver(scheme string, resolver hook.ResolverFunc) Option {
 
 // WithTypeCasting controls conversion of canonical string booleans, integers,
 // and floating-point numbers during materialization. The default is true;
-// disabling it preserves loaded strings verbatim.
+// disabling it preserves loaded strings verbatim, including through
+// [Config.Typed] and [Config.TypedCopy], whose decode then requires the
+// input to already carry each field's declared type.
 func WithTypeCasting(v bool) Option {
 	return func(o *options) { o.UseTypeCasting = v; o.explicitlySet["use_type_casting"] = true }
 }
@@ -555,10 +560,26 @@ func WithValidateOnLoad(v bool) Option {
 	return func(o *options) { o.ValidateOnLoad = v; o.explicitlySet["validate_on_load"] = true }
 }
 
+// WithRejectUnknownKeys controls whether configuration keys that the typed
+// model does not declare are an error. The default is false, which leaves an
+// undeclared key silently unused, so a mistyped key such as "prot" for "port"
+// produces a zero-valued field indistinguishable from an absent setting.
+// Enabling it fails the typed decode instead, naming the offending keys.
+// Config[any] is unaffected: without declared fields there is nothing for a
+// key to be unused against.
+func WithRejectUnknownKeys(v bool) Option {
+	return func(o *options) {
+		o.RejectUnknownKeys = v
+		o.explicitlySet["reject_unknown_keys"] = true
+	}
+}
+
 // WithStrictValidation controls typed-struct validation failures. When true
 // (the default), a violation rejects the candidate with
 // [ErrConfigValidation]. When false, typed violations are logged and the
 // candidate may be published. JSON Schema violations remain fatal.
+// It governs how a failure is reported, not which conditions fail; use
+// [WithRejectUnknownKeys] to make undeclared keys a failure.
 func WithStrictValidation(v bool) Option {
 	return func(o *options) { o.StrictValidation = v; o.explicitlySet["strict_validation"] = true }
 }

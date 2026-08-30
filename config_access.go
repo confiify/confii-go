@@ -467,7 +467,7 @@ func (c *Config[T]) typedCtx(ctx context.Context, cacheable bool) (*T, error) {
 	snapshot := dictutil.DeepCopy(c.envConfig)
 	c.mu.RUnlock()
 
-	model, err := validate.DecodeAndValidate[T](snapshot)
+	model, err := validate.DecodeAndValidateWithOptions[T](snapshot, c.decodeOptions())
 	if err != nil {
 		return nil, NewValidationError([]string{err.Error()}, err)
 	}
@@ -515,4 +515,15 @@ func (c *Config[T]) lookupSysenv(keyPath string) (any, bool) {
 		return nil, false
 	}
 	return val, true
+}
+
+// decodeOptions carries the configured scalar-conversion policy into
+// the typed decode. WithTypeCasting(false) documents that loaded
+// strings are preserved verbatim, so the typed model must not convert
+// them either; otherwise Get and Typed disagree about the same value.
+func (c *Config[T]) decodeOptions() validate.Options {
+	return validate.Options{
+		WeaklyTypedInput:  c.opts.UseTypeCasting,
+		RejectUnknownKeys: c.opts.RejectUnknownKeys,
+	}
 }

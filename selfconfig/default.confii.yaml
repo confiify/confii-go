@@ -80,6 +80,10 @@ use_type_casting: true
 # can also use struct validation tags without a schema file.
 validate_on_load: false
 strict_validation: true
+# reject_unknown_keys fails the typed decode when the configuration carries
+# keys the typed model does not declare, turning a mistyped key into an error
+# instead of a zero-valued field.
+reject_unknown_keys: false
 schema_path: ""
 
 # Runtime lifecycle. dynamic_reloading and freeze_on_load are intentionally

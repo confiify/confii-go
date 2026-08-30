@@ -58,8 +58,12 @@ type Settings struct {
 	Merge MergeSettings `yaml:"merge" json:"merge" toml:"merge"`
 	// ValidateOnLoad requests validation before each candidate snapshot is published.
 	ValidateOnLoad *bool `yaml:"validate_on_load" json:"validate_on_load" toml:"validate_on_load"`
-	// StrictValidation rejects unknown typed-configuration fields when enabled.
+	// StrictValidation reports typed validation failures as errors rather
+	// than warnings when enabled.
 	StrictValidation *bool `yaml:"strict_validation" json:"strict_validation" toml:"strict_validation"`
+	// RejectUnknownKeys fails the typed decode when the configuration
+	// carries keys the typed model does not declare.
+	RejectUnknownKeys *bool `yaml:"reject_unknown_keys" json:"reject_unknown_keys" toml:"reject_unknown_keys"`
 	// UseEnvExpander enables expansion of environment-variable expressions.
 	UseEnvExpander *bool `yaml:"use_env_expander" json:"use_env_expander" toml:"use_env_expander"`
 	// UseFileResolver enables ${file:path} expansion rooted at the project directory.

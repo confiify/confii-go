@@ -180,6 +180,7 @@ func TestRead_JSONWithAllBooleanFields(t *testing.T) {
 		"merge":{"default":"shallow_merge"},
 		"validate_on_load":true,
 		"strict_validation":false,
+		"reject_unknown_keys":false,
 		"use_env_expander":true,
 		"use_file_resolver":true,
 		"use_structured_resolver":true,

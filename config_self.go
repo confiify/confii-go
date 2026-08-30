@@ -96,6 +96,9 @@ func applySelfConfig(opts *options) error {
 	if !opts.isSet("use_type_casting") && settings.UseTypeCasting != nil {
 		opts.UseTypeCasting = *settings.UseTypeCasting
 	}
+	if !opts.isSet("reject_unknown_keys") && settings.RejectUnknownKeys != nil {
+		opts.RejectUnknownKeys = *settings.RejectUnknownKeys
+	}
 	if !opts.isSet("validate_on_load") && settings.ValidateOnLoad != nil {
 		opts.ValidateOnLoad = *settings.ValidateOnLoad
 	}

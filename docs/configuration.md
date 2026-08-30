@@ -420,10 +420,11 @@ Confii never replaces or extends an existing context deadline. If
 | `WithURLResolver(bool)` | Enable `${url:...}` response-body expansion. | `false` |
 | `WithCommandResolver(bool)` | Enable `${cmd:...}` shell-command stdout expansion. | `false` |
 | `WithValueResolver(scheme, resolver)` | Add or override a custom `${scheme:...}` resolver. | none |
-| `WithTypeCasting(bool)` | Auto-convert string values to `bool`/`int`/`float64` when accessed. | `true` |
+| `WithTypeCasting(bool)` | Auto-convert string values to `bool`/`int`/`float64` when accessed, and in the typed decode used by `Typed`/`TypedCopy`. Disabling it requires typed fields to receive their declared types. | `true` |
 | `WithSysenvFallback(bool)` | Fall back to OS environment variables when a key is not found in config. | `false` |
 | `WithValidateOnLoad(bool)` | Validate the typed struct (via `go-playground/validator` tags) immediately after loading. | `false` |
 | `WithStrictValidation(bool)` | Treat validation failures as errors (requires `WithValidateOnLoad`). | `true` |
+| `WithRejectUnknownKeys(bool)` | Fail the typed decode when configuration carries keys the typed model does not declare. | `false` |
 | `WithValidator(validator)` | Add a transactional validation rule and enable validation. | none |
 | `WithExporter(exporter)` | Add a serializer or replace a built-in export format. | JSON/YAML/TOML built in |
 | `WithSchema(schema)` | Set a validation schema (struct type or JSON Schema dict). | none |
