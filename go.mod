@@ -2,7 +2,7 @@ module github.com/confiify/confii-go/v2
 
 go 1.25.0
 
-toolchain go1.25.12
+toolchain go1.25.14
 
 // Direct dependencies for the core module. Cloud integrations and their SDKs
 // live in the independently tidy loader/cloud and secret/cloud modules; see

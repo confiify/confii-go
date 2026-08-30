@@ -2,7 +2,7 @@ module github.com/confiify/confii-go/loader/cloud/v2
 
 go 1.25.0
 
-toolchain go1.25.12
+toolchain go1.25.14
 
 require (
 	cloud.google.com/go/storage v1.64.0
