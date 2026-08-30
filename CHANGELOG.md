@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Add `validate.Options` with `WeaklyTypedInput`, plus
+  `validate.DecodeWithOptions`, `validate.DecodeAndValidateWithOptions`, and
+  `validate.NewStructValidatorWithOptions`, so callers can require decoded
+  input to already carry each field's declared type. The existing `Decode`,
+  `DecodeAndValidate`, and `NewStructValidator` keep weak scalar conversion.
+
+### Fixed
+
+- Honor `WithTypeCasting` in the typed decode path. `WithTypeCasting(false)`
+  preserved loaded strings in the snapshot but `Typed` and `TypedCopy`
+  converted them anyway, so the same `Config` reported different values for
+  the same key. Configurations that disable conversion now fail the decode
+  when a value's type does not match its field instead of converting it
+  silently. The default remains `true`, so behavior is unchanged unless
+  conversion was explicitly disabled.
+- Correct the `WithEnvExpander` and `WithTypeCasting` defaults in `llms.txt`,
+  which listed both as `false` while `defaultOptions` sets both to `true`.
+  `README.md` and `docs/configuration.md` were already correct.
+
 ## [2.1.0] - 2026-08-01
 
 ### Added
