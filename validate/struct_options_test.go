@@ -79,3 +79,40 @@ func TestNewStructValidatorWithOptionsStrict(t *testing.T) {
 	weak := NewStructValidator[TestConfig]()
 	require.NoError(t, weak.Validate(quoted))
 }
+
+// TestDecodeWithOptionsRejectUnknownKeys proves an undeclared key can
+// be made an error instead of a silently unused input.
+func TestDecodeWithOptionsRejectUnknownKeys(t *testing.T) {
+	typo := map[string]any{
+		"database": map[string]any{"host": "localhost", "prot": 5432, "name": "app"},
+	}
+
+	// Default: the typo is silently unused and Port stays zero.
+	lenient, err := DecodeWithOptions[TestConfig](typo, Options{WeaklyTypedInput: true})
+	require.NoError(t, err)
+	assert.Zero(t, lenient.Database.Port)
+
+	// Enabled: the decode fails and names the offending key.
+	_, err = DecodeWithOptions[TestConfig](typo, Options{
+		WeaklyTypedInput:  true,
+		RejectUnknownKeys: true,
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "prot")
+}
+
+// TestRejectUnknownKeysAcceptsDeclaredInput proves the option rejects
+// only undeclared keys, not valid configuration.
+func TestRejectUnknownKeysAcceptsDeclaredInput(t *testing.T) {
+	clean := map[string]any{
+		"database": map[string]any{"host": "localhost", "port": 5432, "name": "app"},
+		"debug":    true,
+	}
+	model, err := DecodeAndValidateWithOptions[TestConfig](clean, Options{
+		WeaklyTypedInput:  true,
+		RejectUnknownKeys: true,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 5432, model.Database.Port)
+	assert.True(t, model.Debug)
+}

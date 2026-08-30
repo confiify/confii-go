@@ -62,6 +62,7 @@ func TestSelfConfigAccountsForEveryStartupOption(t *testing.T) {
 		"SchemaPath":                  {"SchemaPath"},
 		"ValidateOnLoad":              {"ValidateOnLoad"},
 		"StrictValidation":            {"StrictValidation"},
+		"RejectUnknownKeys":           {"RejectUnknownKeys"},
 		"FreezeOnLoad":                {"FreezeOnLoad"},
 		"OnError":                     {"OnError"},
 		"DebugMode":                   {"DebugMode"},

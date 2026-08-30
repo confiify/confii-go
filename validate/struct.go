@@ -20,6 +20,12 @@ type Options struct {
 	// declared types; a mismatch then fails the decode instead of
 	// being converted silently.
 	WeaklyTypedInput bool
+	// RejectUnknownKeys fails the decode when the input carries keys
+	// that no target field consumes. It turns a mistyped or stale key
+	// into an error instead of a field left at its zero value, which
+	// is otherwise indistinguishable from an intentionally absent
+	// setting.
+	RejectUnknownKeys bool
 }
 
 // defaultOptions preserves the historical decoding behavior for the
@@ -115,6 +121,7 @@ func decodeWithOptions(data map[string]any, target any, opts Options) error {
 		Result:           target,
 		TagName:          "confii",
 		WeaklyTypedInput: opts.WeaklyTypedInput,
+		ErrorUnused:      opts.RejectUnknownKeys,
 	}
 	decoder, err := mapstructure.NewDecoder(config)
 	if err != nil {

@@ -424,6 +424,7 @@ Confii never replaces or extends an existing context deadline. If
 | `WithSysenvFallback(bool)` | Fall back to OS environment variables when a key is not found in config. | `false` |
 | `WithValidateOnLoad(bool)` | Validate the typed struct (via `go-playground/validator` tags) immediately after loading. | `false` |
 | `WithStrictValidation(bool)` | Treat validation failures as errors (requires `WithValidateOnLoad`). | `true` |
+| `WithRejectUnknownKeys(bool)` | Fail the typed decode when configuration carries keys the typed model does not declare. | `false` |
 | `WithValidator(validator)` | Add a transactional validation rule and enable validation. | none |
 | `WithExporter(exporter)` | Add a serializer or replace a built-in export format. | JSON/YAML/TOML built in |
 | `WithSchema(schema)` | Set a validation schema (struct type or JSON Schema dict). | none |

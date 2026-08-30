@@ -8,7 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-- Add `validate.Options` with `WeaklyTypedInput`, plus
+- Add `WithRejectUnknownKeys` so configuration keys the typed model does not
+  declare fail the typed decode instead of leaving a zero-valued field. A
+  mistyped key such as `prot` for `port` is otherwise indistinguishable from an
+  intentionally absent setting. The default is `false`, preserving current
+  behavior, and `Config[any]` is unaffected. The policy is also readable from
+  self-configuration as `reject_unknown_keys`.
+- Add `validate.Options` with `WeaklyTypedInput` and `RejectUnknownKeys`, plus
   `validate.DecodeWithOptions`, `validate.DecodeAndValidateWithOptions`, and
   `validate.NewStructValidatorWithOptions`, so callers can require decoded
   input to already carry each field's declared type. The existing `Decode`,
@@ -23,6 +29,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   when a value's type does not match its field instead of converting it
   silently. The default remains `true`, so behavior is unchanged unless
   conversion was explicitly disabled.
+- Correct the `StrictValidation` description in `selfconfig`, which said the
+  option "rejects unknown typed-configuration fields" while it governs whether
+  a validation failure is reported as an error or a warning. Undeclared keys
+  are now handled by `WithRejectUnknownKeys`.
 - Correct the `WithEnvExpander` and `WithTypeCasting` defaults in `llms.txt`,
   which listed both as `false` while `defaultOptions` sets both to `true`.
   `README.md` and `docs/configuration.md` were already correct.

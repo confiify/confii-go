@@ -435,6 +435,7 @@ cfg, err := confii.NewBuilder[AppConfig]().
 | `WithMergeStrategyMap(map)` | Per-path merge strategy overrides | none |
 | `WithValidateOnLoad(bool)` | Validate struct tags after loading | `false` |
 | `WithStrictValidation(bool)` | Treat validation failures as errors when enabled | `true` |
+| `WithRejectUnknownKeys(bool)` | Fail the typed decode on keys the typed model does not declare | `false` |
 | `WithValidator(validator)` | Add a transactional validation rule and enable validation | none |
 | `WithExporter(exporter)` | Add or replace an export format serializer | JSON/YAML/TOML built in |
 | `WithSchema(schema)` / `WithSchemaPath(path)` | JSON Schema for validation | none |

@@ -169,6 +169,7 @@ cfg, err := confii.NewBuilder[AppConfig]().
 | WithMergeStrategyMap(map) | Per-path merge overrides | none |
 | WithValidateOnLoad(bool) | Validate struct tags after loading | false |
 | WithStrictValidation(bool) | Treat validation failures as errors | true |
+| WithRejectUnknownKeys(bool) | Fail typed decode on undeclared keys | false |
 | WithSchema(schema) / WithSchemaPath(path) | JSON Schema validation | none |
 | WithEnvExpander(bool) | Enable ${VAR} expansion | true |
 | WithTypeCasting(bool) | Auto-convert strings | true |

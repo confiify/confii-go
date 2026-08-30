@@ -522,5 +522,8 @@ func (c *Config[T]) lookupSysenv(keyPath string) (any, bool) {
 // strings are preserved verbatim, so the typed model must not convert
 // them either; otherwise Get and Typed disagree about the same value.
 func (c *Config[T]) decodeOptions() validate.Options {
-	return validate.Options{WeaklyTypedInput: c.opts.UseTypeCasting}
+	return validate.Options{
+		WeaklyTypedInput:  c.opts.UseTypeCasting,
+		RejectUnknownKeys: c.opts.RejectUnknownKeys,
+	}
 }
