@@ -1,27 +1,27 @@
 {
   "@context": "https://openvex.dev/ns/v0.2.0",
-  "@id": "https://github.com/confiify/confii-go/security/vex/GO-2026-5932/1",
+  "@id": "https://github.com/confiify/confii-go/security/vex/GO-2026-5932/2",
   "author": "The Confii Maintainers <confii.connect@gmail.com>",
   "role": "Document Creator",
-  "timestamp": "2026-07-25T00:00:00Z",
-  "last_updated": "2026-07-25T00:00:00Z",
-  "version": 1,
+  "timestamp": "2026-08-30T19:19:23Z",
+  "last_updated": "2026-08-30T19:19:23Z",
+  "version": 2,
   "tooling": "Maintainer assessment enforced by scripts/check-vex.sh and Govulncheck",
   "statements": [
     {
-      "@id": "https://github.com/confiify/confii-go/security/vex/GO-2026-5932/statement/1",
-      "version": 1,
+      "@id": "https://github.com/confiify/confii-go/security/vex/GO-2026-5932/statement/2",
+      "version": 2,
       "vulnerability": {
         "name": "GO-2026-5932",
         "description": "golang.org/x/crypto/openpgp is unmaintained and unsafe by design"
       },
-      "timestamp": "2026-07-25T00:00:00Z",
+      "timestamp": "2026-08-30T19:19:23Z",
       "products": [
         {
           "@id": "pkg:golang/github.com/confiify/confii-go/v2",
           "subcomponents": [
             {
-              "@id": "pkg:golang/golang.org/x/crypto@v0.54.0"
+              "@id": "pkg:golang/golang.org/x/crypto@v0.55.0"
             }
           ]
         },
@@ -29,7 +29,7 @@
           "@id": "pkg:golang/github.com/confiify/confii-go/loader/cloud/v2",
           "subcomponents": [
             {
-              "@id": "pkg:golang/golang.org/x/crypto@v0.54.0"
+              "@id": "pkg:golang/golang.org/x/crypto@v0.55.0"
             }
           ]
         },
@@ -37,7 +37,7 @@
           "@id": "pkg:golang/github.com/confiify/confii-go/secret/cloud/v2",
           "subcomponents": [
             {
-              "@id": "pkg:golang/golang.org/x/crypto@v0.54.0"
+              "@id": "pkg:golang/golang.org/x/crypto@v0.55.0"
             }
           ]
         },
@@ -45,7 +45,7 @@
           "@id": "pkg:golang/github.com/confiify/confii-go/examples/cloud",
           "subcomponents": [
             {
-              "@id": "pkg:golang/golang.org/x/crypto@v0.54.0"
+              "@id": "pkg:golang/golang.org/x/crypto@v0.55.0"
             }
           ]
         }
