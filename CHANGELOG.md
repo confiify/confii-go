@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-08-31
+
 ### Added
 
 - Add `WithRejectUnknownKeys` so configuration keys the typed model does not
@@ -36,6 +38,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Correct the `WithEnvExpander` and `WithTypeCasting` defaults in `llms.txt`,
   which listed both as `false` while `defaultOptions` sets both to `true`.
   `README.md` and `docs/configuration.md` were already correct.
+
+### Security
+
+- Bump the pinned Go toolchain to 1.25.14, which fixes GO-2026-6218
+  (quadratic `resolvePath` in `net/url`), GO-2026-6090 (unbounded
+  post-handshake messages in `crypto/tls`), GO-2026-5972 (unbounded recursion
+  in `encoding/asn1`), and GO-2026-5026 (ASCII-only Punycode labels accepted
+  through `net/http`). All four were reachable from the HTTP loader, JSON
+  Schema compilation, and the watcher.
+- Upgrade `golang.org/x/crypto` to v0.55.0 across the root, cloud loader, cloud
+  secret, and cloud example modules, fixing GO-2026-6303. The OpenVEX
+  assessment for GO-2026-5932 was re-issued so its subcomponent references
+  track the new version.
 
 ## [2.1.0] - 2026-08-01
 

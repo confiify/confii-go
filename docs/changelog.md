@@ -5,11 +5,19 @@ The canonical, release-by-release changelog is maintained in
 
 ## Upcoming release
 
-Version 2.1.0 adds opt-in value resolvers for file, environment, structured
-document, self-reference, URL, command, and custom placeholders. It also expands
-the documentation with visual learning paths and adds local PR readiness gates
-for patch coverage and CI-style validation. Consult the canonical changelog for
-complete release notes.
+Version 2.2.0 makes typed decoding strict on request. `WithRejectUnknownKeys`
+fails a typed decode on configuration keys the model does not declare, and
+`WithTypeCasting(false)` is now honored by `Typed` and `TypedCopy` instead of
+converting values the snapshot deliberately left alone. The release also
+refreshes the pinned Go toolchain and `golang.org/x/crypto` for published
+advisories. Consult the canonical changelog for complete release notes.
+
+## v2.2.0
+
+Version 2.2.0 adds opt-in strict typed decoding through
+`WithRejectUnknownKeys` and the new `validate.Options` entry points, and
+corrects the typed decode path so it honors `WithTypeCasting`. See
+[Validation](validation.md) and the canonical changelog for details.
 
 ## v2.1.0
 
