@@ -170,8 +170,8 @@ cfg, err := confii.NewBuilder[AppConfig]().
 | WithValidateOnLoad(bool) | Validate struct tags after loading | false |
 | WithStrictValidation(bool) | Treat validation failures as errors | true |
 | WithSchema(schema) / WithSchemaPath(path) | JSON Schema validation | none |
-| WithEnvExpander(bool) | Enable ${VAR} expansion | false |
-| WithTypeCasting(bool) | Auto-convert strings | false |
+| WithEnvExpander(bool) | Enable ${VAR} expansion | true |
+| WithTypeCasting(bool) | Auto-convert strings | true |
 | WithSysenvFallback(bool) | Fall back to OS env vars | false |
 | WithDynamicReloading(bool) | Enable fsnotify file watching | false |
 | WithFreezeOnLoad(bool) | Make immutable after load | false |

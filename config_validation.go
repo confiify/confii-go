@@ -100,7 +100,7 @@ func (c *Config[T]) validateCandidate(candidate map[string]any, enabled bool) er
 	// pattern silently skip validation. Untyped Config[any] values remain
 	// a no-op unless a JSON Schema is configured.
 	if configTypeSupportsStructValidation[T]() {
-		if _, err := validate.DecodeAndValidate[T](candidate); err != nil {
+		if _, err := validate.DecodeAndValidateWithOptions[T](candidate, c.decodeOptions()); err != nil {
 			if c.opts.StrictValidation {
 				return NewValidationError([]string{err.Error()}, err)
 			}

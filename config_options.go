@@ -411,7 +411,9 @@ func WithValueResolver(scheme string, resolver hook.ResolverFunc) Option {
 
 // WithTypeCasting controls conversion of canonical string booleans, integers,
 // and floating-point numbers during materialization. The default is true;
-// disabling it preserves loaded strings verbatim.
+// disabling it preserves loaded strings verbatim, including through
+// [Config.Typed] and [Config.TypedCopy], whose decode then requires the
+// input to already carry each field's declared type.
 func WithTypeCasting(v bool) Option {
 	return func(o *options) { o.UseTypeCasting = v; o.explicitlySet["use_type_casting"] = true }
 }
