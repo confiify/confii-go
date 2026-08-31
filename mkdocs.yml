@@ -67,6 +67,7 @@ nav:
     - Secrets: secrets.md
     - Extensibility: extensibility.md
   - Operations:
+    - Ownership Contract: ownership.md
     - Lifecycle: lifecycle.md
     - Context & Cancellation: context.md
     - Dynamic Reloading: reloading.md

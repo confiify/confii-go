@@ -40,6 +40,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Document the configuration ownership contract in `docs/ownership.md`: what
+  Confii owns, what stays with the consumer, and the boundary between them. The
+  two tables are meant to be exhaustive, so an application that needs
+  configuration behaviour absent from both has found a gap worth reporting
+  rather than working around. It also states the snapshot ownership contract
+  and the two things that stay outside the secret boundary: bootstrap inputs,
+  which must exist before a provider can be reached, and resolved values a
+  caller has already taken.
+
 - Add `Config.RedactedDict` and `Config.ExportRedacted`, the safe counterparts
   to `ToDict` and `Export`. Diagnostics — explain output, diffs, drift,
   version history, source tracking — already redacted secret-backed values, but
