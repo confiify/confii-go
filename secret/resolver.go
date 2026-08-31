@@ -113,18 +113,24 @@ func NewResolver(store confii.SecretStore, opts ...ResolverOption) *Resolver {
 // leaving the input unchanged so a failed operation never publishes a
 // partially resolved value.
 func (r *Resolver) Resolve(ctx context.Context, value string) (string, error) {
-	// Deliberately the literal unqualified prefix, not secretref.Contains.
+	// Reject before substituting. A Resolver holds one store and performs no
+	// routing, so a provider-qualified reference cannot be honored however it
+	// appears. Scanning for one first makes the answer the same whether the
+	// value carries a qualified reference alone or beside an unqualified one:
+	// an earlier revision checked only for the unqualified prefix here, so
+	// ${secret@vault:key} on its own returned the placeholder verbatim with a
+	// nil error, publishing what looks like a live reference as a literal
+	// configuration value.
 	//
-	// Widening this to recognize ${secret@provider:...} would make a value
-	// that is only provider-qualified reach the scan below, and substitution
-	// can synthesize a placeholder in its own output: resolving
-	// ${secret@${secret:k}:f} yields ${secret@<value>:f}, which a second pass
-	// would then try to resolve. That re-entrancy is a pre-existing defect in
-	// the resolver, independent of this grammar, and widening the check here
-	// would enlarge its surface. The guard below still catches a
-	// provider-qualified reference sharing a value with an unqualified one,
-	// which is the case that would otherwise resolve against the wrong store.
-	if !strings.Contains(value, "${secret:") {
+	// Rejecting needs no resolution, so this costs no provider call.
+	for _, ref := range secretref.Find(value) {
+		if ref.Provider != "" {
+			return value, fmt.Errorf("%w: %s names provider %q",
+				ErrProviderRoutingUnsupported, ref.Key, ref.Provider)
+		}
+	}
+
+	if !secretref.Contains(value) {
 		return value, nil
 	}
 
@@ -143,17 +149,6 @@ func (r *Resolver) Resolve(ctx context.Context, value string) (string, error) {
 		if ref.Key == "" {
 			return match
 		}
-		if ref.Provider != "" {
-			// A Resolver has exactly one store and performs no routing.
-			// Resolving against that store anyway would silently ignore the
-			// provider the author named and return a value from the wrong
-			// backend. Provider-qualified references belong to the
-			// configuration layer, which owns the provider registry.
-			lastErr = fmt.Errorf("%w: %s names provider %q",
-				ErrProviderRoutingUnsupported, ref.Key, ref.Provider)
-			return match
-		}
-
 		resolved, err := r.resolveKey(ctx, ref.Key, ref.Field, ref.Version)
 		if err != nil {
 			lastErr = err

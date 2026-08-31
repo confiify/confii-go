@@ -4,8 +4,11 @@
 package confii
 
 import (
+	"errors"
 	"fmt"
+	"reflect"
 	"regexp"
+	"strings"
 
 	"github.com/confiify/confii-go/v2/internal/secretref"
 	"github.com/confiify/confii-go/v2/validate"
@@ -19,6 +22,11 @@ import (
 // carried into the configuration as a literal string. This deliberately looser
 // expression finds the candidates, and each is then required to parse.
 var secretCandidatePattern = regexp.MustCompile(`\$\{secret[^}]*\}`)
+
+// secretOpenerPattern matches the start of a reference regardless of whether it
+// is ever closed, so an unterminated one can be reported rather than carried
+// through as a literal string.
+var secretOpenerPattern = regexp.MustCompile(`\$\{secret`)
 
 // admitBeforeResolution runs the checks that can be made before any provider is
 // contacted.
@@ -47,83 +55,154 @@ var secretCandidatePattern = regexp.MustCompile(`\$\{secret[^}]*\}`)
 // resolver, routing belongs to it: a custom ManagedSecretResolver may carry its
 // own registry, and refusing an alias Confii does not recognize would break it.
 func (c *Config[T]) admitBeforeResolution(config map[string]any) error {
-	if err := admitSecretReferences("", config); err != nil {
+	if err := admitSecretReferences("", any(config)); err != nil {
 		return err
 	}
-	return c.admitUnknownKeys(config)
+	return c.admitTypedShape(config)
 }
 
-// admitUnknownKeys rejects configuration keys the typed model does not declare,
-// before any provider is contacted. It runs only when the caller asked for that
-// strictness through WithRejectUnknownKeys.
+// admitTypedShape rejects, before any provider is contacted, configurations
+// whose shape the typed model does not accept.
 //
-// Unknown-key detection is structural, so unlike type or schema admission it
-// does not need resolved values. Two adjustments keep it from rejecting
-// configurations that are in fact valid:
+// It runs two passes because the two questions need different inputs.
 //
-// Secret-bearing leaves are removed first. A field typed int holding
-// ${secret:db/port} carries a string until resolution, and decoding it here
-// would fail on the type rather than on the key. Removing the leaf leaves the
-// field absent, which is not an error for a decode.
+// The first asks which keys exist. Secret-bearing leaves are replaced by a
+// sentinel rather than removed, so an undeclared key still presents itself even
+// when its value is a secret reference; removing it, as an earlier revision
+// did, hid exactly the violation being looked for and cost a provider round
+// trip before post-resolution validation caught it. Weak typing is forced on so
+// the sentinel cannot fail on a type, and only an unknown-key complaint is
+// treated as a rejection — anything else may be an artifact of the sentinel and
+// is left to the second pass and to post-resolution validation.
 //
-// Weak typing is forced on regardless of WithTypeCasting, for the same reason:
-// this stage judges the shape of the configuration, never the types of values
-// that do not exist yet.
+// The second asks whether the values that do exist have the right types. Here
+// secret-bearing leaves are removed, because a field typed int holding
+// ${secret:db/port} carries a string until resolution and judging it now would
+// reject a valid configuration. Every remaining value is one whose type is
+// knowable, so the caller's own casting policy applies unchanged.
 //
-// The cost is a false negative: an undeclared key whose value is a secret
-// reference is stripped along with the rest and is not seen here. It is still
-// rejected after resolution, where the value exists. Missing a violation and
-// catching it later is the safe direction; rejecting a valid configuration
-// early is not.
-func (c *Config[T]) admitUnknownKeys(config map[string]any) error {
-	// Both options are required, matching the existing two-tier contract:
-	// WithRejectUnknownKeys alone reports a typo at the first typed read, and
-	// adding WithValidateOnLoad asks for it at construction. This stage only
-	// moves the second case earlier — before providers rather than after — and
-	// does not change which configurations are rejected.
-	if !c.opts.RejectUnknownKeys || !c.opts.ValidateOnLoad || !configTypeSupportsStructValidation[T]() {
+// Both passes require WithValidateOnLoad, matching the contract that already
+// existed: without it a shape problem is reported at the first typed read, and
+// with it at construction. This moves the construction-time case ahead of the
+// providers; it does not change which configurations are rejected.
+func (c *Config[T]) admitTypedShape(config map[string]any) error {
+	if !c.opts.ValidateOnLoad || !configTypeSupportsStructValidation[T]() {
 		return nil
 	}
+
+	if c.opts.RejectUnknownKeys {
+		sentinelled, ok := substituteSecretBearingLeaves(config, admissionSentinel).(map[string]any)
+		if !ok {
+			return nil
+		}
+		if _, err := validate.DecodeWithOptions[T](sentinelled, validate.Options{
+			WeaklyTypedInput:  true,
+			RejectUnknownKeys: true,
+		}); err != nil && mentionsUnknownKeys(err) {
+			return &ConfigError{
+				Op:   "Admit",
+				Code: ConfigErrorCodeValidation,
+				Err:  fmt.Errorf("configuration declares keys the model does not: %w", err),
+			}
+		}
+	}
+
 	stripped, ok := withoutSecretBearingLeaves(config).(map[string]any)
 	if !ok {
 		return nil
 	}
 	if _, err := validate.DecodeWithOptions[T](stripped, validate.Options{
-		WeaklyTypedInput:  true,
-		RejectUnknownKeys: true,
+		WeaklyTypedInput:  c.opts.UseTypeCasting,
+		RejectUnknownKeys: false,
 	}); err != nil {
 		return &ConfigError{
 			Op:   "Admit",
 			Code: ConfigErrorCodeValidation,
-			Err:  fmt.Errorf("configuration declares keys the model does not: %w", err),
+			Err:  fmt.Errorf("configuration values do not match the model: %w", err),
 		}
 	}
 	return nil
 }
 
+// admissionSentinel stands in for a secret reference during the shape check. It
+// converts cleanly under weak typing to a string, number or boolean, so a
+// declared field carrying a secret does not fail on its type while its key is
+// being checked.
+const admissionSentinel = "0"
+
+// mentionsUnknownKeys reports whether a decode failure is about undeclared keys
+// rather than about values. mapstructure phrases that failure as "has invalid
+// keys", which is the only signal it offers.
+func mentionsUnknownKeys(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "invalid keys")
+}
+
+// substituteSecretBearingLeaves copies value with every string holding a secret
+// reference replaced by replacement, keeping the key present so a structural
+// check can still see it.
+func substituteSecretBearingLeaves(value any, replacement string) any {
+	return mapSecretBearingLeaves(value, func() (any, bool) { return replacement, true })
+}
+
 // withoutSecretBearingLeaves copies value with every string holding a secret
-// reference removed, so a decode can judge structure without meeting a
-// placeholder where a typed value will eventually sit.
+// reference removed, so a decode can judge types without meeting a placeholder
+// where a typed value will eventually sit.
 func withoutSecretBearingLeaves(value any) any {
-	switch typed := value.(type) {
-	case map[string]any:
-		out := make(map[string]any, len(typed))
-		for key, child := range typed {
+	return mapSecretBearingLeaves(value, func() (any, bool) { return nil, false })
+}
+
+// mapSecretBearingLeaves copies value, calling replace for each string holding
+// a secret reference. A replacement of (_, false) drops the entry entirely.
+//
+// The walk is kind-driven so named maps, named slices, arrays, pointers and
+// interface-held collections are covered without enumerating them.
+func mapSecretBearingLeaves(value any, replace func() (any, bool)) any {
+	if value == nil {
+		return nil
+	}
+	rv := reflect.ValueOf(value)
+	switch rv.Kind() {
+	case reflect.Pointer, reflect.Interface:
+		if rv.IsNil() {
+			return nil
+		}
+		return mapSecretBearingLeaves(rv.Elem().Interface(), replace)
+
+	case reflect.Map:
+		if rv.Type().Key().Kind() != reflect.String {
+			return value
+		}
+		out := make(map[string]any, rv.Len())
+		iter := rv.MapRange()
+		for iter.Next() {
+			child := iter.Value().Interface()
 			if str, isString := child.(string); isString && secretCandidatePattern.MatchString(str) {
+				if replacement, keep := replace(); keep {
+					out[iter.Key().String()] = replacement
+				}
 				continue
 			}
-			out[key] = withoutSecretBearingLeaves(child)
+			out[iter.Key().String()] = mapSecretBearingLeaves(child, replace)
 		}
 		return out
-	case []any:
-		out := make([]any, 0, len(typed))
-		for _, child := range typed {
+
+	case reflect.Slice, reflect.Array:
+		if rv.Kind() == reflect.Slice && rv.Type().Elem().Kind() == reflect.Uint8 {
+			return value
+		}
+		out := make([]any, 0, rv.Len())
+		for index := 0; index < rv.Len(); index++ {
+			child := rv.Index(index).Interface()
 			if str, isString := child.(string); isString && secretCandidatePattern.MatchString(str) {
+				if replacement, keep := replace(); keep {
+					out = append(out, replacement)
+				}
 				continue
 			}
-			out = append(out, withoutSecretBearingLeaves(child))
+			out = append(out, mapSecretBearingLeaves(child, replace))
 		}
 		return out
+
 	default:
 		return value
 	}
@@ -131,60 +210,98 @@ func withoutSecretBearingLeaves(value any) any {
 
 // admitSecretReferences requires every reference-shaped token to parse.
 //
+// Traversal is driven by reflect.Kind, not a type switch on map[string]any and
+// []any. An earlier revision recursed into a slice only when the element was a
+// map, so a reference nested one slice deeper was handed to the scalar checker
+// and ignored; named collection types were invisible for the same reason.
+//
 // Errors carry the locator and the path it sits at, both of which describe
 // where a secret lives rather than what it holds, and never a resolved value:
 // nothing has been resolved at this point.
-func admitSecretReferences(prefix string, config map[string]any) error {
-	for key, value := range config {
-		path := key
-		if prefix != "" {
-			path = prefix + "." + key
+func admitSecretReferences(prefix string, value any) error {
+	if value == nil {
+		return nil
+	}
+	rv := reflect.ValueOf(value)
+	switch rv.Kind() {
+	case reflect.Pointer, reflect.Interface:
+		if rv.IsNil() {
+			return nil
 		}
-		switch typed := value.(type) {
-		case map[string]any:
-			if err := admitSecretReferences(path, typed); err != nil {
-				return err
+		return admitSecretReferences(prefix, rv.Elem().Interface())
+
+	case reflect.Map:
+		if rv.Type().Key().Kind() != reflect.String {
+			return nil
+		}
+		iter := rv.MapRange()
+		for iter.Next() {
+			path := iter.Key().String()
+			if prefix != "" {
+				path = prefix + "." + iter.Key().String()
 			}
-		case []any:
-			for index, item := range typed {
-				nested, ok := item.(map[string]any)
-				if !ok {
-					if err := admitSecretReferenceString(fmt.Sprintf("%s[%d]", path, index), item); err != nil {
-						return err
-					}
-					continue
-				}
-				if err := admitSecretReferences(fmt.Sprintf("%s[%d]", path, index), nested); err != nil {
-					return err
-				}
-			}
-		default:
-			if err := admitSecretReferenceString(path, value); err != nil {
+			if err := admitSecretReferences(path, iter.Value().Interface()); err != nil {
 				return err
 			}
 		}
+		return nil
+
+	case reflect.Slice, reflect.Array:
+		if rv.Kind() == reflect.Slice && rv.Type().Elem().Kind() == reflect.Uint8 {
+			return nil
+		}
+		for index := 0; index < rv.Len(); index++ {
+			if err := admitSecretReferences(prefix, rv.Index(index).Interface()); err != nil {
+				return err
+			}
+		}
+		return nil
+
+	case reflect.String:
+		return admitSecretReferenceString(prefix, rv.String())
+
+	default:
+		return nil
+	}
+}
+
+// admitSecretReferenceString checks one string for reference-shaped tokens.
+//
+// Two failures are possible. A token that closes but does not parse is
+// malformed. A token that never closes produces no candidate at all, so it must
+// be detected by looking for an opener the candidate expression did not
+// consume; without that check ${secret:unclosed passes through as a literal.
+func admitSecretReferenceString(path, value string) error {
+	for _, candidate := range secretCandidatePattern.FindAllString(value, -1) {
+		if _, err := secretref.Parse(candidate); err != nil {
+			return admissionError(path, candidate,
+				fmt.Errorf("is not a valid secret reference: %w", err))
+		}
+	}
+
+	// Any opener not consumed by a candidate above is unterminated.
+	consumed := make(map[int]struct{})
+	for _, loc := range secretCandidatePattern.FindAllStringIndex(value, -1) {
+		consumed[loc[0]] = struct{}{}
+	}
+	for _, loc := range secretOpenerPattern.FindAllStringIndex(value, -1) {
+		if _, ok := consumed[loc[0]]; ok {
+			continue
+		}
+		return admissionError(path, value[loc[0]:],
+			errors.New("is an unterminated secret reference: no closing brace"))
 	}
 	return nil
 }
 
-func admitSecretReferenceString(path string, value any) error {
-	str, ok := value.(string)
-	if !ok {
-		return nil
+func admissionError(path, locator string, cause error) error {
+	return &ConfigError{
+		Op:   "Admit",
+		Code: ConfigErrorCodeValidation,
+		Err:  fmt.Errorf("%s: %q %w", path, locator, cause),
+		Context: map[string]any{
+			"path":      path,
+			"reference": locator,
+		},
 	}
-	for _, candidate := range secretCandidatePattern.FindAllString(str, -1) {
-		if _, err := secretref.Parse(candidate); err != nil {
-			return &ConfigError{
-				Op:   "Admit",
-				Code: ConfigErrorCodeValidation,
-				Err: fmt.Errorf("%s: %q is not a valid secret reference: %w",
-					path, candidate, err),
-				Context: map[string]any{
-					"path":      path,
-					"reference": candidate,
-				},
-			}
-		}
-	}
-	return nil
 }

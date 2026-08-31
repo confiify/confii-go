@@ -167,26 +167,21 @@ func TestResolver_RejectsProviderQualifiedReferenceAlongsideUnqualified(t *testi
 		"the error must not carry an earlier successful value")
 }
 
-// A value carrying only a provider-qualified reference is returned unchanged,
-// with no error. That is pre-existing behaviour and a real limitation: the
-// placeholder survives into the configuration as a literal string.
-//
-// It is left as-is deliberately. Scanning such values would send them through
-// substitution, and substitution can synthesize a placeholder in its own
-// output — resolving ${secret@${secret:k}:f} yields ${secret@<value>:f}, which
-// a further pass would try to resolve. That re-entrancy is a separate,
-// pre-existing defect, and widening the entry check here would enlarge its
-// surface. This test records the current behaviour so a future fix has
-// something to change deliberately rather than by accident.
-func TestResolver_ProviderQualifiedOnlyValueIsLeftAlone(t *testing.T) {
+// A provider-qualified reference is rejected however it appears. An earlier
+// revision checked only for the unqualified prefix before scanning, so a value
+// carrying a qualified reference alone was returned verbatim with a nil error,
+// publishing what looks like a live reference as a literal configuration value
+// while the same reference beside an unqualified one produced the typed error.
+func TestResolver_RejectsProviderQualifiedReferenceAlone(t *testing.T) {
 	r := secret.NewResolver(secret.NewDictStore(map[string]any{"key": "from-default-store"}))
 
 	in := "${secret@vault:key}"
 	out, err := r.Resolve(context.Background(), in)
-	require.NoError(t, err)
-	assert.Equal(t, in, out,
-		"the placeholder is left in place; it is never resolved against the wrong store")
-	assert.NotContains(t, out, "from-default-store")
+	require.Error(t, err, "a qualified reference alone must not pass silently")
+	assert.ErrorIs(t, err, secret.ErrProviderRoutingUnsupported)
+	assert.Equal(t, in, out, "the input comes back unchanged")
+	assert.NotContains(t, err.Error(), "from-default-store",
+		"the error must not carry a resolved value")
 }
 
 func TestResolver_StillResolvesUnqualifiedReference(t *testing.T) {

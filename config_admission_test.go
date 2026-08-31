@@ -224,14 +224,12 @@ func TestAdmission_SecretBearingFieldIsNotMistakenForAnUnknownKey(t *testing.T) 
 	assert.Equal(t, int64(2), spy.calls.Load())
 }
 
-// The documented false negative, and its real cost.
-//
-// An undeclared key whose value is a secret reference is stripped before the
-// structural check, so admission does not see it. Post-resolution validation
-// still rejects it within the same construction call, so the configuration is
-// never published — but the provider has been contacted by then. The cost of
-// the false negative is a round trip, not a missed violation.
-func TestAdmission_UndeclaredSecretBearingKeyCostsARoundTrip(t *testing.T) {
+// An undeclared key whose value is a secret reference is caught before any
+// provider call. An earlier revision stripped secret-bearing leaves before the
+// structural check, which hid exactly the violation being looked for and cost a
+// round trip before post-resolution validation rejected it. The key now
+// presents itself with a sentinel value instead of being removed.
+func TestAdmission_UndeclaredSecretBearingKeyCostsNoProviderCall(t *testing.T) {
 	_, spy, err := newAdmissionConfig(t,
 		map[string]any{
 			"name":       "${secret:app/name}",
@@ -242,8 +240,72 @@ func TestAdmission_UndeclaredSecretBearingKeyCostsARoundTrip(t *testing.T) {
 		confii.WithValidateOnLoad(true),
 	)
 
-	require.Error(t, err, "the undeclared key must still be rejected")
-	assert.NotZero(t, spy.calls.Load(),
-		"admission stripped the key and so missed it; resolution ran first. "+
-			"This is the documented cost of not judging types before resolution")
+	require.Error(t, err, "the undeclared key must be rejected")
+	assert.Zero(t, spy.calls.Load(),
+		"the key is visible to admission even though its value is a secret")
+}
+
+// A reference nested deeper than one slice must still be admitted. An earlier
+// revision recursed into a slice only when the element was a map, so this
+// passed through and every other reference in the file was fetched.
+func TestAdmission_MalformedReferenceInsideNestedSlice(t *testing.T) {
+	_, spy, err := newAdmissionConfig(t, map[string]any{
+		"name": "${secret:ok}",
+		"port": 8080,
+		"deep": []any{[]any{"${secret:}"}},
+	})
+
+	require.Error(t, err, "a malformed reference nested in slices must be rejected")
+	assert.Zero(t, spy.calls.Load())
+}
+
+// A reference that never closes produces no candidate at all, so it has to be
+// found by looking for an opener rather than by parsing candidates.
+func TestAdmission_UnterminatedReferenceIsRejected(t *testing.T) {
+	_, spy, err := newAdmissionConfig(t, map[string]any{
+		"name": "${secret:unclosed",
+		"port": 8080,
+	})
+
+	require.Error(t, err, "an unterminated reference must not pass as a literal")
+	assert.Contains(t, err.Error(), "unterminated")
+	assert.Zero(t, spy.calls.Load())
+}
+
+// Types of values that are not secret references are knowable before
+// resolution, so a wrong one must not cost a provider call.
+func TestAdmission_WrongTypeOnNonSecretFieldCostsNoProviderCall(t *testing.T) {
+	_, spy, err := newAdmissionConfig(t,
+		map[string]any{
+			"name": "${secret:app/name}",
+			"port": "not-a-number",
+		},
+		confii.WithValidateOnLoad(true),
+	)
+
+	require.Error(t, err, "a non-secret value with the wrong type must be rejected")
+	assert.Zero(t, spy.calls.Load())
+}
+
+// A declared field carrying a secret reference must not be judged on its type
+// before the secret exists. Admission must let it reach resolution; whether the
+// resolved value then satisfies the field is post-resolution validation's
+// question, and a separate one.
+func TestAdmission_SecretBearingFieldOfNonStringTypeReachesResolution(t *testing.T) {
+	_, spy, err := newAdmissionConfig(t,
+		map[string]any{
+			"name": "plain",
+			"port": "${secret:app/port}",
+		},
+		confii.WithValidateOnLoad(true),
+		confii.WithRejectUnknownKeys(true),
+	)
+
+	assert.Positive(t, spy.calls.Load(),
+		"admission must not reject an int field holding a reference; the value "+
+			"is a string only until the secret resolves")
+	if err != nil {
+		assert.NotContains(t, err.Error(), "Admit",
+			"any rejection must come from post-resolution validation, not admission")
+	}
 }
