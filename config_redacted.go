@@ -73,33 +73,57 @@ func (c *Config[T]) ExportRedactedWithContext(ctx context.Context, format string
 // redactSensitiveValues walks config and replaces every sensitive value with
 // the redaction marker, returning a new map.
 //
-// The predicate is deliberately narrower than pathIsSensitive, which also
-// reports true for an ancestor of a sensitive path. That is the right question
-// for "does this subtree touch a secret" and the wrong one here: redacting a
-// parent because one child is sensitive would discard every unrelated sibling.
+// The traversal must mirror the one that produced the sensitive paths, or the
+// two disagree and a secret slips through. collectSecretReferenceKeys descends
+// into a slice without adding an index, so every element of a slice shares the
+// path of the slice itself, and this walk does the same. Recursing with an
+// index here would build paths such as nested[0].pw that no classification ever
+// records, and the value would be copied through unredacted.
 func redactSensitiveValues(prefix string, config map[string]any, paths map[string]struct{}) map[string]any {
-	out := make(map[string]any, len(config))
-	for key, value := range config {
-		path := key
-		if prefix != "" {
-			path = prefix + "." + key
-		}
-		switch {
-		case valuePathIsSensitive(path, paths):
-			out[key] = redactedSecretValue
-		default:
-			if nested, ok := value.(map[string]any); ok {
-				out[key] = redactSensitiveValues(path, nested, paths)
-				continue
-			}
-			out[key] = dictutil.DeepCopyValue(value)
-		}
+	redacted, _ := redactValue(prefix, config, paths).(map[string]any)
+	return redacted
+}
+
+// redactValue redacts one value of any shape.
+//
+// The sensitivity check comes first, so a sensitive path holding a collection
+// is replaced wholesale rather than descended into. A slice whose elements
+// share its path cannot distinguish a secret element from a plain one, so
+// redacting the whole slice is the only safe reading.
+func redactValue(path string, value any, paths map[string]struct{}) any {
+	if path != "" && valuePathIsSensitive(path, paths) {
+		return redactedSecretValue
 	}
-	return out
+	switch typed := value.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(typed))
+		for key, child := range typed {
+			childPath := key
+			if path != "" {
+				childPath = path + "." + key
+			}
+			out[key] = redactValue(childPath, child, paths)
+		}
+		return out
+	case []any:
+		out := make([]any, len(typed))
+		for index, child := range typed {
+			// Same path, matching the classifier.
+			out[index] = redactValue(path, child, paths)
+		}
+		return out
+	default:
+		return dictutil.DeepCopyValue(value)
+	}
 }
 
 // valuePathIsSensitive reports whether the value at path must be redacted:
 // the path itself is sensitive, or it sits beneath a sensitive path.
+//
+// Deliberately narrower than pathIsSensitive, which also reports true for an
+// ancestor of a sensitive path. That is the right question for whether a
+// subtree touches a secret and the wrong one here: redacting a parent because
+// one child is sensitive would discard every unrelated sibling.
 func valuePathIsSensitive(path string, paths map[string]struct{}) bool {
 	for sensitive := range paths {
 		if path == sensitive || strings.HasPrefix(path, sensitive+".") {
