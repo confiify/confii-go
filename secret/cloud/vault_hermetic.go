@@ -278,3 +278,26 @@ func hermeticTLSConfig(t *VaultTLS) (*tls.Config, error) {
 
 	return cfg, nil
 }
+
+// Close releases the resources the store owns. It shuts idle HTTP connections
+// rather than waiting for them to time out, and is idempotent and safe to call
+// concurrently.
+//
+// [confii.Config] closes resources implementing this method during shutdown, so
+// a store reached through declarative configuration is closed with the
+// configuration. A store constructed directly is the caller's to close.
+//
+// Close does not invalidate the Vault token: a token's lifetime is Vault's to
+// manage through its lease, and revoking one here would break any other client
+// sharing it.
+func (s *VaultStore) Close() error {
+	if s == nil || s.client == nil {
+		return nil
+	}
+	if httpClient := s.client.CloneConfig().HttpClient; httpClient != nil {
+		if transport, ok := httpClient.Transport.(*http.Transport); ok {
+			transport.CloseIdleConnections()
+		}
+	}
+	return nil
+}

@@ -60,6 +60,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   methods now name their safe counterpart in their first line of documentation.
   `Export` and `ToDict` are unchanged: making safe behaviour the default means
   changing what they return, which belongs in a major version.
+- Add strict declarative configuration for the Vault provider. `strict: true`
+  makes the declared settings the sole authority: `VAULT_ADDR` and `VAULT_TOKEN`
+  are no longer consulted as fallbacks, the transport is built hermetically so
+  no ambient variable can shape it, and a setting the provider does not
+  recognize is an error rather than a silently ignored key, so `retry_limt`
+  fails instead of leaving retries at their default. Transport settings are
+  expressible declaratively in both modes: `timeout`, `retry_limit`, `proxy`,
+  `follow_redirects`, and a `tls` block carrying CA and client material as PEM
+  text rather than a path the SDK would resolve. Errors name the setting at
+  fault and never its value, which may be a credential.
+- Add `(*VaultStore).Close`, releasing idle HTTP connections rather than waiting
+  for them to time out. The declarative provider forwards it, so a store built
+  from configuration is closed with the configuration: without that forwarding
+  the method would never have been reached, because the resource registered for
+  cleanup is the provider's adapter rather than the store it wrapped. Closing
+  does not revoke the Vault token, whose lifetime belongs to Vault's lease and
+  may be shared with another client.
 
 - Add a public secret-reference parser: `secret.Reference`, `ParseReference`,
   `ContainsReference`, `FindReferences`, and the typed `ReferenceError`. The
