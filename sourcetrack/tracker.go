@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -174,12 +175,23 @@ type Snapshot struct {
 }
 
 // TrackValue records the source of a configuration value.
+//
+// A later layer that supplies the value an earlier layer already recorded has
+// not overridden it, so such a write leaves OverrideCount and the override
+// history untouched. It still updates the provenance fields, because the
+// effective value now comes from the newer source.
 func (t *Tracker) TrackValue(key string, value any, sourceFile, loaderType, environment string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
 	existing, ok := t.sources[key]
 	if ok {
+		if reflect.DeepEqual(existing.Value, value) {
+			existing.SourceFile = sourceFile
+			existing.LoaderType = loaderType
+			existing.Timestamp = time.Now()
+			return
+		}
 		// Override: record history.
 		existing.OverrideCount++
 		if t.debugMode {

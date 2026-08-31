@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- Count only real overrides in source tracking. `TrackValue` incremented
+  `OverrideCount` on every repeated write, so a layer that restated the value
+  an earlier layer already supplied was indistinguishable from one that changed
+  it. `GetConflicts` reported such keys as conflicts, `GetSourceStatistics`
+  counted them in `total_overrides`, and debug mode recorded an override
+  history entry whose value equalled the current one. This mattered most for
+  the documented practice of running `GetConflicts` in CI to detect unexpected
+  overrides, which produced a false positive whenever two layers legitimately
+  agreed on a value. A write whose value equals the recorded one now updates
+  only the provenance fields, since the effective value does come from the
+  newer source. Values are compared with `reflect.DeepEqual`, so composite
+  values are compared by value rather than by identity.
+
 ## [2.2.0] - 2026-08-31
 
 ### Added
