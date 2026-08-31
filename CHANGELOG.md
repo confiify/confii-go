@@ -136,8 +136,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   it: scanning such values would route them through substitution, which can
   synthesize a placeholder in its own output, and widening the entry check would
   enlarge the surface of that separate pre-existing defect.
-||||||| base
-
 
 ## [2.3.0] - 2026-08-31
 

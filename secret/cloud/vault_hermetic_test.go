@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hashicorp/vault/api"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -234,4 +235,44 @@ func TestVaultHermetic_NonHermeticPathStillInheritsEnvironment(t *testing.T) {
 func TestVaultConfig_RemainsComparable(t *testing.T) {
 	var a, b vaultConfig
 	assert.True(t, a == b, "vaultConfig must stay comparable; hold byte-bearing fields by pointer")
+}
+
+// Clearing ambient headers must not also remove the SSRF-protection header the
+// SDK installs. An earlier revision wiped it, which made a hermetic client
+// strictly less safe than an ambient one — the opposite of the option's point.
+func TestVaultHermetic_KeepsTheSDKRequestHeader(t *testing.T) {
+	hostileVaultEnvironment(t)
+	store := newHermeticTestStore(t)
+
+	assert.Equal(t, "true", store.client.Headers().Get(api.RequestHeaderName),
+		"X-Vault-Request is SSRF protection installed by the SDK and must survive")
+	assert.Empty(t, store.client.Headers().Get("X-Ambient-Header"),
+		"ambient headers must still be gone")
+}
+
+// A nil wrapping lookup makes the SDK consult VAULT_WRAP_TTL on every request,
+// so ambient state would reach a hermetic client after construction.
+func TestVaultHermetic_IgnoresAmbientWrapTTL(t *testing.T) {
+	t.Setenv("VAULT_WRAP_TTL", "300s")
+	store := newHermeticTestStore(t)
+
+	fn := store.client.CurrentWrappingLookupFunc()
+	require.NotNil(t, fn,
+		"a nil lookup falls back to the SDK default, which reads VAULT_WRAP_TTL")
+	assert.Empty(t, fn(http.MethodPut, "sys/wrapping/wrap"),
+		"a hermetic client must request no wrapping regardless of VAULT_WRAP_TTL")
+}
+
+// api.NewClient copies neither Timeout nor MaxRetries onto a caller-supplied
+// api.Config, so a literal config leaves them at zero: no timeout, no retries.
+func TestVaultHermetic_AppliesTransportDefaults(t *testing.T) {
+	store := newHermeticTestStore(t, func(c *vaultConfig) { c.Timeout = 0; c.RetryLimitSet = false })
+	cfg := store.client.CloneConfig()
+
+	assert.Equal(t, 60*time.Second, cfg.Timeout,
+		"a hermetic client must not be built without a timeout")
+	assert.Equal(t, 2, cfg.MaxRetries,
+		"a hermetic client must not be built without retries")
+	assert.Positive(t, cfg.MinRetryWait)
+	assert.Positive(t, cfg.MaxRetryWait)
 }

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 
 	confii "github.com/confiify/confii-go/v2"
@@ -227,4 +228,102 @@ func TestRedactedDict_RedactsSecretsInsideSlices(t *testing.T) {
 	nested := safe["nested"].([]any)[0].(map[string]any)
 	assert.Equal(t, "localhost", nested["host"],
 		"redacting a slice element must not discard its plain siblings")
+}
+
+// Named collection types, arrays and pointers must be traversed. An earlier
+// revision switched on map[string]any and []any, so a named map was copied
+// through with its secret intact — the same narrow-type-switch mistake that had
+// already leaked once through slices.
+type redactNamedMap map[string]string
+
+type redactNamedSlice []string
+
+func TestRedactedDict_TraversesNamedAndUnusualShapes(t *testing.T) {
+	value := "leaked-" + canary
+	for name, data := range map[string]map[string]any{
+		"named map":          {"nested": redactNamedMap{"host": "safe", "password": value}},
+		"named slice":        {"nested": map[string]any{"password": redactNamedSlice{value}}},
+		"array":              {"nested": map[string]any{"password": [1]string{value}}},
+		"pointer to map":     {"nested": &map[string]any{"password": value}},
+		"interface-held map": {"nested": any(map[string]any{"password": value})},
+		"slice of named map": {"nested": []any{redactNamedMap{"password": value}}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg, err := confii.NewWithContext[any](context.Background(),
+				confii.WithLoaders(&g08Loader{source: "base.yaml", data: data}),
+				confii.WithSecretResolver(&canaryResolver{}),
+				confii.WithSensitivePaths("nested.password"),
+			)
+			require.NoError(t, err)
+
+			safe, err := cfg.RedactedDict()
+			require.NoError(t, err)
+			assert.NotContains(t, fmt.Sprint(safe), canary,
+				"a secret must not survive a %s", name)
+		})
+	}
+}
+
+// A byte slice is data, not a sequence of configuration values, and must not be
+// exploded into a list of numbers by the traversal.
+func TestRedactedDict_LeavesByteSlicesIntact(t *testing.T) {
+	cfg := newRedactionConfig(t, map[string]any{
+		"blob": []byte("not-a-sequence"),
+	})
+
+	safe, err := cfg.RedactedDict()
+	require.NoError(t, err)
+	assert.Equal(t, []byte("not-a-sequence"), safe["blob"])
+}
+
+// The snapshot and its classification must come from one revision. Capturing
+// them under separate locks lets a reload publish in between, so a path that
+// became secret-bearing in the newer revision is redacted against an older
+// classification that does not list it.
+func TestRedactedDict_IsRevisionAtomicUnderConcurrentReload(t *testing.T) {
+	loader := &g08Loader{source: "base.yaml", data: map[string]any{
+		"a": "${secret:one}",
+		"b": "plain",
+	}}
+	cfg, err := confii.NewWithContext[any](context.Background(),
+		confii.WithLoaders(loader),
+		confii.WithSecretResolver(&canaryResolver{}),
+	)
+	require.NoError(t, err)
+
+	var wg sync.WaitGroup
+	stop := make(chan struct{})
+
+	// Alternate which key carries the secret, so a mismatched pairing of data
+	// and classification would expose the canary.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		flip := false
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			if flip {
+				loader.data = map[string]any{"a": "plain", "b": "${secret:two}"}
+			} else {
+				loader.data = map[string]any{"a": "${secret:one}", "b": "plain"}
+			}
+			flip = !flip
+			_ = cfg.Reload()
+		}
+	}()
+
+	for i := 0; i < 200; i++ {
+		safe, err := cfg.RedactedDict()
+		if err != nil {
+			continue
+		}
+		require.NotContains(t, fmt.Sprint(safe), canary,
+			"a reload racing a projection must never expose a secret")
+	}
+	close(stop)
+	wg.Wait()
 }

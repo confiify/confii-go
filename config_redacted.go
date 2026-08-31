@@ -5,6 +5,8 @@ package confii
 
 import (
 	"context"
+	"errors"
+	"reflect"
 	"strings"
 
 	"github.com/confiify/confii-go/v2/internal/dictutil"
@@ -32,13 +34,28 @@ func (c *Config[T]) RedactedDict() (map[string]any, error) {
 
 // RedactedDictWithContext is the context-aware form of [Config.RedactedDict].
 func (c *Config[T]) RedactedDictWithContext(ctx context.Context) (map[string]any, error) {
-	data, err := c.ToDictWithContext(ctx)
-	if err != nil {
+	if ctx == nil {
+		return nil, &ConfigError{Op: "RedactedDict", Code: ConfigErrorCodeInvalid, Err: errors.New("nil context")}
+	}
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+
+	// The snapshot and its classification are captured under one read lock.
+	// Taking them separately lets a concurrent reload or extend publish between
+	// the two, pairing one revision's values with another revision's idea of
+	// which paths are sensitive — and a path that became secret-bearing in the
+	// newer revision would then be redacted against the older classification,
+	// which does not list it.
 	c.mu.RLock()
+	src := c.envConfig
+	if src == nil {
+		src = c.mergedConfig
+	}
+	data := dictutil.DeepCopy(src)
 	paths := cloneSensitivePaths(c.sensitivePaths)
 	c.mu.RUnlock()
+
 	return redactSensitiveValues("", data, paths), nil
 }
 
@@ -86,32 +103,64 @@ func redactSensitiveValues(prefix string, config map[string]any, paths map[strin
 
 // redactValue redacts one value of any shape.
 //
+// The traversal is driven by reflect.Kind rather than by a type switch on
+// map[string]any and []any. A configuration can hold named collection types —
+// type hostSet map[string]int, or a []string a loader produced — and a type
+// switch passes those through untouched, which leaked a secret from inside a
+// named map. Judging shape by kind covers named types, arrays, pointers, and
+// interface-held collections without enumerating them.
+//
 // The sensitivity check comes first, so a sensitive path holding a collection
-// is replaced wholesale rather than descended into. A slice whose elements
-// share its path cannot distinguish a secret element from a plain one, so
-// redacting the whole slice is the only safe reading.
+// is replaced wholesale rather than descended into. Elements of a sequence
+// share the path of the sequence itself, matching collectSecretReferenceKeys,
+// so a sequence cannot distinguish a secret element from a plain one and
+// redacting all of it is the only safe reading.
 func redactValue(path string, value any, paths map[string]struct{}) any {
 	if path != "" && valuePathIsSensitive(path, paths) {
 		return redactedSecretValue
 	}
-	switch typed := value.(type) {
-	case map[string]any:
-		out := make(map[string]any, len(typed))
-		for key, child := range typed {
+	if value == nil {
+		return nil
+	}
+
+	rv := reflect.ValueOf(value)
+	switch rv.Kind() {
+	case reflect.Pointer, reflect.Interface:
+		if rv.IsNil() {
+			return nil
+		}
+		return redactValue(path, rv.Elem().Interface(), paths)
+
+	case reflect.Map:
+		// Only string-keyed maps address a configuration path. Anything else
+		// cannot be reached by a dotted path, so it is copied as a leaf.
+		if rv.Type().Key().Kind() != reflect.String {
+			return dictutil.DeepCopyValue(value)
+		}
+		out := make(map[string]any, rv.Len())
+		iter := rv.MapRange()
+		for iter.Next() {
+			key := iter.Key().String()
 			childPath := key
 			if path != "" {
 				childPath = path + "." + key
 			}
-			out[key] = redactValue(childPath, child, paths)
+			out[key] = redactValue(childPath, iter.Value().Interface(), paths)
 		}
 		return out
-	case []any:
-		out := make([]any, len(typed))
-		for index, child := range typed {
+
+	case reflect.Slice, reflect.Array:
+		// A byte slice is data, not a sequence of configuration values.
+		if rv.Kind() == reflect.Slice && rv.Type().Elem().Kind() == reflect.Uint8 {
+			return dictutil.DeepCopyValue(value)
+		}
+		out := make([]any, rv.Len())
+		for index := 0; index < rv.Len(); index++ {
 			// Same path, matching the classifier.
-			out[index] = redactValue(path, child, paths)
+			out[index] = redactValue(path, rv.Index(index).Interface(), paths)
 		}
 		return out
+
 	default:
 		return dictutil.DeepCopyValue(value)
 	}

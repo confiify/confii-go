@@ -99,6 +99,15 @@ func WithVaultFollowRedirects(v bool) VaultOption {
 	return func(c *vaultConfig) { c.FollowRedirects = v }
 }
 
+// Hermetic transport defaults. They match the Vault SDK's documented defaults,
+// which api.NewClient does not apply to a caller-supplied api.Config.
+const (
+	hermeticDefaultTimeout      = 60 * time.Second
+	hermeticDefaultRetries      = 2
+	hermeticDefaultMinRetryWait = 1000 * time.Millisecond
+	hermeticDefaultMaxRetryWait = 1500 * time.Millisecond
+)
+
 // errRedirectRefused reports a redirect declined by the hermetic policy. It
 // names no credential and carries no response body.
 var errRedirectRefused = errors.New("vault: redirect refused by hermetic client")
@@ -164,9 +173,19 @@ func newHermeticVaultClient(cfg *vaultConfig) (*api.Client, error) {
 		}
 	}
 
+	// api.NewClient copies neither Timeout nor MaxRetries from its internal
+	// defaults, so a literal api.Config leaves them at zero — no timeout and no
+	// retries. Set them explicitly. The values match the SDK's documented
+	// defaults so hermetic mode is not quietly less resilient than ambient
+	// mode; MinRetryWait and MaxRetryWait are stated for the same reason even
+	// though NewClient does copy those.
 	apiCfg := &api.Config{
-		Address:    cfg.URL,
-		HttpClient: httpClient,
+		Address:      cfg.URL,
+		HttpClient:   httpClient,
+		Timeout:      hermeticDefaultTimeout,
+		MaxRetries:   hermeticDefaultRetries,
+		MinRetryWait: hermeticDefaultMinRetryWait,
+		MaxRetryWait: hermeticDefaultMaxRetryWait,
 	}
 	if cfg.Timeout > 0 {
 		apiCfg.Timeout = cfg.Timeout
@@ -195,9 +214,23 @@ func newHermeticVaultClient(cfg *vaultConfig) (*api.Client, error) {
 	// api.NewClient adopts VAULT_TOKEN, VAULT_NAMESPACE, and VAULT_HEADERS
 	// even from an explicit config. Overwrite all three unconditionally so an
 	// ambient value can never survive into a hermetic client.
+	//
+	// Clearing the headers also removes X-Vault-Request, which api.NewClient
+	// installs as SSRF protection and which Vault Agent relies on. Dropping it
+	// would make a hermetic client less safe than an ambient one, so it is
+	// restored rather than left to the caller.
 	client.ClearToken()
 	client.ClearNamespace()
-	client.SetHeaders(http.Header{})
+	client.SetHeaders(http.Header{
+		api.RequestHeaderName: []string{"true"},
+	})
+
+	// A nil wrapping lookup makes the SDK fall back to
+	// api.DefaultWrappingLookupFunc, which reads VAULT_WRAP_TTL on every
+	// request. That is ambient state reaching a hermetic client at request
+	// time rather than construction time, so the lookup is set explicitly to
+	// request no wrapping.
+	client.SetWrappingLookupFunc(func(string, string) string { return "" })
 	if cfg.Namespace != "" {
 		client.SetNamespace(cfg.Namespace)
 	}
