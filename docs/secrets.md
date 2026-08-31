@@ -136,6 +136,82 @@ key, field, and version grammar, keeping provider routing unambiguous.
 
 ---
 
+## Working with references programmatically
+
+Confii owns its reference grammar, so a consumer never needs its own parser or
+serializer:
+
+```go
+import "github.com/confiify/confii-go/v2/secret"
+
+ref, err := secret.ParseReference("${secret@vault:db/creds:password:3}")
+// ref.Provider == "vault", ref.Key == "db/creds",
+// ref.Field == "password", ref.Version == "3"
+
+canonical := ref.String() // "${secret@vault:db/creds:password:3}"
+```
+
+`ParseReference` is strict: the reference must occupy the whole value, and
+surrounding text is an error. For values that mix references with other text,
+such as a connection string, use `FindReferences`:
+
+```go
+refs := secret.FindReferences("postgres://u:${secret:db/password}@host/db")
+```
+
+Parsing is purely syntactic. No provider is contacted and no registry is
+consulted, so a reference naming a provider that is not configured still parses
+— routing is resolved later, when the configuration materializes. Parse errors
+are typed as `*secret.ReferenceError` and name only the locator, never a
+resolved value.
+
+### Escaping
+
+There is none. Components are delimited by `:` and terminated by `}`, and a
+component may not contain `:`, `{`, or `}`. A key containing a delimiter is not
+representable, and the parser rejects such input rather than truncating it
+silently. Choose keys that avoid the delimiters.
+
+### Compatibility
+
+The grammar is part of Confii's public interface. Within a major version, a
+string that parses today will keep parsing to an equal `Reference`, and
+`String` will keep producing a form that re-parses equally. New optional
+components may be added only in positions that cannot change the meaning of an
+existing reference.
+
+## Resolved values cannot introduce references
+
+A resolution never produces a value that a further pass would resolve.
+
+Substitution can otherwise manufacture a reference that exists in neither the
+template nor the secret alone. A value ending in `$` completes a `{...}`
+sequence in the text after it, so this template:
+
+```yaml
+token: ${secret:a}{secret:b}
+```
+
+with `a` holding `trailing$` would produce `trailing${secret:b}` — a reference
+nobody wrote. A secret whose value is itself `${secret:other}` has the same
+effect directly, chaining one secret read into another.
+
+Confii rejects both. If substitution produces text matching the reference
+grammar, the resolution fails with `ErrSecretValidation`, the input is returned
+unchanged, and the manufactured reference is never read from the store:
+
+```go
+if errors.Is(err, confii.ErrSecretValidation) {
+    // A resolved secret spelled a new reference. Check the values behind the
+    // locators named in the error.
+}
+```
+
+The error names the locators the template asked for and quotes nothing that was
+resolved, because the synthesized reference is built from resolved material.
+
+---
+
 ## Built-in Stores
 
 ### DictStore
@@ -340,6 +416,177 @@ Field extraction uses the provider-neutral `WithField` option:
 // Fetch only the "password" field from secret/data/db/credentials
 val, _ := store.GetSecret(ctx, "db/credentials", confii.WithField("password"))
 ```
+
+#### Hermetic construction
+
+By default the Vault SDK reads about twenty environment variables. Among them
+is `VAULT_SKIP_VERIFY`, which **silently disables certificate verification**,
+and the standard `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` variables. Anything
+that can set an environment variable on the process can therefore weaken
+transport security without the caller's knowledge.
+
+`WithVaultHermetic` builds the client from caller-supplied options only:
+
+```go
+store, err := cloud.NewVaultWithContext(ctx,
+    cloud.WithVaultHermetic(),
+    cloud.WithVaultURL("https://vault.example.com:8200"),
+    cloud.WithVaultNamespace("my-team"),
+    cloud.WithVaultTLS(cloud.VaultTLS{
+        CACertPEM:     caPEM,      // explicit bytes, never a discovered path
+        ClientCertPEM: certPEM,    // optional mutual TLS
+        ClientKeyPEM:  keyPEM,
+    }),
+    cloud.WithVaultProxy(proxyURL),        // omit to disable proxying entirely
+    cloud.WithVaultTimeout(5*time.Second),
+    cloud.WithVaultRetryLimit(2),
+    cloud.WithVaultAuth(auth),
+)
+```
+
+In hermetic mode:
+
+- Address, namespace, token, headers, TLS material, proxy, timeout, retry limit,
+  and redirect policy come from options alone.
+- The store owns its `http.Client` and `http.Transport`. `http.DefaultTransport`
+  is neither used nor modified.
+- Proxying is off unless `WithVaultProxy` is supplied.
+- Certificate verification is always on and cannot be disabled.
+  `WithVaultVerify` is ignored, so no ambient variable can weaken it.
+- Redirects are refused unless `WithVaultFollowRedirects(true)` is supplied.
+- The process environment is never modified.
+
+**One documented limitation.** A hermetic client never *adopts* an ambient
+value, but it cannot stop the SDK from *parsing* the environment:
+`api.NewClient` builds `api.DefaultConfig` internally before reading the
+configuration it is given. A malformed ambient value — an unparseable
+`VAULT_MAX_RETRIES`, `VAULT_CLIENT_TIMEOUT`, `VAULT_SKIP_VERIFY`,
+`VAULT_SRV_LOOKUP`, `VAULT_DISABLE_REDIRECTS`, or an unreadable `VAULT_CACERT`,
+`VAULT_CAPATH`, `VAULT_CACERT_BYTES`, `VAULT_CLIENT_CERT`, `VAULT_CLIENT_KEY` —
+therefore fails construction with `ErrVaultAmbientEnvironment`:
+
+```go
+if errors.Is(err, cloud.ErrVaultAmbientEnvironment) {
+    // An ambient VAULT_* variable is malformed. Correct or unset it in the
+    // environment that launches the process.
+}
+```
+
+Clearing the variable for the duration of the call would mutate process-global
+state shared with every goroutine, so the condition is reported rather than
+worked around. The failure is always explicit; hermetic mode never falls back
+to ambient settings.
+
+#### Environment hygiene
+
+The limitation above disappears entirely if the process starts with a clean
+environment, and that is the recommended deployment for security-sensitive
+services. A hermetic client reads nothing from the environment, so leaving the
+variables unset costs nothing and removes the only remaining way the
+environment can affect Vault access.
+
+Do not set any of these when using hermetic construction:
+
+```
+VAULT_ADDR             VAULT_CACERT           VAULT_CLIENT_CERT
+VAULT_AGENT_ADDR       VAULT_CACERT_BYTES     VAULT_CLIENT_KEY
+VAULT_NAMESPACE        VAULT_CAPATH           VAULT_CLIENT_TIMEOUT
+VAULT_TOKEN            VAULT_SKIP_VERIFY      VAULT_TLS_SERVER_NAME
+VAULT_MAX_RETRIES      VAULT_SRV_LOOKUP       VAULT_DISABLE_REDIRECTS
+VAULT_PROXY_ADDR       VAULT_HTTP_PROXY       VAULT_HEADERS
+HTTP_PROXY             HTTPS_PROXY            NO_PROXY
+```
+
+In Kubernetes, the risk is usually an injected sidecar or a shared ConfigMap
+rather than anything the application declares. Confirm what the container
+actually receives:
+
+```yaml
+apiVersion: v1
+kind: Pod
+spec:
+  containers:
+    - name: app
+      # Do not source a ConfigMap or Secret that carries VAULT_* keys.
+      env:
+        - name: CONFII_ENV
+          value: production
+```
+
+```bash
+# Verify at runtime rather than trusting the manifest.
+kubectl exec deploy/app -- env | grep -E '^(VAULT_|HTTP_PROXY|HTTPS_PROXY|NO_PROXY)' || echo clean
+```
+
+For a container entrypoint that cannot guarantee its parent environment, clear
+the variables before exec:
+
+```sh
+#!/bin/sh
+# Hermetic construction ignores these; unsetting them also removes the one
+# way a malformed value could still fail startup.
+for name in VAULT_ADDR VAULT_AGENT_ADDR VAULT_CACERT VAULT_CACERT_BYTES \
+    VAULT_CAPATH VAULT_CLIENT_CERT VAULT_CLIENT_KEY VAULT_CLIENT_TIMEOUT \
+    VAULT_HEADERS VAULT_NAMESPACE VAULT_MAX_RETRIES VAULT_PROXY_ADDR \
+    VAULT_HTTP_PROXY VAULT_SKIP_VERIFY VAULT_SRV_LOOKUP VAULT_TLS_SERVER_NAME \
+    VAULT_TOKEN VAULT_DISABLE_REDIRECTS; do
+    unset "$name"
+done
+exec /app "$@"
+```
+
+This is defence in depth, not a correctness requirement. A hermetic client is
+already immune to the *values* of these variables; clearing them additionally
+removes the malformed-value failure described above.
+
+#### Ambient mode
+
+Constructors called without `WithVaultHermetic` retain the SDK's environment
+discovery, including `VAULT_ADDR`, `VAULT_TOKEN`, `VAULT_NAMESPACE`,
+`VAULT_SKIP_VERIFY`, and the proxy variables. This mode is kept for
+compatibility and for deployments that intentionally configure Vault through
+the environment. Prefer hermetic construction for security-sensitive services.
+
+---
+
+## Resolver lifecycle
+
+A resolver holds secret material in memory: cached values, and provider clients
+holding connections. `ClearCache` invalidates the cache but is not a shutdown
+contract, because a provider read already in flight can populate the cache
+immediately after it returns.
+
+`Close` is the shutdown contract:
+
+```go
+resolver := secret.NewResolver(store)
+defer resolver.Close()
+```
+
+It rejects new resolution with `ErrResolverClosed`, cancels in-flight reads,
+waits for each to finish including its cache write, drops cached values, and
+closes the store when the store supports it. It is idempotent and safe to call
+concurrently; every caller sees the same result.
+
+`Config.Close` closes the resolver automatically when it implements
+`confii.CloseableSecretResolver`, so a configuration that owns its resolver
+needs no separate teardown:
+
+```go
+cfg, err := confii.New[Settings](confii.WithSecretResolver(resolver))
+defer cfg.Close() // closes the resolver and its store
+```
+
+### What close does and does not promise
+
+Close bounds **ownership** and **retention**. After it returns the resolver
+holds no cached secret, performs no further provider reads, and hands out no
+further values.
+
+It does not erase memory, and no Go library can honestly promise that. A
+resolved secret may have been copied into caller structures, retained by the
+runtime, or left in garbage not yet collected. Treat material already returned
+to you as yours to manage; confii guarantees only that it keeps none of it.
 
 ---
 

@@ -6,6 +6,99 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Security
+
+- Reject a resolved secret that introduces a new secret reference. Substitution
+  could manufacture a reference that appeared in neither the template nor the
+  resolved value alone: a value ending in `$` completes a `{...}` sequence in
+  the literal text following it, so `${secret:a}{secret:b}` with a value of
+  `trailing$` produced `trailing${secret:b}`. A value that is itself a reference
+  had the same effect directly. Anything resolving the result again — a second
+  pass, a caller treating configuration as a template — would then read a secret
+  nobody asked for, chaining one secret into another.
+
+  A successful resolution now leaves nothing behind that a further pass would
+  resolve. If substitution produces text matching the reference grammar, the
+  resolution fails with `ErrSecretValidation`, returns the input unchanged, and
+  never reads the manufactured reference from the store. The error names the
+  locators the template asked for and quotes no resolved material, since the
+  synthesized reference is built from it.
+- Add hermetic Vault client construction through `WithVaultHermetic`. The Vault
+  SDK's `api.DefaultConfig` reads about twenty environment variables, and the
+  previous constructor kept all of them: an ambient `VAULT_SKIP_VERIFY=true`
+  silently disabled certificate verification even when the caller supplied an
+  explicit address and token, and ambient `HTTP_PROXY`, `VAULT_NAMESPACE`, and
+  `VAULT_MAX_RETRIES` were adopted the same way. Anything able to set an
+  environment variable on the process could therefore weaken transport security
+  without the caller's knowledge. In hermetic mode the client derives from
+  caller options alone, owns its `http.Client` and `http.Transport`, never
+  touches `http.DefaultTransport`, disables proxying unless a proxy is
+  configured, refuses redirects by default, and cannot have certificate
+  verification disabled by any option or variable. The process environment is
+  never modified. Constructors without the option keep the previous ambient
+  behavior, now documented explicitly as such.
+
+### Added
+
+- Add a public secret-reference parser: `secret.Reference`, `ParseReference`,
+  `ContainsReference`, `FindReferences`, and the typed `ReferenceError`. The
+  grammar was previously private and, worse, defined twice — once in the secret
+  resolver without provider support and once in the root package with it, kept
+  in sync by hand. Both now share one definition, so the two cannot drift apart,
+  and consumers no longer need their own parser to inspect or build a reference.
+  Parsing is strict and purely syntactic: it contacts no provider, rejects
+  surrounding text, and `Reference.String` produces a canonical form that
+  re-parses to an equal value. The escaping rules and the compatibility policy
+  for grammar evolution are documented on the type.
+- Add a close lifecycle to `secret.Resolver` and the optional
+  `CloseableSecretResolver` interface. `ClearCache` alone was never a shutdown
+  contract, and its own documentation admitted the hole: "an in-flight provider
+  read may populate the cache after ClearCache returns". `Close` rejects new
+  resolution with the typed `ErrResolverClosed`, cancels in-flight reads through
+  a resolver-owned context, waits for each one to finish including its cache
+  write so a late completion cannot repopulate the cache, drops cached values,
+  closes a store implementing `Close() error`, and aggregates cleanup failures.
+  It is idempotent and safe to call concurrently. `Config.Close` already
+  detected an optional `Close() error` on the resolver, so configuration
+  shutdown cascades with no change; resolvers implementing only
+  `ManagedSecretResolver` keep working.
+
+  The contract bounds ownership and retention rather than erasing memory. Go
+  cannot guarantee that every copy of a secret is overwritten, so what `Close`
+  promises is that the resolver holds no cached secret once it returns, performs
+  no further reads, and hands out no further values.
+- Add `WithVaultTLS`, `WithVaultProxy`, `WithVaultTimeout`, `WithVaultRetryLimit`,
+  and `WithVaultFollowRedirects`, plus the `VaultTLS` type, so every transport
+  setting is expressible without environment discovery. TLS material is supplied
+  as PEM bytes rather than as a path the SDK would resolve.
+- Add `ErrVaultAmbientEnvironment`, reported when a malformed ambient variable
+  prevents hermetic construction. `api.NewClient` builds `api.DefaultConfig`
+  before reading the configuration it is handed, so the SDK parses the
+  environment regardless of what is passed; clearing a variable around the call
+  would mutate process-global state shared with every goroutine. The condition
+  is named rather than worked around, and hermetic mode never falls back to
+  ambient settings.
+
+### Fixed
+
+- Report a provider-qualified reference that shares a value with an unqualified
+  one instead of resolving it against the wrong store. A `secret.Resolver` holds
+  a single store and performs no routing, so `${secret:a} and ${secret@vault:b}`
+  previously resolved `b` against the default store as though the requested
+  provider had been honored. It now reports `ErrProviderRoutingUnsupported`,
+  which wraps `ErrSecretValidation`, and returns the input unchanged. Provider
+  routing remains the configuration layer's responsibility through declarative
+  `secrets.providers` configuration.
+
+  A value carrying only a provider-qualified reference is still returned
+  unchanged without an error, which leaves the placeholder in the configuration
+  as a literal string. That limitation is unchanged and now has a test recording
+  it: scanning such values would route them through substitution, which can
+  synthesize a placeholder in its own output, and widening the entry check would
+  enlarge the surface of that separate pre-existing defect.
+||||||| base
+
+
 ## [2.3.0] - 2026-08-31
 
 ### Added
