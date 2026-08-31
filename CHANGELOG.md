@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Add a close lifecycle to `secret.Resolver` and the optional
+  `CloseableSecretResolver` interface. `ClearCache` alone was never a shutdown
+  contract, and its own documentation admitted the hole: "an in-flight provider
+  read may populate the cache after ClearCache returns". `Close` rejects new
+  resolution with the typed `ErrResolverClosed`, cancels in-flight reads through
+  a resolver-owned context, waits for each one to finish including its cache
+  write so a late completion cannot repopulate the cache, drops cached values,
+  closes a store implementing `Close() error`, and aggregates cleanup failures.
+  It is idempotent and safe to call concurrently. `Config.Close` already
+  detected an optional `Close() error` on the resolver, so configuration
+  shutdown cascades with no change; resolvers implementing only
+  `ManagedSecretResolver` keep working.
+
+  The contract bounds ownership and retention rather than erasing memory. Go
+  cannot guarantee that every copy of a secret is overwritten, so what `Close`
+  promises is that the resolver holds no cached secret once it returns, performs
+  no further reads, and hands out no further values.
+
 ## [2.3.0] - 2026-08-31
 
 ### Added

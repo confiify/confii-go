@@ -168,6 +168,28 @@ type ManagedSecretResolver interface {
 	ClearCache()
 }
 
+// CloseableSecretResolver is a [ManagedSecretResolver] that also owns
+// resources outlasting a single resolution, such as cached secret values,
+// in-flight provider requests, or a provider client holding connections.
+//
+// [Config.Close] detects this interface and closes the resolver as part of
+// configuration shutdown, so implementing it is how a resolver participates in
+// the configuration lifecycle. Implementing it is optional: a resolver owning
+// nothing beyond its store may satisfy [ManagedSecretResolver] alone.
+//
+// Close must be idempotent and safe for concurrent calls, must reject
+// subsequent resolution with a stable typed error rather than returning stale
+// values, and must not let work already in flight repopulate a cache it has
+// cleared. It bounds ownership and retention rather than erasing memory; see
+// the note on Resolver.Close in the secret package for why erasure cannot be
+// promised.
+type CloseableSecretResolver interface {
+	ManagedSecretResolver
+	// Close releases resolver-owned resources. Errors from closing several
+	// resources should be aggregated rather than reported one at a time.
+	Close() error
+}
+
 type hookSetupKind uint8
 
 const (

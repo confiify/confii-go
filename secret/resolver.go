@@ -44,6 +44,16 @@ type Resolver struct {
 
 	mu    sync.RWMutex
 	cache map[string]cacheEntry
+
+	// Lifecycle. lifeMu makes the closing check and the in-flight
+	// registration atomic with respect to Close; see Resolver.enter.
+	lifeMu         sync.Mutex
+	closing        bool
+	inFlight       sync.WaitGroup
+	closeOnce      sync.Once
+	closeErr       error
+	closeCtx       context.Context
+	cancelInFlight context.CancelFunc
 }
 
 type cacheEntry struct {
@@ -83,6 +93,7 @@ func NewResolver(store confii.SecretStore, opts ...ResolverOption) *Resolver {
 		cacheEnabled: true,
 		cache:        make(map[string]cacheEntry),
 	}
+	r.closeCtx, r.cancelInFlight = context.WithCancel(context.Background())
 	for _, o := range opts {
 		o(r)
 	}
@@ -211,6 +222,17 @@ func (r *Resolver) resolveKey(ctx context.Context, key, jsonPath, version string
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	if !r.enter() {
+		return nil, ErrResolverClosed
+	}
+	defer r.leave()
+
+	// Cancelled by the caller or by Close, so a parked provider read does not
+	// outlive shutdown. Held for the cache write too, so the WaitGroup above
+	// covers the whole critical section.
+	ctx, cancel := r.resolverContext(ctx)
+	defer cancel()
+
 	fullKey := key
 	if r.prefix != "" {
 		fullKey = r.prefix + key

@@ -343,6 +343,47 @@ val, _ := store.GetSecret(ctx, "db/credentials", confii.WithField("password"))
 
 ---
 
+## Resolver lifecycle
+
+A resolver holds secret material in memory: cached values, and provider clients
+holding connections. `ClearCache` invalidates the cache but is not a shutdown
+contract, because a provider read already in flight can populate the cache
+immediately after it returns.
+
+`Close` is the shutdown contract:
+
+```go
+resolver := secret.NewResolver(store)
+defer resolver.Close()
+```
+
+It rejects new resolution with `ErrResolverClosed`, cancels in-flight reads,
+waits for each to finish including its cache write, drops cached values, and
+closes the store when the store supports it. It is idempotent and safe to call
+concurrently; every caller sees the same result.
+
+`Config.Close` closes the resolver automatically when it implements
+`confii.CloseableSecretResolver`, so a configuration that owns its resolver
+needs no separate teardown:
+
+```go
+cfg, err := confii.New[Settings](confii.WithSecretResolver(resolver))
+defer cfg.Close() // closes the resolver and its store
+```
+
+### What close does and does not promise
+
+Close bounds **ownership** and **retention**. After it returns the resolver
+holds no cached secret, performs no further provider reads, and hands out no
+further values.
+
+It does not erase memory, and no Go library can honestly promise that. A
+resolved secret may have been copied into caller structures, retained by the
+runtime, or left in garbage not yet collected. Treat material already returned
+to you as yours to manage; confii guarantees only that it keeps none of it.
+
+---
+
 ## Vault Auth Methods
 
 The Vault-compatible integration exposes adapters for nine authentication
