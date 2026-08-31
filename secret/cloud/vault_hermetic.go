@@ -53,6 +53,14 @@ type VaultTLS struct {
 //
 // The process environment is read for none of these settings and is never
 // modified. Values present in the environment are left exactly as found.
+//
+// For defence in depth, start the process with those variables unset. A
+// hermetic client ignores their values either way, but an unset environment
+// also removes the one remaining failure described on
+// [ErrVaultAmbientEnvironment], where a malformed ambient value fails
+// construction because the SDK parses the environment before reading the
+// configuration it is handed. See the environment-hygiene section of
+// docs/secrets.md.
 func WithVaultHermetic() VaultOption {
 	return func(c *vaultConfig) { c.Hermetic = true }
 }
@@ -110,7 +118,8 @@ var errRedirectRefused = errors.New("vault: redirect refused by hermetic client"
 // Clearing the variable for the duration of the call would mutate
 // process-global state shared by every goroutine, so the condition is reported
 // rather than worked around. Correct the ambient value, or unset it, in the
-// environment that launches the process.
+// environment that launches the process. Starting with these variables unset
+// is the recommended deployment and removes this failure entirely.
 var ErrVaultAmbientEnvironment = errors.New("vault: malformed ambient environment prevents hermetic construction")
 
 // newHermeticVaultClient builds a client whose behavior derives only from cfg.

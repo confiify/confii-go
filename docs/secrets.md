@@ -401,6 +401,68 @@ state shared with every goroutine, so the condition is reported rather than
 worked around. The failure is always explicit; hermetic mode never falls back
 to ambient settings.
 
+#### Environment hygiene
+
+The limitation above disappears entirely if the process starts with a clean
+environment, and that is the recommended deployment for security-sensitive
+services. A hermetic client reads nothing from the environment, so leaving the
+variables unset costs nothing and removes the only remaining way the
+environment can affect Vault access.
+
+Do not set any of these when using hermetic construction:
+
+```
+VAULT_ADDR             VAULT_CACERT           VAULT_CLIENT_CERT
+VAULT_AGENT_ADDR       VAULT_CACERT_BYTES     VAULT_CLIENT_KEY
+VAULT_NAMESPACE        VAULT_CAPATH           VAULT_CLIENT_TIMEOUT
+VAULT_TOKEN            VAULT_SKIP_VERIFY      VAULT_TLS_SERVER_NAME
+VAULT_MAX_RETRIES      VAULT_SRV_LOOKUP       VAULT_DISABLE_REDIRECTS
+VAULT_PROXY_ADDR       VAULT_HTTP_PROXY       VAULT_HEADERS
+HTTP_PROXY             HTTPS_PROXY            NO_PROXY
+```
+
+In Kubernetes, the risk is usually an injected sidecar or a shared ConfigMap
+rather than anything the application declares. Confirm what the container
+actually receives:
+
+```yaml
+apiVersion: v1
+kind: Pod
+spec:
+  containers:
+    - name: app
+      # Do not source a ConfigMap or Secret that carries VAULT_* keys.
+      env:
+        - name: CONFII_ENV
+          value: production
+```
+
+```bash
+# Verify at runtime rather than trusting the manifest.
+kubectl exec deploy/app -- env | grep -E '^(VAULT_|HTTP_PROXY|HTTPS_PROXY|NO_PROXY)' || echo clean
+```
+
+For a container entrypoint that cannot guarantee its parent environment, clear
+the variables before exec:
+
+```sh
+#!/bin/sh
+# Hermetic construction ignores these; unsetting them also removes the one
+# way a malformed value could still fail startup.
+for name in VAULT_ADDR VAULT_AGENT_ADDR VAULT_CACERT VAULT_CACERT_BYTES \
+    VAULT_CAPATH VAULT_CLIENT_CERT VAULT_CLIENT_KEY VAULT_CLIENT_TIMEOUT \
+    VAULT_HEADERS VAULT_NAMESPACE VAULT_MAX_RETRIES VAULT_PROXY_ADDR \
+    VAULT_HTTP_PROXY VAULT_SKIP_VERIFY VAULT_SRV_LOOKUP VAULT_TLS_SERVER_NAME \
+    VAULT_TOKEN VAULT_DISABLE_REDIRECTS; do
+    unset "$name"
+done
+exec /app "$@"
+```
+
+This is defence in depth, not a correctness requirement. A hermetic client is
+already immune to the *values* of these variables; clearing them additionally
+removes the malformed-value failure described above.
+
 #### Ambient mode
 
 Constructors called without `WithVaultHermetic` retain the SDK's environment
