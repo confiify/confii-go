@@ -732,6 +732,73 @@ cloud.WithVaultAppRole("role-id", "secret-id")
 
 ---
 
+## Strict Vault configuration
+
+`strict: true` makes the declared settings the sole authority:
+
+```yaml
+secrets:
+  providers:
+    vault:
+      strict: true
+      address: https://vault.internal:8200
+      namespace: platform
+      mount: secret
+      kv_version: 2
+      timeout: 7s
+      retry_limit: 4
+      proxy: http://egress.internal:8080   # omit to disable proxying
+      follow_redirects: false
+      tls:
+        ca_cert_pem: |
+          -----BEGIN CERTIFICATE-----
+          ...
+        server_name: vault.internal
+      auth:
+        method: kubernetes
+        role: my-service
+```
+
+Under strict:
+
+- `VAULT_ADDR` and `VAULT_TOKEN` are **not** consulted. An address must be
+  declared; a token need not be, because an auth method may supply one.
+- The transport is built hermetically, so no ambient variable shapes it.
+- An unrecognized setting is an error. A typo such as `retry_limt` fails loudly
+  instead of leaving the real setting at its default.
+
+Errors name the setting at fault and never its value, which may be a credential.
+
+Without `strict`, the provider keeps its convenience fallbacks to `VAULT_ADDR`
+and `VAULT_TOKEN`. That is useful for local work and wrong for a deployment that
+means to declare everything.
+
+### The bootstrap boundary
+
+Some information must exist before the first Vault request can be made, and it
+cannot itself come from Vault. That set is deliberately small:
+
+| Bootstrap input | Why it cannot be resolved |
+|---|---|
+| `address` | needed to reach Vault at all |
+| `tls.ca_cert_pem` | needed to verify Vault's certificate |
+| auth material — a Kubernetes service-account token, a cloud instance identity | needed to obtain a Vault token |
+
+Everything else is ordinary configuration and may reference secrets. Prefer auth
+methods whose bootstrap input is supplied by the platform rather than stored:
+Kubernetes workload identity, cloud instance identity, or Vault Agent. AppRole
+needs a secret ID delivered through a controlled channel, so treat it as a
+bootstrap credential with a short lifetime.
+
+### Closing
+
+`VaultStore` releases idle connections on `Close`, and the declarative provider
+forwards that, so a store built from configuration is closed by `Config.Close`
+along with the resolver. Closing does not revoke the Vault token: its lifetime
+belongs to Vault's lease and may be shared with another client.
+
+---
+
 ## Declarative Self-Config Providers
 
 Cloud stores can be wired through `.confii.yaml` when the application

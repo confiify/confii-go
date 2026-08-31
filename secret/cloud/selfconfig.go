@@ -17,6 +17,20 @@ import (
 
 type selfConfigStoreAdapter struct {
 	get func(context.Context, string, ...confii.SecretOption) (any, error)
+	// close releases the underlying store. Without it the store a provider
+	// built would never be closed: Config closes resources implementing
+	// Close() error, and the resource it holds is this adapter, not the store
+	// the adapter closed over.
+	close func() error
+}
+
+// Close releases the underlying store when the provider supplied a closer.
+// Providers whose stores own nothing leave it nil, and closing is then a no-op.
+func (s selfConfigStoreAdapter) Close() error {
+	if s.close == nil {
+		return nil
+	}
+	return s.close()
 }
 
 func (s selfConfigStoreAdapter) ReadSecret(ctx context.Context, request confii.SecretRequest) (any, error) {
