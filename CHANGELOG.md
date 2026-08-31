@@ -6,6 +6,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Security
+
+- Add hermetic Vault client construction through `WithVaultHermetic`. The Vault
+  SDK's `api.DefaultConfig` reads about twenty environment variables, and the
+  previous constructor kept all of them: an ambient `VAULT_SKIP_VERIFY=true`
+  silently disabled certificate verification even when the caller supplied an
+  explicit address and token, and ambient `HTTP_PROXY`, `VAULT_NAMESPACE`, and
+  `VAULT_MAX_RETRIES` were adopted the same way. Anything able to set an
+  environment variable on the process could therefore weaken transport security
+  without the caller's knowledge. In hermetic mode the client derives from
+  caller options alone, owns its `http.Client` and `http.Transport`, never
+  touches `http.DefaultTransport`, disables proxying unless a proxy is
+  configured, refuses redirects by default, and cannot have certificate
+  verification disabled by any option or variable. The process environment is
+  never modified. Constructors without the option keep the previous ambient
+  behavior, now documented explicitly as such.
+
+### Added
+
+- Add `WithVaultTLS`, `WithVaultProxy`, `WithVaultTimeout`, `WithVaultRetryLimit`,
+  and `WithVaultFollowRedirects`, plus the `VaultTLS` type, so every transport
+  setting is expressible without environment discovery. TLS material is supplied
+  as PEM bytes rather than as a path the SDK would resolve.
+- Add `ErrVaultAmbientEnvironment`, reported when a malformed ambient variable
+  prevents hermetic construction. `api.NewClient` builds `api.DefaultConfig`
+  before reading the configuration it is handed, so the SDK parses the
+  environment regardless of what is passed; clearing a variable around the call
+  would mutate process-global state shared with every goroutine. The condition
+  is named rather than worked around, and hermetic mode never falls back to
+  ambient settings.
+
 ## [2.3.0] - 2026-08-31
 
 ### Added

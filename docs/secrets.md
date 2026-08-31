@@ -341,6 +341,74 @@ Field extraction uses the provider-neutral `WithField` option:
 val, _ := store.GetSecret(ctx, "db/credentials", confii.WithField("password"))
 ```
 
+#### Hermetic construction
+
+By default the Vault SDK reads about twenty environment variables. Among them
+is `VAULT_SKIP_VERIFY`, which **silently disables certificate verification**,
+and the standard `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` variables. Anything
+that can set an environment variable on the process can therefore weaken
+transport security without the caller's knowledge.
+
+`WithVaultHermetic` builds the client from caller-supplied options only:
+
+```go
+store, err := cloud.NewVaultWithContext(ctx,
+    cloud.WithVaultHermetic(),
+    cloud.WithVaultURL("https://vault.example.com:8200"),
+    cloud.WithVaultNamespace("my-team"),
+    cloud.WithVaultTLS(cloud.VaultTLS{
+        CACertPEM:     caPEM,      // explicit bytes, never a discovered path
+        ClientCertPEM: certPEM,    // optional mutual TLS
+        ClientKeyPEM:  keyPEM,
+    }),
+    cloud.WithVaultProxy(proxyURL),        // omit to disable proxying entirely
+    cloud.WithVaultTimeout(5*time.Second),
+    cloud.WithVaultRetryLimit(2),
+    cloud.WithVaultAuth(auth),
+)
+```
+
+In hermetic mode:
+
+- Address, namespace, token, headers, TLS material, proxy, timeout, retry limit,
+  and redirect policy come from options alone.
+- The store owns its `http.Client` and `http.Transport`. `http.DefaultTransport`
+  is neither used nor modified.
+- Proxying is off unless `WithVaultProxy` is supplied.
+- Certificate verification is always on and cannot be disabled.
+  `WithVaultVerify` is ignored, so no ambient variable can weaken it.
+- Redirects are refused unless `WithVaultFollowRedirects(true)` is supplied.
+- The process environment is never modified.
+
+**One documented limitation.** A hermetic client never *adopts* an ambient
+value, but it cannot stop the SDK from *parsing* the environment:
+`api.NewClient` builds `api.DefaultConfig` internally before reading the
+configuration it is given. A malformed ambient value — an unparseable
+`VAULT_MAX_RETRIES`, `VAULT_CLIENT_TIMEOUT`, `VAULT_SKIP_VERIFY`,
+`VAULT_SRV_LOOKUP`, `VAULT_DISABLE_REDIRECTS`, or an unreadable `VAULT_CACERT`,
+`VAULT_CAPATH`, `VAULT_CACERT_BYTES`, `VAULT_CLIENT_CERT`, `VAULT_CLIENT_KEY` —
+therefore fails construction with `ErrVaultAmbientEnvironment`:
+
+```go
+if errors.Is(err, cloud.ErrVaultAmbientEnvironment) {
+    // An ambient VAULT_* variable is malformed. Correct or unset it in the
+    // environment that launches the process.
+}
+```
+
+Clearing the variable for the duration of the call would mutate process-global
+state shared with every goroutine, so the condition is reported rather than
+worked around. The failure is always explicit; hermetic mode never falls back
+to ambient settings.
+
+#### Ambient mode
+
+Constructors called without `WithVaultHermetic` retain the SDK's environment
+discovery, including `VAULT_ADDR`, `VAULT_TOKEN`, `VAULT_NAMESPACE`,
+`VAULT_SKIP_VERIFY`, and the proxy variables. This mode is kept for
+compatibility and for deployments that intentionally configure Vault through
+the environment. Prefer hermetic construction for security-sensitive services.
+
 ---
 
 ## Vault Auth Methods
