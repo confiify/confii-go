@@ -168,17 +168,40 @@ resolved value.
 ### Escaping
 
 There is none. Components are delimited by `:` and terminated by `}`, and a
-component may not contain `:`, `{`, or `}`. A key containing a delimiter is not
-representable, and the parser rejects such input rather than truncating it
-silently. Choose keys that avoid the delimiters.
+component may not contain `:` or `}`. Every other character is ordinary, `{`
+and `$` included. A key containing a delimiter is not representable, and the
+parser rejects such input rather than truncating it silently. Choose keys that
+avoid the delimiters.
+
+### Building a reference by hand
+
+`Reference` has exported fields, so a value can be built that the grammar
+cannot express — `Reference{Key: "key:segment"}` names a key no reference can
+spell.
+
+- `Validate() error` reports it, as `secret.ErrUnrepresentableReference`.
+- `MarshalText() ([]byte, error)` returns it as an error, so a `Reference`
+  written into JSON or YAML fails loudly rather than silently.
+- `String()` cannot return an error, so it answers with a diagnostic —
+  `%!secret(key must not contain ':' or '}')` — instead of text.
+
+That last one matters more than it looks. Writing the components out regardless
+would render `Reference{Key: "key:segment"}` as `${secret:key:segment}`, which
+is a *well-formed* reference to the `key` secret's `segment` field: a different
+secret than the fields named, and one that anything reading the value back
+would happily resolve. A `Reference` either serializes to something that parses
+back to itself, or to something that is not a reference at all.
+
+Anything returned by `ParseReference` or `FindReferences` is valid by
+construction and needs none of this.
 
 ### Compatibility
 
 The grammar is part of Confii's public interface. Within a major version, a
 string that parses today will keep parsing to an equal `Reference`, and
-`String` will keep producing a form that re-parses equally. New optional
-components may be added only in positions that cannot change the meaning of an
-existing reference.
+`String` will keep producing a form that re-parses equally for every
+`Reference` that `Validate` accepts. New optional components may be added only
+in positions that cannot change the meaning of an existing reference.
 
 ## Resolved values cannot introduce references
 

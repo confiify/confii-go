@@ -184,3 +184,127 @@ func TestVaultStore_SatisfiesCloser(t *testing.T) {
 	_, ok := closer.(interface{ Close() error })
 	assert.True(t, ok, "VaultStore must satisfy the optional closer contract")
 }
+
+// A schema closed only at its root is not closed. An unrecognised key inside
+// tls or auth was accepted, so a mistyped nested setting kept its default
+// silently — the exact failure strict mode exists to prevent, one level down.
+func TestVaultSelfConfig_StrictIsRecursivelyClosed(t *testing.T) {
+	base := func(extra map[string]any) map[string]any {
+		cfg := map[string]any{
+			"strict":  true,
+			"address": "https://vault.example.invalid:8200",
+			"token":   "s.tok",
+		}
+		for k, v := range extra {
+			cfg[k] = v
+		}
+		return cfg
+	}
+
+	for name, cfg := range map[string]map[string]any{
+		"tls":  base(map[string]any{"tls": map[string]any{"typo": "x"}}),
+		"auth": base(map[string]any{"auth": map[string]any{"method": "token", "token": "x", "typo": "x"}}),
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := vaultProvider(t, cfg)
+			require.Error(t, err, "an unrecognized %s setting must be rejected", name)
+			assert.ErrorIs(t, err, ErrVaultStrictConfiguration)
+			assert.Contains(t, err.Error(), "typo")
+		})
+	}
+}
+
+func TestVaultSelfConfig_StrictRejectsUnsupportedAuthMethod(t *testing.T) {
+	_, err := vaultProvider(t, map[string]any{
+		"strict":  true,
+		"address": "https://vault.example.invalid:8200",
+		"auth":    map[string]any{"method": "no-such-method"},
+	})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrVaultStrictConfiguration)
+}
+
+// Accepting two spellings of one setting means one is silently ignored, and
+// which one is an implementation detail the author cannot see.
+func TestVaultSelfConfig_StrictRejectsConflictingAliases(t *testing.T) {
+	for name, cfg := range map[string]map[string]any{
+		"address vs url": {
+			"strict": true, "token": "s.tok",
+			"address": "https://a.example.invalid:8200",
+			"url":     "https://b.example.invalid:8200",
+		},
+		"mount vs mount_point": {
+			"strict": true, "token": "s.tok",
+			"address": "https://a.example.invalid:8200",
+			"mount":   "one", "mount_point": "two",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := vaultProvider(t, cfg)
+			require.Error(t, err)
+			assert.ErrorIs(t, err, ErrVaultStrictConfiguration)
+		})
+	}
+}
+
+func TestVaultSelfConfig_RejectsUnusableTimeout(t *testing.T) {
+	for _, raw := range []string{"-1s", "0s"} {
+		t.Run(raw, func(t *testing.T) {
+			_, err := vaultProvider(t, map[string]any{
+				"strict": true, "address": "https://v.example.invalid:8200",
+				"token": "s.tok", "timeout": raw,
+			})
+			require.Error(t, err, "%s is not a usable timeout", raw)
+			assert.ErrorIs(t, err, ErrVaultStrictConfiguration)
+		})
+	}
+}
+
+func TestVaultSelfConfig_RejectsUnusableProxy(t *testing.T) {
+	for name, proxy := range map[string]string{
+		"relative":           "no-scheme-host",
+		"scheme only":        "http://",
+		"unsupported scheme": "ftp://proxy.example.invalid:21",
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := vaultProvider(t, map[string]any{
+				"strict": true, "address": "https://v.example.invalid:8200",
+				"token": "s.tok", "proxy": proxy,
+			})
+			require.Error(t, err, "%s must be rejected", name)
+			assert.ErrorIs(t, err, ErrVaultStrictConfiguration)
+		})
+	}
+}
+
+// A proxy URL may carry credentials in its user information; a parse failure
+// must not put them in a log.
+func TestVaultSelfConfig_ProxyErrorDoesNotLeakCredentials(t *testing.T) {
+	_, err := vaultProvider(t, map[string]any{
+		"strict": true, "address": "https://v.example.invalid:8200",
+		"token": "s.tok", "proxy": "ftp://user:sup3rsecret@proxy.example.invalid:21",
+	})
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "sup3rsecret",
+		"proxy credentials must never appear in an error")
+}
+
+// int(value) on a float truncates, so 1.5 became 1: a configuration that says
+// 1.5 does not mean 1.
+func TestVaultSelfConfig_RejectsFractionalInteger(t *testing.T) {
+	_, err := vaultProvider(t, map[string]any{
+		"strict": true, "address": "https://v.example.invalid:8200",
+		"token": "s.tok", "retry_limit": 1.5,
+	})
+	require.Error(t, err, "a fractional retry limit must not be silently truncated")
+	assert.Contains(t, err.Error(), "whole number")
+}
+
+func TestVaultSelfConfig_AcceptsWholeNumberFloat(t *testing.T) {
+	store, err := vaultProvider(t, map[string]any{
+		"strict": true, "address": "https://v.example.invalid:8200",
+		"token": "s.tok", "retry_limit": float64(3),
+	})
+	require.NoError(t, err, "a whole number expressed as a float is still whole")
+	assert.Equal(t, 3, store.client.CloneConfig().MaxRetries)
+}

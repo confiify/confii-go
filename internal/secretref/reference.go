@@ -8,6 +8,7 @@
 package secretref
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -126,16 +127,68 @@ func Find(s string) []Reference {
 	return refs
 }
 
-// String returns the canonical serialization, which re-parses to an equal
-// Reference. A reference with no key has no canonical form and serializes to
-// the empty string.
+// ErrUnrepresentable reports a Reference whose components cannot be written in
+// the grammar: an empty key, a component holding a ':' or '}' delimiter, or a
+// provider alias that is not a valid alias.
+//
+// Such a Reference is reachable because Reference has exported fields and can
+// be built by hand as well as by [Parse]. It is a programming error rather
+// than a bad input, so it surfaces at serialization rather than at use.
+var ErrUnrepresentable = errors.New("secret reference is not representable")
+
+// providerPattern is the alias grammar, anchored. It must stay identical to
+// the provider group inside pattern; the test that serializes and re-parses
+// every generated Reference is what holds the two in step.
+var providerPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
+
+// Validate reports whether the Reference can be written in the grammar, and so
+// whether [Reference.String] can produce a form that parses back to it.
+//
+// Every Reference returned by [Parse], [Find], or [FromMatch] is valid by
+// construction; only a hand-built one can fail. The error names the component
+// at fault but never quotes it: a component is caller-controlled text, and
+// echoing it into a message that may itself be embedded elsewhere is how the
+// value would escape the check this method exists to make.
+func (r Reference) Validate() error {
+	if r.Provider != "" && !providerPattern.MatchString(r.Provider) {
+		return fmt.Errorf("%w: provider must start with a letter or digit "+
+			"and then hold only letters, digits, '_', '.', and '-'", ErrUnrepresentable)
+	}
+	if r.Key == "" {
+		return fmt.Errorf("%w: key must not be empty", ErrUnrepresentable)
+	}
+	for _, c := range []struct {
+		name  string
+		value string
+	}{{"key", r.Key}, {"field", r.Field}, {"version", r.Version}} {
+		if strings.ContainsAny(c.value, ":}") {
+			return fmt.Errorf("%w: %s must not contain ':' or '}'", ErrUnrepresentable, c.name)
+		}
+	}
+	return nil
+}
+
+// String returns the canonical serialization of a valid Reference, which
+// re-parses to an equal Reference.
 //
 // Serialization is canonical rather than merely valid: the shortest form that
 // preserves every populated component is chosen, so a field is omitted when
 // empty unless a version requires the placeholder separator.
+//
+// A Reference that [Reference.Validate] rejects has no serialization, and
+// String answers with a diagnostic in the style of the fmt package rather than
+// with text. Writing the components out regardless would be worse than
+// useless: Reference{Key: "key:segment"} would render as ${secret:key:segment},
+// which is a well-formed reference to the "key" secret's "segment" field — a
+// different secret than the one the fields named, resolvable by anything that
+// read it back. String cannot return an error, so it returns something that
+// cannot be mistaken for a reference; use [Reference.MarshalText] where the
+// failure needs to be handled rather than seen.
 func (r Reference) String() string {
-	if r.Key == "" {
-		return ""
+	if err := r.Validate(); err != nil {
+		// Only the fixed reason text, never a component, so the diagnostic
+		// cannot itself come to spell a reference.
+		return "%!secret(" + strings.TrimPrefix(err.Error(), ErrUnrepresentable.Error()+": ") + ")"
 	}
 	var b strings.Builder
 	b.WriteString("${secret")
@@ -162,4 +215,26 @@ func (r Reference) String() string {
 	}
 	b.WriteString("}")
 	return b.String()
+}
+
+// MarshalText implements [encoding.TextMarshaler], reporting the failure that
+// [Reference.String] can only display. Use it wherever a Reference is written
+// into JSON, YAML, or any other encoding that must not carry a diagnostic in
+// place of a reference.
+func (r Reference) MarshalText() ([]byte, error) {
+	if err := r.Validate(); err != nil {
+		return nil, err
+	}
+	return []byte(r.String()), nil
+}
+
+// UnmarshalText implements [encoding.TextUnmarshaler] with the same strictness
+// as [Parse]: the text must be one reference and nothing else.
+func (r *Reference) UnmarshalText(text []byte) error {
+	parsed, err := Parse(string(text))
+	if err != nil {
+		return err
+	}
+	*r = parsed
+	return nil
 }

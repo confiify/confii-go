@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"sort"
 	"strings"
 	"time"
 
@@ -19,16 +18,6 @@ import (
 
 func init() {
 	confii.RegisterSelfConfigSecretProvider("vault", newSelfConfigVault)
-}
-
-// vaultSelfConfigKeys is every setting the vault provider understands. Strict
-// mode rejects anything outside it, so a typo fails loudly instead of leaving
-// the intended setting silently at its default.
-var vaultSelfConfigKeys = map[string]struct{}{
-	"strict": {}, "address": {}, "url": {}, "namespace": {},
-	"mount_point": {}, "mount": {}, "kv_version": {}, "verify": {},
-	"token": {}, "auth": {}, "timeout": {}, "retry_limit": {},
-	"proxy": {}, "tls": {}, "follow_redirects": {},
 }
 
 // vaultSelfConfigOptions maps declarative settings onto constructor
@@ -40,7 +29,7 @@ func vaultSelfConfigOptions(cfg map[string]any) ([]VaultOption, error) {
 		return nil, err
 	}
 	if strict {
-		if err := rejectUnknownVaultKeys(cfg); err != nil {
+		if err := admitStrictVaultConfig(cfg); err != nil {
 			return nil, err
 		}
 	}
@@ -131,21 +120,6 @@ func newSelfConfigVault(ctx context.Context, cfg map[string]any) (confii.SecretR
 // name the setting at fault and never the value, which may be a credential.
 var ErrVaultStrictConfiguration = errors.New("vault provider: strict configuration")
 
-func rejectUnknownVaultKeys(cfg map[string]any) error {
-	unknown := make([]string, 0, len(cfg))
-	for key := range cfg {
-		if _, ok := vaultSelfConfigKeys[key]; !ok {
-			unknown = append(unknown, key)
-		}
-	}
-	if len(unknown) == 0 {
-		return nil
-	}
-	sort.Strings(unknown)
-	return fmt.Errorf("%w: unrecognized setting %s",
-		ErrVaultStrictConfiguration, strings.Join(unknown, ", "))
-}
-
 // vaultSelfTransportOptions maps the declarative transport settings. They apply
 // in both modes; strict mode only removes the environment fallbacks.
 func vaultSelfTransportOptions(cfg map[string]any) ([]VaultOption, error) {
@@ -155,6 +129,9 @@ func vaultSelfTransportOptions(cfg map[string]any) ([]VaultOption, error) {
 		timeout, err := time.ParseDuration(raw)
 		if err != nil {
 			return nil, fmt.Errorf("vault provider timeout: %w", err)
+		}
+		if err := validateVaultTimeout(timeout); err != nil {
+			return nil, err
 		}
 		opts = append(opts, WithVaultTimeout(timeout))
 	}
@@ -169,6 +146,9 @@ func vaultSelfTransportOptions(cfg map[string]any) ([]VaultOption, error) {
 		opts = append(opts, WithVaultRetryLimit(limit))
 	}
 	if proxy := selfString(cfg, "proxy"); proxy != "" {
+		if err := validateVaultProxy(proxy); err != nil {
+			return nil, err
+		}
 		opts = append(opts, WithVaultProxy(proxy))
 	}
 	if _, ok := cfg["follow_redirects"]; ok {

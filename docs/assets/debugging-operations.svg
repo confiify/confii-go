@@ -8,7 +8,7 @@
   <rect class="core" x="465" y="220" width="270" height="96"/><text class="label" x="510" y="255">Published snapshot</text><text class="small" x="510" y="278">effective config + source tracker</text><text class="small" x="510" y="300">sensitive paths retained</text>
   <rect class="box" x="90" y="140" width="220" height="70"/><text class="label" x="122" y="172">Explain / Layers</text><text class="small" x="122" y="194">where values came from</text>
   <line class="arrow" x1="310" y1="175" x2="465" y2="245"/>
-  <rect class="box" x="90" y="330" width="220" height="70"/><text class="label" x="122" y="362">Debug report</text><text class="small" x="122" y="384">redacted diagnostics</text>
+  <rect class="box" x="90" y="330" width="220" height="70"/><text class="label" x="122" y="362">Debug report</text><text class="small" x="122" y="384">sensitive output</text>
   <line class="arrow" x1="310" y1="365" x2="465" y2="290"/>
   <rect class="purple" x="490" y="120" width="220" height="70"/><text class="label" x="522" y="152">Diff / drift</text><text class="small" x="522" y="174">compare snapshots</text>
   <line class="arrow" x1="600" y1="190" x2="600" y2="220"/>

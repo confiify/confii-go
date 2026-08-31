@@ -395,7 +395,9 @@ func (c *Config[T]) SourceTracker() *sourcetrack.Tracker {
 
 // GenerateDocs renders the current key inventory as "markdown" or "json".
 // Entries contain the key, Go type, current value, and source. Secret-backed
-// values are redacted. The format name is case-sensitive. Unsupported formats
+// values and values declared sensitive through [WithSensitivePaths] or
+// sensitive_paths are redacted; the key and its unrelated siblings remain, so
+// the inventory stays useful. The format name is case-sensitive. Unsupported formats
 // return [ErrConfigInvalid]; JSON encoding failures return [ErrConfigAccess].
 func (c *Config[T]) GenerateDocs(format string) (string, error) {
 	c.mu.RLock()
@@ -419,7 +421,18 @@ func (c *Config[T]) GenerateDocs(format string) (string, error) {
 	var entries []docEntry
 	for _, k := range keys {
 		v := flat[k]
-		if rawValue, ok := dictutil.GetNested(raw, k); ok {
+		// Two independent reasons to withhold a value, and both must be
+		// honored. A secret-backed value is recognised from the unresolved
+		// layer; a value declared sensitive is recognised from the
+		// classification, which is the only thing that can hide a plain
+		// literal nobody resolved. Checking the first alone made
+		// WithSensitivePaths and sensitive_paths silently ineffective here
+		// while every sibling introspection surface honored them, so a
+		// deployment could declare a path sensitive and still publish it in
+		// generated documentation — the surface most likely to be shared.
+		if c.sensitivePathLocked(k) {
+			v = redactedSecretValue
+		} else if rawValue, ok := dictutil.GetNested(raw, k); ok {
 			found := make(map[string]struct{})
 			collectSecretReferenceKeys(k, rawValue, found)
 			if len(found) > 0 {

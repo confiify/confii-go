@@ -23,12 +23,12 @@ in the first table, that is a gap in Confii and worth reporting.
 | Secret-reference parsing | `secret.ParseReference`, `secret.Reference` |
 | Secret resolution | `secret.Resolver`, declarative `secrets.providers` |
 | Sensitivity | secret-reference detection, `WithSensitivePaths` |
-| Redaction | `RedactedDict`, `ExportRedacted`, redacted diagnostics |
+| Redaction | `RedactedDict`, `ExportRedacted` |
 | Provenance | `GetSourceInfo`, `Explain`, `GetOverrideHistory` |
 | Immutable snapshots | `TypedCopy`, `Freeze` |
 | Refresh | `RefreshSecrets`, `Reload`, watchers |
 | Caching | resolver cache, `WithCacheTTL` |
-| Lifecycle | `Close`, cascading to resolvers and providers |
+| Lifecycle | `Close`, cascading to loaders, resolvers, and registered providers |
 
 ## What remains yours
 
@@ -68,8 +68,38 @@ the other. It is the cheap read for code that will not mutate. Reach for
 
 ## Where the boundary sits for secrets
 
-Confii resolves secrets, classifies them as sensitive, and redacts them in every
-diagnostic. Two things stay outside that boundary:
+Confii resolves secrets, classifies them as sensitive, and offers surfaces that
+redact them. It does not redact everywhere, and the difference is worth stating
+plainly rather than leaving to be discovered.
+
+Surfaces fall into three groups, and the group a surface is in is the thing to
+know before you send its output anywhere.
+
+**Resolved-value surfaces.** `Get`, `Typed`, `TypedCopy`, and `Export` are how
+you read your configuration, and a resolved secret is what you asked them for.
+They redact nothing, by design.
+
+**Redaction-aware surfaces.** `RedactedDict`, `ExportRedacted`, `Explain`,
+`Schema`, `GenerateDocs`, `GetSourceInfo`, `GetOverrideHistory`, `GetConflicts`,
+the detached `SourceTracker`, and diffs replace a secret-backed or
+declared-sensitive value with a marker. Reach for these when the destination is
+a log, a support bundle, or anything you did not write yourself.
+Secret-resolution errors are held to the same rule: they name the locator that
+failed, never a value that resolved.
+`TestSensitivePaths_HonoredByEveryDocumentedSurface` puts a plain literal marked
+sensitive through each of them, which is how `GenerateDocs` was found to be
+outside the group while looking like it was in it.
+
+**Sensitive operational surfaces.** `PrintDebugInfo` and `ExportDebugReport`
+report what a layer contributed, verbatim; their own API documentation says to
+treat their output as sensitive. A saved version record stores the materialized
+value alongside its sensitivity metadata. And provenance is only incidentally
+safe on the ordinary load path — it shows `${secret:db/password}` because that
+is what the layer held before resolution, not because anything redacted it.
+After `RollbackToVersion` re-tracks a materialized snapshot it carries resolved
+values; `TestProvenance_CarriesResolvedValuesAfterRollback` pins that.
+
+Two things stay outside the boundary entirely:
 
 **Bootstrap inputs.** A provider address, its CA material, and its
 authentication material must exist before the first request and cannot
@@ -77,9 +107,28 @@ themselves be resolved from the provider. See
 [Strict Vault configuration](secrets.md#strict-vault-configuration).
 
 **Resolved values you have taken.** Once a secret is in your struct it is yours.
-Confii guarantees it holds no cached copy after `Close` and that its own
-diagnostics never print it. It cannot guarantee erasure of a value you have
-copied elsewhere, and no Go library can.
+Confii cannot guarantee erasure of a value you have copied elsewhere, and no Go
+library can.
+
+### What `Close` actually disposes of
+
+Narrower than "no cached copy remains", which is what an earlier version of this
+page claimed:
+
+- A `CloseableSecretResolver` is closed. It clears its cache, rejects later
+  resolution with a typed error, and does not let work already in flight
+  repopulate what it cleared.
+- A resolver implementing only `ManagedSecretResolver` is **not** disposed of.
+  It has no `Close` to call, and `Config.Close` does not fall back to
+  `ClearCache`: that is an operational call a resolver may run arbitrary work
+  in, not a disposal hook, and invoking it during shutdown re-enters `Close` for
+  any resolver that transitions the configuration there. Its cache survives.
+  Implement `CloseableSecretResolver` when a resolver holds secret material that
+  must not outlive shutdown — that is what the interface is for.
+- The materialized configuration is **not** cleared. A resolved secret already in
+  the configuration stays there and stays readable — the snapshot contract above
+  promises exactly that, and the two statements have to agree. `Close` bounds
+  what Confii will go on to *do*, not what it still *holds*.
 
 ## Reporting a gap
 

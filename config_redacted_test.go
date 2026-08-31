@@ -327,3 +327,88 @@ func TestRedactedDict_IsRevisionAtomicUnderConcurrentReload(t *testing.T) {
 	close(stop)
 	wg.Wait()
 }
+
+// Redaction is a property of the surfaces built for it, not of every
+// diagnostic. Provenance records what a layer contributed: on the ordinary load
+// path that is the pre-resolution layer, which is why the reference shows up
+// rather than the value. That is where the value came from, not a redaction
+// step, and this test exists so the documentation cannot quietly upgrade it
+// into a promise.
+func TestProvenance_ShowsTheReferenceBecauseThatIsWhatTheLayerHeld(t *testing.T) {
+	cfg := newRedactionConfig(t, map[string]any{
+		"database": map[string]any{"password": "${secret:db/password}"},
+	})
+
+	report := cfg.PrintDebugInfo("")
+	assert.NotContains(t, report, canary)
+	assert.Contains(t, report, "${secret:db/password}",
+		"provenance holds the layer's own text, which is the reference")
+}
+
+// And here is where that stops holding. RollbackToVersion re-tracks a
+// materialized version snapshot, so the tracked layer is post-resolution and
+// the provenance surfaces carry the resolved value. Nothing is wrong with
+// that — a version records what was live — but it is the counterexample to
+// "diagnostics are redacted", so it is written down rather than left to be
+// rediscovered.
+func TestProvenance_CarriesResolvedValuesAfterRollback(t *testing.T) {
+	cfg := newRedactionConfig(t, map[string]any{
+		"database": map[string]any{"password": "${secret:db/password}"},
+	})
+
+	version, err := cfg.SaveVersion(nil)
+	require.NoError(t, err)
+	require.NoError(t, cfg.RollbackToVersion(version.VersionID))
+
+	assert.Contains(t, cfg.PrintDebugInfo(""), canary,
+		"a rolled-back layer is materialized, so provenance holds resolved values")
+
+	// The redacted projection is unaffected: it reads the configuration and
+	// the sensitivity classification, not the tracker.
+	safe, err := cfg.RedactedDict()
+	require.NoError(t, err)
+	assert.NotContains(t, fmt.Sprint(safe), canary)
+}
+
+// WithSensitivePaths marks a value that is not secret-backed, so nothing about
+// the pre-resolution layer can hide it: only the sensitivity classification
+// can. Every introspection surface documented as honoring that classification
+// is asserted here together, because the one that did not honor it —
+// GenerateDocs — looked exactly like the ones that did until a value marked
+// sensitive was actually put through each of them.
+func TestSensitivePaths_HonoredByEveryDocumentedSurface(t *testing.T) {
+	const plaintext = "PLAINTEXT-SENSITIVE-must-not-appear"
+	cfg, err := confii.NewWithContext[any](context.Background(),
+		confii.WithLoaders(&g08Loader{source: "base.yaml", data: map[string]any{
+			"database": map[string]any{"password": plaintext, "host": "localhost"},
+		}}),
+		confii.WithSensitivePaths("database.password"),
+	)
+	require.NoError(t, err)
+
+	markdown, err := cfg.GenerateDocs("markdown")
+	require.NoError(t, err)
+	asJSON, err := cfg.GenerateDocs("json")
+	require.NoError(t, err)
+	redacted, err := cfg.RedactedDict()
+	require.NoError(t, err)
+
+	for name, rendered := range map[string]string{
+		"GenerateDocs/markdown": markdown,
+		"GenerateDocs/json":     asJSON,
+		"Explain":               fmt.Sprint(cfg.Explain("database.password")),
+		"Schema":                fmt.Sprint(cfg.Schema("database.password")),
+		"GetSourceInfo":         fmt.Sprint(cfg.GetSourceInfo("database.password")),
+		"GetOverrideHistory":    fmt.Sprint(cfg.GetOverrideHistory("database.password")),
+		"GetConflicts":          fmt.Sprint(cfg.GetConflicts()),
+		"SourceTracker":         fmt.Sprint(cfg.SourceTracker().GetSourceInfo("database.password")),
+		"RedactedDict":          fmt.Sprint(redacted),
+	} {
+		assert.NotContains(t, rendered, plaintext,
+			"%s is documented as honoring sensitive paths", name)
+	}
+
+	// The classification hides the value, not the key or its neighbours.
+	assert.Contains(t, markdown, "database.password")
+	assert.Contains(t, markdown, "localhost")
+}

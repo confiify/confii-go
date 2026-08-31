@@ -175,7 +175,11 @@ type ManagedSecretResolver interface {
 // [Config.Close] detects this interface and closes the resolver as part of
 // configuration shutdown, so implementing it is how a resolver participates in
 // the configuration lifecycle. Implementing it is optional: a resolver owning
-// nothing beyond its store may satisfy [ManagedSecretResolver] alone.
+// nothing beyond its store may satisfy [ManagedSecretResolver] alone. Such a
+// resolver is not disposed of at all — [Config.Close] does not fall back to
+// ClearCache, which is an operational call rather than a disposal hook — so a
+// resolver holding secret material that must not outlive shutdown implements
+// this interface.
 //
 // Close must be idempotent and safe for concurrent calls, must reject
 // subsequent resolution with a stable typed error rather than returning stale

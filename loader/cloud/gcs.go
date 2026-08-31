@@ -70,6 +70,14 @@ func (l *GCSLoader) Source() string {
 func (l *GCSLoader) Load(ctx context.Context) (map[string]any, error) {
 	var clientOpts []option.ClientOption
 	if l.credentialsPath != "" {
+		// Google deprecated WithCredentialsFile over the risk of long-lived
+		// service-account key files. Confii does not create that risk; it honors
+		// a path the deployment chose to configure, and dropping support would
+		// break every deployment that relies on it. Migrating to workload
+		// identity is the deployment's decision, not this library's, so the call
+		// stays and the warning is suppressed deliberately rather than by a
+		// blanket linter exclusion.
+		//nolint:staticcheck // SA1019: see above; removal is a breaking change.
 		clientOpts = append(clientOpts, option.WithCredentialsFile(l.credentialsPath))
 	}
 	if l.projectID != "" {
@@ -83,13 +91,17 @@ func (l *GCSLoader) Load(ctx context.Context) (map[string]any, error) {
 	if err != nil {
 		return nil, confii.NewLoadError(l.Source(), err)
 	}
-	defer client.Close()
+	// The client exists for this load only. Closing it releases connections;
+	// a failure to do so cannot change the configuration already read.
+	defer func() { _ = client.Close() }()
 
 	reader, err := client.Bucket(l.bucketName).Object(l.blobName).NewReader(ctx)
 	if err != nil {
 		return nil, confii.NewLoadError(l.Source(), err)
 	}
-	defer reader.Close()
+	// The body is fully read below; a close failure has no bearing on the
+	// loaded configuration and no caller that could act on it.
+	defer func() { _ = reader.Close() }()
 
 	data, err := io.ReadAll(reader)
 	if err != nil {

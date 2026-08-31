@@ -343,6 +343,25 @@ jobs:
         with:
           version: v2.11.4
 
+      # The action above lints the root module only, so every build-tagged
+      # cloud package sat outside the gate. This runs the same linter across
+      # every module and tag set, and refuses to run at all if the matrix has
+      # drifted from what the repository contains.
+      #
+      # GOLANGCI_LINT names the binary the action installed; the script asserts
+      # its version rather than trusting whatever is on PATH.
+      - name: Lint all modules and build tags
+        run: sh scripts/lint-modules.sh
+        env:
+          GOLANGCI_LINT: golangci-lint
+
+      # A gate that passes proves nothing unless it can fail. This injects a
+      # tagged defect, an unclaimed module, and a stale matrix row into a
+      # throwaway worktree and asserts each is rejected, then asserts the
+      # untouched tree is accepted.
+      - name: Prove the lint gate discriminates
+        run: sh scripts/check-lint-gate.sh
+
   module-integrity:
     name: Module integrity
     runs-on: ubuntu-latest

@@ -22,20 +22,39 @@ import "github.com/confiify/confii-go/v2/internal/secretref"
 // # Escaping
 //
 // There is none. Components are delimited by ':' and terminated by '}', and
-// neither ':' nor '}' may appear inside a component. A key containing a
-// delimiter is therefore not representable, and [ParseReference] rejects such
-// input rather than truncating it. Store such a secret under a key that avoids
-// the delimiters.
+// neither ':' nor '}' may appear inside a component. Every other character is
+// ordinary, '{' and '$' included. A key containing a delimiter is therefore not
+// representable, and [ParseReference] rejects such input rather than truncating
+// it. Store such a secret under a key that avoids the delimiters.
+//
+// # Building one by hand
+//
+// Reference has exported fields, so a value can be built that the grammar
+// cannot express — Reference{Key: "key:segment"} names a key no reference can
+// spell. [Reference.Validate] reports that, [Reference.MarshalText] returns it
+// as an error, and [Reference.String] answers with a diagnostic rather than
+// with text, because writing the components out regardless would produce
+// ${secret:key:segment}: a well-formed reference to a different secret.
+// Anything obtained from [ParseReference] or [FindReferences] is valid by
+// construction and needs none of this.
 //
 // # Compatibility
 //
 // This grammar is part of Confii's public interface. Within a major version,
 // a string that parses today will continue to parse to an equal Reference, and
-// [Reference.String] will keep producing a form that re-parses equally. New
-// optional components may be added in positions that cannot change the meaning
-// of an existing reference. Any change that would alter how an existing
-// reference parses is a breaking change.
+// [Reference.String] will keep producing a form that re-parses equally for
+// every Reference [Reference.Validate] accepts. New optional components may be
+// added in positions that cannot change the meaning of an existing reference.
+// Any change that would alter how an existing reference parses is a breaking
+// change.
 type Reference = secretref.Reference
+
+// ErrUnrepresentableReference reports a [Reference] whose fields cannot be
+// written in the grammar: an empty key, a component holding a ':' or '}'
+// delimiter, or a provider that is not a valid alias. Only a hand-built
+// Reference can carry it; [ParseReference] and [FindReferences] cannot produce
+// one. It is reported by [Reference.Validate] and [Reference.MarshalText].
+var ErrUnrepresentableReference = secretref.ErrUnrepresentable
 
 // ReferenceError reports a locator that could not be parsed. Its Input holds
 // the offending locator only: a locator names where a secret lives, never what

@@ -260,7 +260,10 @@ func (s *VaultStore) GetSecret(ctx context.Context, key string, opts ...confii.S
 	}
 	resp, err := s.client.Logical().ReadRawWithDataWithContext(ctx, secretPath, query)
 	if resp != nil {
-		defer resp.Body.Close()
+		// The read is finished by the time this runs, and a failure to close
+		// tells the caller nothing they can act on; the body is released
+		// either way.
+		defer func() { _ = resp.Body.Close() }()
 		if resp.StatusCode == http.StatusNotFound {
 			return nil, fmt.Errorf("%w: %s", confii.ErrSecretNotFound, key)
 		}

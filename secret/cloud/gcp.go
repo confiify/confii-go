@@ -56,6 +56,14 @@ func NewGCPSecretManager(ctx context.Context, projectID string, opts ...GCPSecre
 
 	var clientOpts []option.ClientOption
 	if cfg.CredentialsFile != "" {
+		// Google deprecated WithCredentialsFile over the risk of long-lived
+		// service-account key files. Confii does not create that risk; it honors
+		// a path the deployment chose to configure, and dropping support would
+		// break every deployment that relies on it. Migrating to workload
+		// identity is the deployment's decision, not this library's, so the call
+		// stays and the warning is suppressed deliberately rather than by a
+		// blanket linter exclusion.
+		//nolint:staticcheck // SA1019: see above; removal is a breaking change.
 		clientOpts = append(clientOpts, option.WithCredentialsFile(cfg.CredentialsFile))
 	}
 

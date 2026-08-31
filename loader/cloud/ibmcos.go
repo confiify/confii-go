@@ -93,7 +93,9 @@ func (l *IBMCOSLoader) Load(ctx context.Context) (map[string]any, error) {
 	if err != nil {
 		return nil, confii.NewLoadError(l.Source(), err)
 	}
-	defer output.Body.Close()
+	// The body is fully read below; a close failure has no bearing on the
+	// loaded configuration and no caller that could act on it.
+	defer func() { _ = output.Body.Close() }()
 
 	data, err := io.ReadAll(output.Body)
 	if err != nil {

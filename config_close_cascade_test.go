@@ -87,3 +87,33 @@ func TestConfigClose_ResolverWithoutCloseIsNotAnError(t *testing.T) {
 	assert.NoError(t, cfg.Close(),
 		"a resolver that implements only ManagedSecretResolver must still close cleanly")
 }
+
+// Close disposes through Close and nothing else. It does not fall back to
+// ClearCache for a resolver that has none, and this is the pin for that
+// decision rather than an accident nobody chose.
+//
+// ClearCache is an operational call — RefreshSecrets uses it to make the next
+// resolution consult the store — and implementations treat it as live: a
+// resolver is free to run arbitrary work there, including work that closes this
+// configuration, which would re-enter closeOnce on this goroutine and deadlock.
+// TestRefreshSecretsRechecksLifecycleAfterCacheInvalidation is exactly such a
+// resolver, and it hangs for the full test timeout when Close calls ClearCache.
+//
+// The trade is small in the other direction too: the materialized configuration
+// keeps its resolved values after Close by design, so emptying a resolver cache
+// while that copy remains does not make the process forget the secret. A
+// resolver owning material that must not outlive shutdown implements
+// CloseableSecretResolver; docs/ownership.md says so instead of promising that
+// no cached copy remains.
+func TestConfigClose_DisposesThroughCloseOnly(t *testing.T) {
+	legacy := &legacyResolver{}
+	require.NoError(t, newConfigWithResolver(t, legacy).Close())
+	assert.Zero(t, legacy.clears.Load(),
+		"Close must not invoke a resolver operation the resolver did not opt into")
+
+	closeable := &countingResolver{}
+	require.NoError(t, newConfigWithResolver(t, closeable).Close())
+	assert.Equal(t, int64(1), closeable.closes.Load())
+	assert.Zero(t, closeable.clears.Load(),
+		"Close owns cache disposal for a closeable resolver; ClearCache is not also called")
+}

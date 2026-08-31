@@ -119,8 +119,13 @@ func TestParseReference_ContactsNoProvider(t *testing.T) {
 }
 
 func TestReference_StringOfZeroValue(t *testing.T) {
-	assert.Empty(t, secret.Reference{}.String(),
-		"a reference with no key has no canonical form")
+	// A reference with no key has no canonical form. String says so rather
+	// than returning "", which reads as "nothing was here" when in fact a
+	// Reference was printed and could not be written.
+	out := secret.Reference{}.String()
+	assert.False(t, secret.ContainsReference(out))
+	assert.Contains(t, out, "%!secret(")
+	assert.Contains(t, out, "key")
 }
 
 func TestContainsReference(t *testing.T) {
@@ -190,4 +195,50 @@ func TestResolver_StillResolvesUnqualifiedReference(t *testing.T) {
 	out, err := r.Resolve(context.Background(), "${secret:key}")
 	require.NoError(t, err)
 	assert.Equal(t, "value", out)
+}
+
+// The public surface must carry the whole contract, not just the parser: a
+// caller who builds a Reference from fields needs a way to learn that the
+// grammar cannot express it.
+func TestReference_HandBuiltValueCannotSerializeToADifferentSecret(t *testing.T) {
+	// The fields name the "key:segment" secret, whole. Rendering them into
+	// the grammar would spell ${secret:key:segment}, which is a valid
+	// reference to the "segment" field of the "key" secret instead.
+	ref := secret.Reference{Key: "key:segment"}
+
+	err := ref.Validate()
+	require.Error(t, err)
+	assert.ErrorIs(t, err, secret.ErrUnrepresentableReference)
+
+	out := ref.String()
+	assert.False(t, secret.ContainsReference(out),
+		"an unrepresentable reference serialized to resolvable text: %q", out)
+
+	_, err = ref.MarshalText()
+	assert.ErrorIs(t, err, secret.ErrUnrepresentableReference,
+		"MarshalText must report what String can only display")
+}
+
+func TestReference_ParsedValuesAreAlwaysSerializable(t *testing.T) {
+	for _, input := range []string{
+		"${secret:key}",
+		"${secret:db/creds:password}",
+		"${secret:db/creds::3}",
+		"${secret@vault:db/creds:password:3}",
+		// '{' and '$' are ordinary inside a component.
+		"${secret:a${b:c{d}",
+	} {
+		t.Run(input, func(t *testing.T) {
+			ref, err := secret.ParseReference(input)
+			require.NoError(t, err)
+			require.NoError(t, ref.Validate())
+
+			text, err := ref.MarshalText()
+			require.NoError(t, err)
+
+			var again secret.Reference
+			require.NoError(t, again.UnmarshalText(text))
+			assert.Equal(t, ref, again)
+		})
+	}
 }

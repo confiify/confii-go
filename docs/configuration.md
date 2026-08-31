@@ -432,7 +432,7 @@ Confii never replaces or extends an existing context deadline. If
 | `WithFreezeOnLoad(bool)` | Make the config immutable after initialization. `Set()` returns `ErrConfigFrozen`. | `false` |
 | `WithDynamicReloading(bool)` | Enable fsnotify file watching for automatic reload on change. | `false` |
 | `WithReloadDebounce(duration)` | Coalesce filesystem event bursts before automatic reload. | `150ms` |
-| `WithSensitivePaths(paths...)` | Mark application-defined paths for redaction throughout the snapshot lifecycle. | none |
+| `WithSensitivePaths(paths...)` | Mark application-defined paths as sensitive. Redacted in projections, introspection, generated docs, and diffs; see [Introspection](introspection.md) for the surfaces that still carry values. | none |
 | `WithDebugMode(bool)` | Enable full source tracking, override history, and debug reports. | `false` |
 | `WithOnError(policy)` | Set the error handling policy for loader failures. | `ErrorPolicyRaise` |
 | `WithLogger(logger)` | Set a custom `*slog.Logger` for Confii's internal logging. | `slog.Default()` |

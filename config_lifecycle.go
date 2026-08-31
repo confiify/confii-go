@@ -56,6 +56,16 @@ func (c *Config[T]) StopWatching() {
 // its final immutable snapshot, while mutation methods return
 // [ErrConfigClosed]. Errors from all closable resources are combined and can
 // be inspected with [errors.Is] or [errors.As].
+//
+// A managed resource's Close must not call back into this Config's Close.
+// Disposal runs inside a [sync.Once], which is not re-entrant, so a resource
+// that closes its owner deadlocks the goroutine rather than returning an error.
+// Nothing Confii ships does this; the constraint is stated because Close
+// invokes consumer-supplied code and the failure is silent when violated.
+//
+// Close does not erase what the configuration holds. The published snapshot
+// stays readable, resolved secrets included; see docs/ownership.md for what
+// this bounds and what it does not.
 func (c *Config[T]) Close() error {
 	var closeErr error
 	c.closeOnce.Do(func() {
@@ -79,6 +89,17 @@ func (c *Config[T]) Close() error {
 		if registry != nil {
 			resources = append(resources, registry.closeAndSnapshot()...)
 		}
+		// Deliberately no ClearCache fallback for a resolver that has no Close.
+		// ClearCache is an operational call — it is what RefreshSecrets uses to
+		// make the next resolution consult the store — not a disposal call, and
+		// implementations treat it as live: one is free to run arbitrary work
+		// there, including work that closes this configuration, which would
+		// re-enter closeOnce on this goroutine and deadlock. It would also buy
+		// little. The materialized configuration keeps its resolved values
+		// after Close by design, so clearing a resolver cache while that copy
+		// remains does not make the process forget the secret. A resolver
+		// owning material that must not outlive shutdown implements
+		// CloseableSecretResolver, which is what that interface is for.
 		for _, resource := range resources {
 			if closer, ok := resource.(interface{ Close() error }); ok {
 				closeErr = errors.Join(closeErr, closer.Close())
