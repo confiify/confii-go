@@ -5,9 +5,9 @@ go 1.25.0
 toolchain go1.25.14
 
 require (
-	github.com/confiify/confii-go/loader/cloud/v2 v2.1.0
-	github.com/confiify/confii-go/secret/cloud/v2 v2.1.0
-	github.com/confiify/confii-go/v2 v2.1.0
+	github.com/confiify/confii-go/loader/cloud/v2 v2.2.0
+	github.com/confiify/confii-go/secret/cloud/v2 v2.2.0
+	github.com/confiify/confii-go/v2 v2.2.0
 )
 
 require (

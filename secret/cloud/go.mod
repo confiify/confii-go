@@ -13,7 +13,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.32.31
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.30
 	github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.44.0
-	github.com/confiify/confii-go/v2 v2.1.0
+	github.com/confiify/confii-go/v2 v2.2.0
 	github.com/hashicorp/vault/api v1.23.0
 	github.com/hashicorp/vault/api/auth/approle v0.12.0
 	github.com/hashicorp/vault/api/auth/aws v0.12.0

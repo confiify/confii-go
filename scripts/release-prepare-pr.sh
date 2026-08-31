@@ -44,8 +44,10 @@ replace_version() {
 	module=$2
 	tmp="${file}.tmp.$$"
 	awk -v module="$module" -v version="$version" '
+		# Rewrite only the version token. Assigning to $2 would rebuild the
+		# record with OFS and strip the leading tab go.mod requires.
 		$1 == module {
-			$2 = version
+			sub(/v[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?/, version)
 		}
 		{ print }
 	' "$file" >"$tmp"
@@ -60,7 +62,9 @@ ensure_changelog_entry() {
 	tmp="CHANGELOG.md.tmp.$$"
 	awk -v plain="$(printf '%s' "$version" | sed 's/^v//')" '
 		BEGIN { inserted = 0 }
-		/^## \[/ && inserted == 0 {
+		# Keep [Unreleased] at the top; the release section belongs
+		# directly above the previous release.
+		/^## \[/ && $0 !~ /^## \[Unreleased\]/ && inserted == 0 {
 			print "## [" plain "] - YYYY-MM-DD"
 			print ""
 			print "- TODO: summarize user-facing release changes."
