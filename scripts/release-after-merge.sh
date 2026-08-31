@@ -114,8 +114,11 @@ echo "Waiting for release workflow for $root_tag..."
 run_id=""
 i=0
 while [ "$i" -lt 20 ]; do
-	run_id=$(gh run list --workflow release.yaml --limit 10 --json databaseId,headBranch,headSha,event \
-		--template "{{range .}}{{if and (eq .headBranch \"$root_tag\") (eq .headSha \"$main_head\")}}{{.databaseId}}{{\"\\n\"}}{{end}}{{end}}" | head -n 1)
+	# --jq, not --template: gh decodes JSON numbers as float64, and Go's
+	# template printer renders an 11-digit run id as 3.3354717136e+10, which
+	# gh run watch cannot resolve.
+	run_id=$(gh run list --workflow release.yaml --limit 10 --json databaseId,headBranch,headSha \
+		--jq "map(select(.headBranch == \"$root_tag\" and .headSha == \"$main_head\")) | .[0].databaseId // empty" | head -n 1)
 	if [ -n "$run_id" ]; then
 		break
 	fi
