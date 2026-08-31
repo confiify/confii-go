@@ -102,6 +102,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- Reject malformed secret references before contacting any provider. A
+  reference-shaped token that the grammar cannot parse, such as `${secret:}`,
+  was previously carried into the configuration as a literal string while every
+  other reference in the file was resolved first — so one mistyped placeholder
+  cost a full round trip per key before anything noticed, and the typo itself
+  was never reported. Materialization now admits reference syntax before
+  resolution begins, on every path that materializes: construction, reload and
+  extend. A failure names the configuration path and the offending locator, and
+  contacts nothing.
+
+  Value-dependent admission deliberately stays after resolution. A field typed
+  `int` holding `${secret:db/port}` carries a string until the secret resolves,
+  so JSON Schema constraints and exact-type admission describe the resolved
+  value rather than the placeholder standing in for it; running them earlier
+  would reject valid configurations. Sensitivity classification also stays where
+  it was: it is derived from the unresolved configuration either way, and a
+  failed reload rolls back without restoring it, so assigning it from a
+  candidate that never became live would leave the wrong classification behind.
+
 - Report a provider-qualified reference that shares a value with an unqualified
   one instead of resolving it against the wrong store. A `secret.Resolver` holds
   a single store and performs no routing, so `${secret:a} and ${secret@vault:b}`
