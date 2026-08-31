@@ -5,12 +5,18 @@ The canonical, release-by-release changelog is maintained in
 
 ## Upcoming release
 
-Version 2.2.0 makes typed decoding strict on request. `WithRejectUnknownKeys`
-fails a typed decode on configuration keys the model does not declare, and
-`WithTypeCasting(false)` is now honored by `Typed` and `TypedCopy` instead of
-converting values the snapshot deliberately left alone. The release also
-refreshes the pinned Go toolchain and `golang.org/x/crypto` for published
-advisories. Consult the canonical changelog for complete release notes.
+Version 2.3.0 makes source tracking tell the truth. `GetConflicts` no longer
+reports a key as overridden when a later layer merely restated the value it
+already had, and `SourceInfo.LineNumber` is finally populated: loaders may now
+implement the optional `PositionalLoader` interface to report where each key
+was defined. Consult the canonical changelog for complete release notes.
+
+## v2.3.0
+
+Version 2.3.0 adds `PositionalLoader`, so YAML-sourced keys report the exact
+line they came from, and corrects override counting so only real value changes
+register as conflicts. See [Introspection](introspection.md) and the canonical
+changelog for details.
 
 ## v2.2.0
 

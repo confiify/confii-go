@@ -12,7 +12,7 @@ tags=${1:-aws,azure,gcp,vault,ibm}
 mode=${2:-test}
 repo_root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 coverage_output=${3:-$repo_root/coverage-cloud.out}
-confii_version=${CONFII_VERSION:-v2.2.0}
+confii_version=${CONFII_VERSION:-v2.3.0}
 fixture_dir=$(mktemp -d "${TMPDIR:-/tmp}/confii-cloud-consumer.XXXXXX")
 trap 'rm -rf "$fixture_dir"' EXIT HUP INT TERM
 GOCACHE="$fixture_dir/go-build"
