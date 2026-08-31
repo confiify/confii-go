@@ -30,6 +30,12 @@ func (c *Config[T]) materializeEffectiveConfig(ctx context.Context) error {
 	}
 	ctx = c.withManagedResourceContext(ctx)
 	raw := dictutil.DeepCopy(c.envConfig)
+	// Admission precedes resolution for every path that materializes: New,
+	// Reload and Extend all arrive here, so the guarantee holds uniformly
+	// rather than only at construction.
+	if err := c.admitBeforeResolution(raw); err != nil {
+		return err
+	}
 	ctx = hook.WithResolverSelf(ctx, raw)
 	resolved, err := c.applySecretHookRecursive(withSecretResolutionSession(ctx), "", raw)
 	if err != nil {
