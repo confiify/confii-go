@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -174,12 +175,33 @@ type Snapshot struct {
 }
 
 // TrackValue records the source of a configuration value.
+//
+// A later layer that supplies the value an earlier layer already recorded has
+// not overridden it, so such a write leaves OverrideCount and the override
+// history untouched. It still updates the provenance fields, because the
+// effective value now comes from the newer source.
 func (t *Tracker) TrackValue(key string, value any, sourceFile, loaderType, environment string) {
+	t.trackValue(key, value, sourceFile, loaderType, environment, 0)
+}
+
+// trackValue records a value with an optional one-based source line. A line of
+// zero means the source could not report one and leaves LineNumber untouched,
+// so a format that carries positions is never overwritten by one that cannot.
+func (t *Tracker) trackValue(key string, value any, sourceFile, loaderType, environment string, line int) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
 	existing, ok := t.sources[key]
 	if ok {
+		if reflect.DeepEqual(existing.Value, value) {
+			existing.SourceFile = sourceFile
+			existing.LoaderType = loaderType
+			if line > 0 {
+				existing.LineNumber = line
+			}
+			existing.Timestamp = time.Now()
+			return
+		}
 		// Override: record history.
 		existing.OverrideCount++
 		if t.debugMode {
@@ -192,6 +214,9 @@ func (t *Tracker) TrackValue(key string, value any, sourceFile, loaderType, envi
 		existing.Value = value
 		existing.SourceFile = sourceFile
 		existing.LoaderType = loaderType
+		if line > 0 {
+			existing.LineNumber = line
+		}
 		existing.Timestamp = time.Now()
 	} else {
 		t.sources[key] = &SourceInfo{
@@ -199,6 +224,7 @@ func (t *Tracker) TrackValue(key string, value any, sourceFile, loaderType, envi
 			Value:       value,
 			SourceFile:  sourceFile,
 			LoaderType:  loaderType,
+			LineNumber:  line,
 			Environment: environment,
 			Timestamp:   time.Now(),
 		}
@@ -207,15 +233,24 @@ func (t *Tracker) TrackValue(key string, value any, sourceFile, loaderType, envi
 
 // TrackConfig recursively tracks all keys in a config map.
 func (t *Tracker) TrackConfig(config map[string]any, sourceFile, loaderType, environment, prefix string) {
+	t.TrackConfigWithPositions(config, sourceFile, loaderType, environment, prefix, nil)
+}
+
+// TrackConfigWithPositions recursively tracks all keys in a config map,
+// recording the source line of each key from positions, which is addressed by
+// dotted key path. A nil map, or a key absent from it, records no line and
+// behaves exactly like [Tracker.TrackConfig]; loaders whose format carries no
+// position information pass nil.
+func (t *Tracker) TrackConfigWithPositions(config map[string]any, sourceFile, loaderType, environment, prefix string, positions map[string]int) {
 	for k, v := range config {
 		fullKey := k
 		if prefix != "" {
 			fullKey = prefix + "." + k
 		}
 		if m, ok := v.(map[string]any); ok {
-			t.TrackConfig(m, sourceFile, loaderType, environment, fullKey)
+			t.TrackConfigWithPositions(m, sourceFile, loaderType, environment, fullKey, positions)
 		} else {
-			t.TrackValue(fullKey, v, sourceFile, loaderType, environment)
+			t.trackValue(fullKey, v, sourceFile, loaderType, environment, positions[fullKey])
 		}
 	}
 }

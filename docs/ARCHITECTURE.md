@@ -322,10 +322,12 @@ Replay-from-base wins on three counts:
 3. **Idempotent rebuild.** Replaying frames in push order is
    deterministic regardless of pop order.
 
-The cost is a one-time `OverrideCount` increment per replay through
-`TrackValue`. This is documented in the `Override` godoc and is a
-deliberate tradeoff against the implementation surface of inverse-
-delta bookkeeping.
+Replaying frames re-runs `TrackValue` for every key the frames touch.
+A replayed key whose value equals the one already recorded is not an
+override, so replay does not inflate `OverrideCount` or the override
+history, and `GetConflicts` stays free of keys no source changed. Only
+a frame that genuinely changes a value is counted, which is the same
+result the caller would see without override scopes.
 
 ### Idempotency
 

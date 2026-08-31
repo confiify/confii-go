@@ -110,7 +110,7 @@ func (c *Config[T]) loadSelected(ctx context.Context, selected map[string]bool) 
 					resolvedLayer = layer
 				}
 				recordPlanLayer(i, l, layer, resolvedLayer, isEnvironmentFile)
-				c.sourceTracker.TrackConfig(resolvedLayer, l.Source(), loaderTypeName(l), c.env, "")
+				c.sourceTracker.TrackConfigWithPositions(resolvedLayer, l.Source(), loaderTypeName(l), c.env, "", loaderPositions(l))
 				configs = append(configs, layer)
 				resolvedConfigs = append(resolvedConfigs, resolvedLayer)
 			}
@@ -191,7 +191,7 @@ func (c *Config[T]) loadSelected(ctx context.Context, selected map[string]bool) 
 			resolvedLayer = composed
 		}
 		recordPlanLayer(i, l, composed, resolvedLayer, isEnvironmentFile)
-		c.sourceTracker.TrackConfig(resolvedLayer, l.Source(), loaderType, c.env, "")
+		c.sourceTracker.TrackConfigWithPositions(resolvedLayer, l.Source(), loaderType, c.env, "", loaderPositions(l))
 
 		// Track file for incremental reload.
 		_ = c.fileTracker.Track(l.Source())

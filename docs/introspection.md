@@ -176,6 +176,25 @@ type SourceInfo struct {
 }
 ```
 
+`LineNumber` is the one-based line in the source that supplied the effective
+value. Only loaders implementing `confii.PositionalLoader` can report it. Among
+the bundled loaders that is YAML; JSON, TOML, and INI decode through libraries
+that expose no per-key location, so their keys report `0` — meaning unknown,
+not line zero. When a later layer overrides a key, the line follows the layer
+that supplied the winning value, and a layer that cannot report positions
+leaves an already-known line intact.
+
+To report positions from a custom loader, implement the optional interface
+alongside `Load`:
+
+```go
+// Positions returns the one-based line of each key, by dotted path.
+func (l *MyLoader) Positions() map[string]int { return l.positions }
+```
+
+Confii type-asserts for it after every load; loaders that do not implement it
+are unaffected.
+
 ### GetOverrideHistory
 
 Returns the override history chain for a key. Requires `WithDebugMode(true)`.

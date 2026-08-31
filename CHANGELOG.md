@@ -6,6 +6,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Add `PositionalLoader`, an optional interface a `Loader` may implement to
+  report where in its source each key was defined. Confii type-asserts for it
+  after every load and records the reported lines as `SourceInfo.LineNumber`,
+  so introspection can point at the exact line a value came from. `LineNumber`
+  was declared and documented but never populated by anything, because the
+  `Loader` contract returns a plain `map[string]any` and destroys position
+  information at that boundary. Implementing the interface is opt-in: the YAML
+  loader now supplies positions, while JSON, TOML, and INI decode through
+  libraries that expose no per-key location and leave the line unknown rather
+  than reporting a fabricated zero. `Tracker.TrackConfigWithPositions` records
+  the lines, and `Tracker.TrackConfig` keeps its existing behaviour.
+
+### Fixed
+
+- Count only real overrides in source tracking. `TrackValue` incremented
+  `OverrideCount` on every repeated write, so a layer that restated the value
+  an earlier layer already supplied was indistinguishable from one that changed
+  it. `GetConflicts` reported such keys as conflicts, `GetSourceStatistics`
+  counted them in `total_overrides`, and debug mode recorded an override
+  history entry whose value equalled the current one. This mattered most for
+  the documented practice of running `GetConflicts` in CI to detect unexpected
+  overrides, which produced a false positive whenever two layers legitimately
+  agreed on a value. A write whose value equals the recorded one now updates
+  only the provenance fields, since the effective value does come from the
+  newer source. Values are compared with `reflect.DeepEqual`, so composite
+  values are compared by value rather than by identity.
+
 ## [2.2.0] - 2026-08-31
 
 ### Added

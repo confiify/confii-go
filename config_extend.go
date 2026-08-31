@@ -111,7 +111,7 @@ func (c *Config[T]) prepareExtendCandidate(ctx context.Context, l Loader) (sourc
 	// Layers / GetSourceInfo report this source for every key it
 	// contributed (matching c.load's per-loader TrackConfig pattern).
 	loaderType := loaderTypeName(l)
-	c.sourceTracker.TrackConfig(resolved, l.Source(), loaderType, c.env, "")
+	c.sourceTracker.TrackConfigWithPositions(resolved, l.Source(), loaderType, c.env, "", loaderPositions(l))
 	return sourceTransactionOutcome{publish: true}, nil
 }
 
