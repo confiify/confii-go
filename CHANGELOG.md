@@ -40,6 +40,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Add `Config.RedactedDict` and `Config.ExportRedacted`, the safe counterparts
+  to `ToDict` and `Export`. Diagnostics — explain output, diffs, drift,
+  version history, source tracking — already redacted secret-backed values, but
+  the two methods a caller reaches for first did not: `Export`'s own
+  documentation said it "serializes resolved values, including secrets". A
+  redacted projection replaces every secret-backed and declared-sensitive value
+  with a marker while leaving unrelated siblings intact, so a configuration with
+  a secret at `database.password` still reports `database.host`. Both unredacted
+  methods now name their safe counterpart in their first line of documentation.
+  `Export` and `ToDict` are unchanged: making safe behaviour the default means
+  changing what they return, which belongs in a major version.
+
 - Add a public secret-reference parser: `secret.Reference`, `ParseReference`,
   `ContainsReference`, `FindReferences`, and the typed `ReferenceError`. The
   grammar was previously private and, worse, defined twice — once in the secret

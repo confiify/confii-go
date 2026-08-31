@@ -111,3 +111,15 @@ func TestResolve_IsIdempotentAfterTheGuard(t *testing.T) {
 	assert.Equal(t, first, second, "resolution must converge")
 	assert.False(t, strings.Contains(second, "${secret:"))
 }
+
+// A template may reference the same key more than once. The failure message
+// should name each locator once rather than repeating it, so a wide template
+// does not produce an error dominated by duplicates.
+func TestResolve_SynthesisErrorNamesEachLocatorOnce(t *testing.T) {
+	r := NewResolver(&scriptedStore{value: "trailing$"}, WithCache(false))
+
+	_, err := r.Resolve(context.Background(), "${secret:dup} ${secret:dup}{secret:x}")
+	require.Error(t, err)
+	assert.Equal(t, 1, strings.Count(err.Error(), `"dup"`),
+		"a repeated locator must appear once in the error")
+}

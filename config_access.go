@@ -371,7 +371,9 @@ func (c *Config[T]) Keys(prefix ...string) []string {
 	return keys
 }
 
-// ToDict returns the materialized configuration as a deep copy.
+// ToDict returns the materialized configuration as a deep copy, including
+// resolved secret values. It is the unredacted projection; use
+// [Config.RedactedDict] for anything leaving the process.
 //
 // ToDict uses the implicit runtime context bounded by [WithOperationTimeout].
 // Transformations and secret resolution do not rerun during reads. Mutating

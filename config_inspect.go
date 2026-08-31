@@ -478,7 +478,9 @@ func (c *Config[T]) GenerateDocs(format string) (string, error) {
 // first path is also written; newly created files use mode 0600.
 //
 // Export uses the implicit runtime context bounded by [WithOperationTimeout].
-// Export serializes resolved values, including secrets. Treat the bytes and any
+// Export serializes resolved values, including secrets, and is the
+// unredacted path. Use [Config.ExportRedacted] for anything leaving the
+// process. Treat the bytes and any
 // output file as sensitive. Unsupported formats, serialization failures, and
 // file-write failures are returned; a write failure may be accompanied by the
 // successfully serialized bytes.
@@ -501,6 +503,32 @@ func (c *Config[T]) ExportWithContext(ctx context.Context, format string, output
 		return nil, err
 	}
 
+	result, err := c.exportDict(format, data)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(outputPath) > 0 && outputPath[0] != "" {
+		if err := os.WriteFile(outputPath[0], result, 0600); err != nil {
+			return result, &ConfigError{
+				Op:     "Export",
+				Source: outputPath[0],
+				Code:   ConfigErrorCodeAccess,
+				Err:    fmt.Errorf("write output: %w", err),
+				Context: map[string]any{
+					"format": format,
+				},
+			}
+		}
+	}
+
+	return result, nil
+}
+
+// exportDict serializes data with the exporter registered for format. It is
+// shared by the unredacted and redacted export paths so both classify failures
+// identically.
+func (c *Config[T]) exportDict(format string, data map[string]any) ([]byte, error) {
 	exporter, ok := c.exporters[format]
 	if !ok {
 		return nil, &ConfigError{
@@ -523,20 +551,5 @@ func (c *Config[T]) ExportWithContext(ctx context.Context, format string, output
 			},
 		}
 	}
-
-	if len(outputPath) > 0 && outputPath[0] != "" {
-		if err := os.WriteFile(outputPath[0], result, 0600); err != nil {
-			return result, &ConfigError{
-				Op:     "Export",
-				Source: outputPath[0],
-				Code:   ConfigErrorCodeAccess,
-				Err:    fmt.Errorf("write output: %w", err),
-				Context: map[string]any{
-					"format": format,
-				},
-			}
-		}
-	}
-
 	return result, nil
 }
