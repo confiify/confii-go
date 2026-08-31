@@ -237,11 +237,14 @@ func admitStrictVaultConfig(cfg map[string]any) error {
 	if err := admitStrictVaultVerify(cfg); err != nil {
 		return err
 	}
-	if tls, ok := cfg["tls"]; ok {
-		nested, isMap := tls.(map[string]any)
-		if !isMap {
-			return fmt.Errorf("%w: tls must be a map", ErrVaultStrictConfiguration)
-		}
+	if nested, ok := cfg["tls"].(map[string]any); ok {
+		// The type is not re-checked here. rejectUnknownKeys above ran value
+		// admission over the root, which is the single place a value's kind is
+		// decided, and it has already refused a tls that is not a map with the
+		// same error. A second check would be a second answer that can drift
+		// from the first, which is the defect this whole schema exists to
+		// avoid; TestVaultStrict_RejectsRecognizedSettingsWithUnusableValues
+		// covers the refusal.
 		if err := rejectUnknownKeys("tls", nested, vaultStrictTLSKeys); err != nil {
 			return err
 		}
@@ -266,11 +269,11 @@ func admitStrictVaultAuth(cfg map[string]any) (string, error) {
 		// declaration and it still selects a method: leaving it unvalidated
 		// meant auth: "no-such-method" failed later inside construction, with
 		// an error that did not wrap the strict sentinel a caller matches on.
-		bare, isString := raw.(string)
-		if !isString {
-			return "", fmt.Errorf("%w: auth must be a method name or a map",
-				ErrVaultStrictConfiguration)
-		}
+		//
+		// Root value admission has already established that auth is a method
+		// name or a map, so anything reaching here that is not a map is a
+		// string; see the note on tls above for why that is not re-checked.
+		bare, _ := raw.(string)
 		return canonicalVaultAuthMethod(bare)
 	}
 	// The keys that select the method are validated before they are used.

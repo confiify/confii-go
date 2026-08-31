@@ -884,3 +884,61 @@ func TestVaultStrict_AdmissionAgreesWithTheAuthImplementations(t *testing.T) {
 		}
 	}
 }
+
+// Declarative sources are not all typed. TOML and YAML give real booleans and
+// integers, but an environment-derived or templated value arrives as a string,
+// and construction accepts those through strconv. Admission has to accept
+// exactly what construction accepts or it refuses a configuration that would
+// have worked — so the string spellings are pinned here rather than left to be
+// discovered by whoever first sets a value from an environment variable.
+func TestVaultStrict_AcceptsStringSpellingsOfTypedSettings(t *testing.T) {
+	for name, cfg := range map[string]map[string]any{
+		"boolean as a string": {"follow_redirects": "true"},
+		"boolean as false":    {"follow_redirects": "false"},
+		"integer as a string": {"retry_limit": "3"},
+		"kv_version string":   {"kv_version": "1"},
+		"whole float":         {"retry_limit": 3.0},
+		"int64":               {"retry_limit": int64(3)},
+	} {
+		t.Run(name, func(t *testing.T) {
+			full := map[string]any{
+				"strict": true, "address": "https://vault.example.invalid:8200",
+			}
+			for k, v := range cfg {
+				full[k] = v
+			}
+			assert.NoError(t, admitStrictVaultConfig(full))
+		})
+	}
+}
+
+func TestVaultStrict_AcceptsStringSpellingsInsideAuth(t *testing.T) {
+	assert.NoError(t, admitStrictVaultConfig(map[string]any{
+		"strict": true, "address": "https://vault.example.invalid:8200",
+		"auth": map[string]any{
+			"method": "approle", "role_id": "r", "secret_id": "s",
+			"wrapping_token": "true",
+		},
+	}))
+	assert.NoError(t, admitStrictVaultConfig(map[string]any{
+		"strict": true, "address": "https://vault.example.invalid:8200",
+		"auth": map[string]any{
+			"method": "oidc", "callback_timeout_seconds": "45",
+		},
+	}))
+}
+
+// The declarative provider owns the store it built, so closing the
+// configuration must reach it. Without the adapter forwarding Close, the
+// resource registered for cleanup is the adapter rather than the store, and
+// the store's connections outlive the configuration.
+func TestVaultSelfConfig_AdapterForwardsClose(t *testing.T) {
+	closed := 0
+	adapter := selfConfigStoreAdapter{close: func() error { closed++; return nil }}
+	require.NoError(t, adapter.Close())
+	assert.Equal(t, 1, closed)
+
+	// A provider whose store owns nothing leaves the closer nil, and closing
+	// is then a no-op rather than a panic.
+	assert.NoError(t, selfConfigStoreAdapter{}.Close())
+}

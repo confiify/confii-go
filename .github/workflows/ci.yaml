@@ -227,6 +227,7 @@ jobs:
           - "./internal/dictutil:FuzzSetNested"
           - "./internal/dictutil:FuzzDeepMerge"
           - "./internal/typecoerce:FuzzParseScalar"
+          - "./internal/secretref:FuzzSerialization"
 
     steps:
       - name: Checkout repository

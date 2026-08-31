@@ -6,6 +6,7 @@ package secret
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -250,4 +251,26 @@ func TestResolver_SatisfiesCloseableSecretResolver(t *testing.T) {
 	var r any = NewResolver(newOpenStore())
 	_, ok := r.(confii.CloseableSecretResolver)
 	assert.True(t, ok, "Resolver must satisfy confii.CloseableSecretResolver")
+}
+
+// describeResolvedKeys names the locators a value asked for so a synthesis
+// failure can be traced without quoting anything resolved. Its edge cases are
+// reachable only through unusual inputs, and getting them wrong would either
+// name nothing or name the same key repeatedly.
+func TestSynthesisError_NamesLocatorsWithoutRepeatingOrLeaking(t *testing.T) {
+	// A store whose value is itself a reference makes substitution manufacture
+	// a new one, which is refused.
+	r := NewResolver(NewDictStore(map[string]any{
+		"a": "${secret:b}",
+		"b": "RESOLVED-MATERIAL-must-not-appear",
+	}))
+
+	_, err := r.Resolve(context.Background(), "${secret:a} and ${secret:a}")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, confii.ErrSecretValidation)
+	assert.Contains(t, err.Error(), `"a"`, "the error names the locator asked for")
+	assert.Equal(t, 1, strings.Count(err.Error(), `"a"`),
+		"a repeated locator is named once, not once per occurrence")
+	assert.NotContains(t, err.Error(), "RESOLVED-MATERIAL-must-not-appear",
+		"the error must not quote resolved material")
 }
