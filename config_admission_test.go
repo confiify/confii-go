@@ -39,6 +39,9 @@ func containsSecretRef(s string) bool {
 type admissionSettings struct {
 	Name string `confii:"name"`
 	Port int    `confii:"port"`
+	// Extra is a second string field, so a test can give two declared fields
+	// secret references without the spy's string value meeting an int.
+	Extra string `confii:"extra"`
 }
 
 func newAdmissionConfig(t *testing.T, data map[string]any, opts ...confii.Option) (*confii.Config[admissionSettings], *providerSpy, error) {
@@ -168,4 +171,79 @@ func TestAdmission_ReloadIsAdmittedBeforeAnyProviderCall(t *testing.T) {
 	assert.Equal(t, "initial", typed.Name,
 		"a failed reload must leave the previous configuration in place")
 	assert.Equal(t, 8080, typed.Port)
+}
+
+// Unknown-field rejection is structural, so unlike type and schema admission it
+// can run before a provider is contacted. It does, when the caller asked for
+// that strictness.
+func TestAdmission_UnknownKeyRejectedBeforeAnyProviderCall(t *testing.T) {
+	_, spy, err := newAdmissionConfig(t,
+		map[string]any{
+			"name":       "${secret:app/name}",
+			"port":       8080,
+			"typo_field": "value",
+		},
+		confii.WithRejectUnknownKeys(true),
+		confii.WithValidateOnLoad(true),
+	)
+
+	require.Error(t, err, "an undeclared key must fail construction")
+	assert.Zero(t, spy.calls.Load(),
+		"no provider may be contacted once a key has failed admission")
+}
+
+// Without the opt-in the behaviour is unchanged: an undeclared key is tolerated
+// and resolution proceeds.
+func TestAdmission_UnknownKeyToleratedWithoutTheOptIn(t *testing.T) {
+	_, spy, err := newAdmissionConfig(t, map[string]any{
+		"name":       "${secret:app/name}",
+		"port":       8080,
+		"typo_field": "value",
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), spy.calls.Load())
+}
+
+// A field supplied only by a secret reference must not read as undeclared. The
+// stripping that keeps this stage from judging types must not turn a declared
+// field into a violation.
+func TestAdmission_SecretBearingFieldIsNotMistakenForAnUnknownKey(t *testing.T) {
+	_, spy, err := newAdmissionConfig(t,
+		map[string]any{
+			"name":  "${secret:app/name}",
+			"extra": "${secret:app/extra}",
+			"port":  8080,
+		},
+		confii.WithRejectUnknownKeys(true),
+		confii.WithValidateOnLoad(true),
+	)
+
+	require.NoError(t, err,
+		"declared fields carrying secret references must pass admission")
+	assert.Equal(t, int64(2), spy.calls.Load())
+}
+
+// The documented false negative, and its real cost.
+//
+// An undeclared key whose value is a secret reference is stripped before the
+// structural check, so admission does not see it. Post-resolution validation
+// still rejects it within the same construction call, so the configuration is
+// never published — but the provider has been contacted by then. The cost of
+// the false negative is a round trip, not a missed violation.
+func TestAdmission_UndeclaredSecretBearingKeyCostsARoundTrip(t *testing.T) {
+	_, spy, err := newAdmissionConfig(t,
+		map[string]any{
+			"name":       "${secret:app/name}",
+			"port":       8080,
+			"typo_field": "${secret:app/x}",
+		},
+		confii.WithRejectUnknownKeys(true),
+		confii.WithValidateOnLoad(true),
+	)
+
+	require.Error(t, err, "the undeclared key must still be rejected")
+	assert.NotZero(t, spy.calls.Load(),
+		"admission stripped the key and so missed it; resolution ran first. "+
+			"This is the documented cost of not judging types before resolution")
 }

@@ -8,6 +8,7 @@ import (
 	"regexp"
 
 	"github.com/confiify/confii-go/v2/internal/secretref"
+	"github.com/confiify/confii-go/v2/validate"
 )
 
 // secretCandidatePattern matches anything shaped like a secret reference,
@@ -46,7 +47,86 @@ var secretCandidatePattern = regexp.MustCompile(`\$\{secret[^}]*\}`)
 // resolver, routing belongs to it: a custom ManagedSecretResolver may carry its
 // own registry, and refusing an alias Confii does not recognize would break it.
 func (c *Config[T]) admitBeforeResolution(config map[string]any) error {
-	return admitSecretReferences("", config)
+	if err := admitSecretReferences("", config); err != nil {
+		return err
+	}
+	return c.admitUnknownKeys(config)
+}
+
+// admitUnknownKeys rejects configuration keys the typed model does not declare,
+// before any provider is contacted. It runs only when the caller asked for that
+// strictness through WithRejectUnknownKeys.
+//
+// Unknown-key detection is structural, so unlike type or schema admission it
+// does not need resolved values. Two adjustments keep it from rejecting
+// configurations that are in fact valid:
+//
+// Secret-bearing leaves are removed first. A field typed int holding
+// ${secret:db/port} carries a string until resolution, and decoding it here
+// would fail on the type rather than on the key. Removing the leaf leaves the
+// field absent, which is not an error for a decode.
+//
+// Weak typing is forced on regardless of WithTypeCasting, for the same reason:
+// this stage judges the shape of the configuration, never the types of values
+// that do not exist yet.
+//
+// The cost is a false negative: an undeclared key whose value is a secret
+// reference is stripped along with the rest and is not seen here. It is still
+// rejected after resolution, where the value exists. Missing a violation and
+// catching it later is the safe direction; rejecting a valid configuration
+// early is not.
+func (c *Config[T]) admitUnknownKeys(config map[string]any) error {
+	// Both options are required, matching the existing two-tier contract:
+	// WithRejectUnknownKeys alone reports a typo at the first typed read, and
+	// adding WithValidateOnLoad asks for it at construction. This stage only
+	// moves the second case earlier — before providers rather than after — and
+	// does not change which configurations are rejected.
+	if !c.opts.RejectUnknownKeys || !c.opts.ValidateOnLoad || !configTypeSupportsStructValidation[T]() {
+		return nil
+	}
+	stripped, ok := withoutSecretBearingLeaves(config).(map[string]any)
+	if !ok {
+		return nil
+	}
+	if _, err := validate.DecodeWithOptions[T](stripped, validate.Options{
+		WeaklyTypedInput:  true,
+		RejectUnknownKeys: true,
+	}); err != nil {
+		return &ConfigError{
+			Op:   "Admit",
+			Code: ConfigErrorCodeValidation,
+			Err:  fmt.Errorf("configuration declares keys the model does not: %w", err),
+		}
+	}
+	return nil
+}
+
+// withoutSecretBearingLeaves copies value with every string holding a secret
+// reference removed, so a decode can judge structure without meeting a
+// placeholder where a typed value will eventually sit.
+func withoutSecretBearingLeaves(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(typed))
+		for key, child := range typed {
+			if str, isString := child.(string); isString && secretCandidatePattern.MatchString(str) {
+				continue
+			}
+			out[key] = withoutSecretBearingLeaves(child)
+		}
+		return out
+	case []any:
+		out := make([]any, 0, len(typed))
+		for _, child := range typed {
+			if str, isString := child.(string); isString && secretCandidatePattern.MatchString(str) {
+				continue
+			}
+			out = append(out, withoutSecretBearingLeaves(child))
+		}
+		return out
+	default:
+		return value
+	}
 }
 
 // admitSecretReferences requires every reference-shaped token to parse.
