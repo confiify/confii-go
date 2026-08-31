@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Security
+
+- Reject a resolved secret that introduces a new secret reference. Substitution
+  could manufacture a reference that appeared in neither the template nor the
+  resolved value alone: a value ending in `$` completes a `{...}` sequence in
+  the literal text following it, so `${secret:a}{secret:b}` with a value of
+  `trailing$` produced `trailing${secret:b}`. A value that is itself a reference
+  had the same effect directly. Anything resolving the result again — a second
+  pass, a caller treating configuration as a template — would then read a secret
+  nobody asked for, chaining one secret into another.
+
+  A successful resolution now leaves nothing behind that a further pass would
+  resolve. If substitution produces text matching the reference grammar, the
+  resolution fails with `ErrSecretValidation`, returns the input unchanged, and
+  never reads the manufactured reference from the store. The error names the
+  locators the template asked for and quotes no resolved material, since the
+  synthesized reference is built from it.
+
 ## [2.3.0] - 2026-08-31
 
 ### Added

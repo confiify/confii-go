@@ -136,6 +136,38 @@ key, field, and version grammar, keeping provider routing unambiguous.
 
 ---
 
+## Resolved values cannot introduce references
+
+A resolution never produces a value that a further pass would resolve.
+
+Substitution can otherwise manufacture a reference that exists in neither the
+template nor the secret alone. A value ending in `$` completes a `{...}`
+sequence in the text after it, so this template:
+
+```yaml
+token: ${secret:a}{secret:b}
+```
+
+with `a` holding `trailing$` would produce `trailing${secret:b}` — a reference
+nobody wrote. A secret whose value is itself `${secret:other}` has the same
+effect directly, chaining one secret read into another.
+
+Confii rejects both. If substitution produces text matching the reference
+grammar, the resolution fails with `ErrSecretValidation`, the input is returned
+unchanged, and the manufactured reference is never read from the store:
+
+```go
+if errors.Is(err, confii.ErrSecretValidation) {
+    // A resolved secret spelled a new reference. Check the values behind the
+    // locators named in the error.
+}
+```
+
+The error names the locators the template asked for and quotes nothing that was
+resolved, because the synthesized reference is built from resolved material.
+
+---
+
 ## Built-in Stores
 
 ### DictStore

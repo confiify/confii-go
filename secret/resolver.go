@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -141,7 +142,55 @@ func (r *Resolver) Resolve(ctx context.Context, value string) (string, error) {
 		// while masking the true failure).
 		return value, lastErr
 	}
+
+	// Every placeholder in the input has now been replaced, so any reference
+	// still matching in the result was manufactured by the substitution
+	// itself. Two ways that happens:
+	//
+	//   - a resolved value is, or contains, a reference; or
+	//   - a resolved value ends in '$' and the literal text after it begins
+	//     with '{', so the seam between them spells a new reference that
+	//     appears in neither the value nor the template alone.
+	//
+	// Either way the result now carries a reference the author did not write,
+	// and anything resolving it again would read a secret nobody asked for.
+	// Reject rather than emit it. The error names no part of the result,
+	// because the synthesized reference is built from resolved material.
+	if secretPattern.MatchString(result) {
+		return value, fmt.Errorf(
+			"%w: resolving %s produced a value that spells a new secret reference; "+
+				"a resolved secret must not introduce one",
+			confii.ErrSecretValidation, describeResolvedKeys(value))
+	}
 	return result, nil
+}
+
+// describeResolvedKeys lists the locators a value asked for, so a synthesis
+// failure can be traced without quoting anything that was resolved. Locators
+// come from the input template and name where secrets live, never what they
+// hold.
+func describeResolvedKeys(input string) string {
+	matches := secretPattern.FindAllStringSubmatch(input, -1)
+	keys := make([]string, 0, len(matches))
+	seen := make(map[string]struct{}, len(matches))
+	for _, groups := range matches {
+		if len(groups) < 2 {
+			continue
+		}
+		key := groups[1]
+		if key == "" {
+			continue
+		}
+		if _, dup := seen[key]; dup {
+			continue
+		}
+		seen[key] = struct{}{}
+		keys = append(keys, strconv.Quote(key))
+	}
+	if len(keys) == 0 {
+		return "the value"
+	}
+	return strings.Join(keys, ", ")
 }
 
 // Hook returns a context-aware [hook.Func] that resolves secret placeholders
