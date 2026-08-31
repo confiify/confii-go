@@ -146,21 +146,47 @@ func TestParseReference_DelimitersAreNotRepresentable(t *testing.T) {
 	require.Error(t, err, "colons in a component must be rejected, never truncated")
 }
 
-// A Resolver holds one store and performs no routing. Before the grammar was
-// unified it simply did not match a provider-qualified reference and left the
-// placeholder in place. Matching it now must not mean resolving it against the
-// only store available, which would return a value from the wrong backend
-// without saying so.
-func TestResolver_RejectsProviderQualifiedReference(t *testing.T) {
-	r := secret.NewResolver(secret.NewDictStore(map[string]any{"key": "from-default-store"}))
+// A Resolver holds one store and performs no routing. When a value mixes an
+// unqualified reference with a provider-qualified one, resolving the qualified
+// one against the only store available would return a value from the wrong
+// backend without saying so. It is reported instead.
+func TestResolver_RejectsProviderQualifiedReferenceAlongsideUnqualified(t *testing.T) {
+	r := secret.NewResolver(secret.NewDictStore(map[string]any{
+		"a": "value-a",
+		"b": "from-default-store",
+	}))
 
-	out, err := r.Resolve(context.Background(), "${secret@vault:key}")
+	in := "${secret:a} and ${secret@vault:b}"
+	out, err := r.Resolve(context.Background(), in)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, secret.ErrProviderRoutingUnsupported)
-	assert.Equal(t, "${secret@vault:key}", out,
-		"the input must come back unchanged, never silently resolved")
+	assert.Equal(t, in, out, "a failed resolution returns the input unchanged")
 	assert.NotContains(t, err.Error(), "from-default-store",
 		"the error must not carry a resolved value")
+	assert.NotContains(t, err.Error(), "value-a",
+		"the error must not carry an earlier successful value")
+}
+
+// A value carrying only a provider-qualified reference is returned unchanged,
+// with no error. That is pre-existing behaviour and a real limitation: the
+// placeholder survives into the configuration as a literal string.
+//
+// It is left as-is deliberately. Scanning such values would send them through
+// substitution, and substitution can synthesize a placeholder in its own
+// output — resolving ${secret@${secret:k}:f} yields ${secret@<value>:f}, which
+// a further pass would try to resolve. That re-entrancy is a separate,
+// pre-existing defect, and widening the entry check here would enlarge its
+// surface. This test records the current behaviour so a future fix has
+// something to change deliberately rather than by accident.
+func TestResolver_ProviderQualifiedOnlyValueIsLeftAlone(t *testing.T) {
+	r := secret.NewResolver(secret.NewDictStore(map[string]any{"key": "from-default-store"}))
+
+	in := "${secret@vault:key}"
+	out, err := r.Resolve(context.Background(), in)
+	require.NoError(t, err)
+	assert.Equal(t, in, out,
+		"the placeholder is left in place; it is never resolved against the wrong store")
+	assert.NotContains(t, out, "from-default-store")
 }
 
 func TestResolver_StillResolvesUnqualifiedReference(t *testing.T) {

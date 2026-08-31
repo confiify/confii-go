@@ -23,9 +23,14 @@ import (
 //	${secret:key::version}                     version without a field
 //	${secret@provider:key[:field][:version]}   routed to a named provider
 //
-// A component may not contain ':', '}', or '{'. There is no escape mechanism,
-// so a key containing a delimiter is not representable; the parser rejects
-// such input rather than truncating it silently.
+// A component may not contain ':' or '}'. There is no escape mechanism, so a
+// key containing a delimiter is not representable; the parser rejects such
+// input rather than truncating it silently.
+//
+// The character class is deliberately identical to the two expressions this
+// package replaced. Tightening it — excluding '{', say — changes how a
+// nested value such as ${secret:${secret:k}} matches and breaks the
+// resolver's idempotence, which the resolver fuzz target checks.
 type Reference struct {
 	// Provider is the alias a reference is routed to. Empty selects the
 	// default provider for the active environment.
@@ -61,7 +66,7 @@ func (e *Error) Error() string {
 // match so ${secret:key::version} is recognized; the version group requires a
 // character so a bare trailing colon is not read as a version request.
 var pattern = regexp.MustCompile(
-	`\$\{secret(?:@([A-Za-z0-9][A-Za-z0-9_.-]*))?:([^{}:]+)(?::([^{}:]*))?(?::([^{}:]+))?\}`)
+	`\$\{secret(?:@([A-Za-z0-9][A-Za-z0-9_.-]*))?:([^}:]+)(?::([^}:]*))?(?::([^}:]+))?\}`)
 
 // Pattern returns the compiled grammar for scanning a larger string. Callers
 // must not mutate the returned value.

@@ -21,16 +21,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
-- Report provider-qualified references handed to a single-store
-  `secret.Resolver` instead of silently dropping them. `Resolve` skipped any
-  value not containing the literal `${secret:`, so `${secret@vault:key}` was
-  returned unchanged and the placeholder survived into the configuration as a
-  literal string, with no error. A `Resolver` holds one store and performs no
-  routing, so it now reports `ErrProviderRoutingUnsupported` and leaves the
-  input unchanged. Resolving against its only store would have been worse still:
-  a value from the wrong backend, returned as though it were right. Provider
+- Report a provider-qualified reference that shares a value with an unqualified
+  one instead of resolving it against the wrong store. A `secret.Resolver` holds
+  a single store and performs no routing, so `${secret:a} and ${secret@vault:b}`
+  previously resolved `b` against the default store as though the requested
+  provider had been honored. It now reports `ErrProviderRoutingUnsupported`,
+  which wraps `ErrSecretValidation`, and returns the input unchanged. Provider
   routing remains the configuration layer's responsibility through declarative
   `secrets.providers` configuration.
+
+  A value carrying only a provider-qualified reference is still returned
+  unchanged without an error, which leaves the placeholder in the configuration
+  as a literal string. That limitation is unchanged and now has a test recording
+  it: scanning such values would route them through substitution, which can
+  synthesize a placeholder in its own output, and widening the entry check would
+  enlarge the surface of that separate pre-existing defect.
 
 ## [2.3.0] - 2026-08-31
 

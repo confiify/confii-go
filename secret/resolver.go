@@ -29,8 +29,12 @@ var secretPattern = secretref.Pattern()
 // return a value from the wrong backend without saying so. Provider routing
 // belongs to the configuration layer, which owns the provider registry:
 // configure `secrets.providers` declaratively instead.
-var ErrProviderRoutingUnsupported = errors.New(
-	"secret resolver: provider-qualified reference requires configuration-level routing")
+// It wraps [confii.ErrSecretValidation]: the reference is well formed but asks
+// for something this resolver cannot provide, which is a validation failure of
+// the input rather than a store or transport failure.
+var ErrProviderRoutingUnsupported = fmt.Errorf(
+	"%w: provider-qualified reference requires configuration-level routing",
+	confii.ErrSecretValidation)
 
 // Resolver bridges a SecretStore with the hook system, resolving
 // ${secret:key}, ${secret:key:json_path}, ${secret:key:json_path:version}, and
@@ -97,12 +101,18 @@ func NewResolver(store confii.SecretStore, opts ...ResolverOption) *Resolver {
 // leaving the input unchanged so a failed operation never publishes a
 // partially resolved value.
 func (r *Resolver) Resolve(ctx context.Context, value string) (string, error) {
-	// secretref.Contains recognizes the provider-qualified form too. A bare
-	// strings.Contains(value, "${secret:") check would return early for
-	// ${secret@provider:key}, leaving the placeholder in the configuration as
-	// a literal string with no error — a silent failure the guard below
-	// reports instead.
-	if !secretref.Contains(value) {
+	// Deliberately the literal unqualified prefix, not secretref.Contains.
+	//
+	// Widening this to recognize ${secret@provider:...} would make a value
+	// that is only provider-qualified reach the scan below, and substitution
+	// can synthesize a placeholder in its own output: resolving
+	// ${secret@${secret:k}:f} yields ${secret@<value>:f}, which a second pass
+	// would then try to resolve. That re-entrancy is a pre-existing defect in
+	// the resolver, independent of this grammar, and widening the check here
+	// would enlarge its surface. The guard below still catches a
+	// provider-qualified reference sharing a value with an unqualified one,
+	// which is the case that would otherwise resolve against the wrong store.
+	if !strings.Contains(value, "${secret:") {
 		return value, nil
 	}
 

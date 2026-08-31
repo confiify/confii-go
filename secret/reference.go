@@ -22,7 +22,7 @@ import "github.com/confiify/confii-go/v2/internal/secretref"
 // # Escaping
 //
 // There is none. Components are delimited by ':' and terminated by '}', and
-// none of ':', '{', or '}' may appear inside a component. A key containing a
+// neither ':' nor '}' may appear inside a component. A key containing a
 // delimiter is therefore not representable, and [ParseReference] rejects such
 // input rather than truncating it. Store such a secret under a key that avoids
 // the delimiters.
