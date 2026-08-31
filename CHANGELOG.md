@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Add `PositionalLoader`, an optional interface a `Loader` may implement to
+  report where in its source each key was defined. Confii type-asserts for it
+  after every load and records the reported lines as `SourceInfo.LineNumber`,
+  so introspection can point at the exact line a value came from. `LineNumber`
+  was declared and documented but never populated by anything, because the
+  `Loader` contract returns a plain `map[string]any` and destroys position
+  information at that boundary. Implementing the interface is opt-in: the YAML
+  loader now supplies positions, while JSON, TOML, and INI decode through
+  libraries that expose no per-key location and leave the line unknown rather
+  than reporting a fabricated zero. `Tracker.TrackConfigWithPositions` records
+  the lines, and `Tracker.TrackConfig` keeps its existing behaviour.
+
 ### Fixed
 
 - Count only real overrides in source tracking. `TrackValue` incremented

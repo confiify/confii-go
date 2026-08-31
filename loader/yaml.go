@@ -10,6 +10,7 @@ import (
 	"errors"
 	"log/slog"
 	"os"
+	"sync/atomic"
 
 	confii "github.com/confiify/confii-go/v2"
 	"github.com/confiify/confii-go/v2/internal/configdecode"
@@ -44,6 +45,12 @@ type YAMLLoader struct {
 	source      string
 	errorPolicy confii.ErrorPolicy
 	logger      *slog.Logger
+
+	// positions holds the key index from the most recent Load. It is stored
+	// behind an atomic pointer rather than as a map field so YAMLLoader values
+	// stay comparable, which is part of the released API, and so a reload
+	// cannot race a concurrent Positions call.
+	positions atomic.Pointer[map[string]int]
 }
 
 // YAMLOption configures the YAMLLoader.
@@ -97,11 +104,31 @@ func (l *YAMLLoader) Load(_ context.Context) (map[string]any, error) {
 		}
 		return nil, confii.NewLoadError(l.source, err)
 	}
-	result, err := configdecode.Map(data, formatparse.FormatYAML)
+	result, positions, err := configdecode.MapWithPositions(data, formatparse.FormatYAML)
 	if err != nil {
 		return nil, confii.NewFormatError(l.source, "yaml", err)
 	}
+	l.setPositions(positions)
 	return result, nil
+}
+
+// Positions implements [confii.PositionalLoader], reporting the one-based line
+// of each key produced by the most recent Load. It returns an independent map:
+// mutating it does not affect the loader.
+func (l *YAMLLoader) Positions() map[string]int {
+	current := l.positions.Load()
+	if current == nil {
+		return map[string]int{}
+	}
+	out := make(map[string]int, len(*current))
+	for k, v := range *current {
+		out[k] = v
+	}
+	return out
+}
+
+func (l *YAMLLoader) setPositions(positions map[string]int) {
+	l.positions.Store(&positions)
 }
 
 // handleMissing dispatches an os.ErrNotExist condition through the

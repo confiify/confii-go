@@ -24,3 +24,33 @@ type Loader interface {
 	// "environment:APP" marker.
 	Source() string
 }
+
+// PositionalLoader is an optional interface a [Loader] may implement to report
+// where in its source each key was defined. Confii type-asserts for it after
+// every load and records the reported lines as SourceInfo.LineNumber, so
+// introspection can point at the exact line a value came from.
+//
+// Implementing it is opt-in and never required: a Loader whose format or
+// transport carries no position information simply does not implement it, and
+// its keys report line zero. Among the bundled loaders only YAML can supply
+// positions, because JSON, TOML, and INI decode through libraries that expose
+// no per-key location.
+type PositionalLoader interface {
+	Loader
+
+	// Positions returns the one-based source line of each key produced by the
+	// most recent Load, addressed by dotted key path. Keys the loader cannot
+	// locate are absent rather than zero. The returned map is owned by the
+	// caller and must not alias loader state.
+	Positions() map[string]int
+}
+
+// loaderPositions reports the key positions a loader can supply, or nil when it
+// does not implement [PositionalLoader].
+func loaderPositions(l Loader) map[string]int {
+	positional, ok := l.(PositionalLoader)
+	if !ok {
+		return nil
+	}
+	return positional.Positions()
+}
