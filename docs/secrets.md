@@ -136,6 +136,52 @@ key, field, and version grammar, keeping provider routing unambiguous.
 
 ---
 
+## Working with references programmatically
+
+Confii owns its reference grammar, so a consumer never needs its own parser or
+serializer:
+
+```go
+import "github.com/confiify/confii-go/v2/secret"
+
+ref, err := secret.ParseReference("${secret@vault:db/creds:password:3}")
+// ref.Provider == "vault", ref.Key == "db/creds",
+// ref.Field == "password", ref.Version == "3"
+
+canonical := ref.String() // "${secret@vault:db/creds:password:3}"
+```
+
+`ParseReference` is strict: the reference must occupy the whole value, and
+surrounding text is an error. For values that mix references with other text,
+such as a connection string, use `FindReferences`:
+
+```go
+refs := secret.FindReferences("postgres://u:${secret:db/password}@host/db")
+```
+
+Parsing is purely syntactic. No provider is contacted and no registry is
+consulted, so a reference naming a provider that is not configured still parses
+— routing is resolved later, when the configuration materializes. Parse errors
+are typed as `*secret.ReferenceError` and name only the locator, never a
+resolved value.
+
+### Escaping
+
+There is none. Components are delimited by `:` and terminated by `}`, and a
+component may not contain `:`, `{`, or `}`. A key containing a delimiter is not
+representable, and the parser rejects such input rather than truncating it
+silently. Choose keys that avoid the delimiters.
+
+### Compatibility
+
+The grammar is part of Confii's public interface. Within a major version, a
+string that parses today will keep parsing to an equal `Reference`, and
+`String` will keep producing a form that re-parses equally. New optional
+components may be added only in positions that cannot change the meaning of an
+existing reference.
+
+---
+
 ## Built-in Stores
 
 ### DictStore

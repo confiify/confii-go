@@ -10,6 +10,7 @@ import (
 	"time"
 
 	confii "github.com/confiify/confii-go/v2"
+	"github.com/confiify/confii-go/v2/internal/secretref"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -436,9 +437,13 @@ func TestResolver_PlaceholderForms(t *testing.T) {
 				return
 			}
 			require.NotNil(t, groups, "expected match for %q", tt.input)
-			assert.Equal(t, tt.key, groups[1])
-			assert.Equal(t, tt.path, groups[2])
-			assert.Equal(t, tt.version, groups[3])
+			// Read through the shared accessor rather than by index: the
+			// grammar gained a provider group, and index arithmetic in tests
+			// is how that kind of change goes unnoticed.
+			ref := secretref.FromMatch(groups)
+			assert.Equal(t, tt.key, ref.Key)
+			assert.Equal(t, tt.path, ref.Field)
+			assert.Equal(t, tt.version, ref.Version)
 		})
 	}
 }

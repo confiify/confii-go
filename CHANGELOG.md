@@ -6,6 +6,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Add a public secret-reference parser: `secret.Reference`, `ParseReference`,
+  `ContainsReference`, `FindReferences`, and the typed `ReferenceError`. The
+  grammar was previously private and, worse, defined twice — once in the secret
+  resolver without provider support and once in the root package with it, kept
+  in sync by hand. Both now share one definition, so the two cannot drift apart,
+  and consumers no longer need their own parser to inspect or build a reference.
+  Parsing is strict and purely syntactic: it contacts no provider, rejects
+  surrounding text, and `Reference.String` produces a canonical form that
+  re-parses to an equal value. The escaping rules and the compatibility policy
+  for grammar evolution are documented on the type.
+
+### Fixed
+
+- Report provider-qualified references handed to a single-store
+  `secret.Resolver` instead of silently dropping them. `Resolve` skipped any
+  value not containing the literal `${secret:`, so `${secret@vault:key}` was
+  returned unchanged and the placeholder survived into the configuration as a
+  literal string, with no error. A `Resolver` holds one store and performs no
+  routing, so it now reports `ErrProviderRoutingUnsupported` and leaves the
+  input unchanged. Resolving against its only store would have been worse still:
+  a value from the wrong backend, returned as though it were right. Provider
+  routing remains the configuration layer's responsibility through declarative
+  `secrets.providers` configuration.
+
 ## [2.3.0] - 2026-08-31
 
 ### Added
