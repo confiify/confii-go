@@ -47,6 +47,11 @@ Use this checklist before deploying an application that uses Confii.
   providers.
 - Prefer provider default credential chains or workload identity over static
   credentials.
+- Build Vault clients with `cloud.WithVaultHermetic()` so no ambient variable
+  can weaken transport security.
+- Start the process with a clean environment: leave every `VAULT_*` variable
+  unset when using hermetic construction. See
+  [Environment hygiene](secrets.md#environment-hygiene).
 
 ## Operations
 

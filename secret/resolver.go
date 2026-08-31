@@ -7,29 +7,35 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	confii "github.com/confiify/confii-go/v2"
 	"github.com/confiify/confii-go/v2/hook"
+	"github.com/confiify/confii-go/v2/internal/secretref"
 )
 
-// secretPattern matches the supported secret placeholder grammar:
+// secretPattern is the shared grammar from internal/secretref. The
+// definition lives there because the root package needs it too and cannot
+// import this one.
+var secretPattern = secretref.Pattern()
+
+// ErrProviderRoutingUnsupported reports a provider-qualified reference handed
+// to a [Resolver], which holds a single store and performs no routing.
 //
-//	${secret:key}                    -> key only, current version
-//	${secret:key:json_path}          -> key + json_path, current version
-//	${secret:key:json_path:version}  -> key + json_path + explicit version
-//	${secret:key::version}           -> key + empty json_path + explicit version
-//
-// Capture groups (in order): name, optional json_path, optional version.
-// The json_path group accepts an empty match (zero or more) so the
-// ${secret:key::version} form is recognized; the version group requires
-// at least one character so a trailing colon alone (e.g. ${secret:key:}) is
-// not interpreted as a version request. None of the components may contain
-// colons or the closing brace.
-var secretPattern = regexp.MustCompile(`\$\{secret:([^}:]+)(?::([^}:]*))?(?::([^}:]+))?\}`)
+// A reference such as ${secret@vault:key} names the backend it must come from.
+// A Resolver cannot honor that, and resolving against its only store would
+// return a value from the wrong backend without saying so. Provider routing
+// belongs to the configuration layer, which owns the provider registry:
+// configure `secrets.providers` declaratively instead.
+// It wraps [confii.ErrSecretValidation]: the reference is well formed but asks
+// for something this resolver cannot provide, which is a validation failure of
+// the input rather than a store or transport failure.
+var ErrProviderRoutingUnsupported = fmt.Errorf(
+	"%w: provider-qualified reference requires configuration-level routing",
+	confii.ErrSecretValidation)
 
 // Resolver bridges a SecretStore with the hook system, resolving
 // ${secret:key}, ${secret:key:json_path}, ${secret:key:json_path:version}, and
@@ -44,6 +50,16 @@ type Resolver struct {
 
 	mu    sync.RWMutex
 	cache map[string]cacheEntry
+
+	// Lifecycle. lifeMu makes the closing check and the in-flight
+	// registration atomic with respect to Close; see Resolver.enter.
+	lifeMu         sync.Mutex
+	closing        bool
+	inFlight       sync.WaitGroup
+	closeOnce      sync.Once
+	closeErr       error
+	closeCtx       context.Context
+	cancelInFlight context.CancelFunc
 }
 
 type cacheEntry struct {
@@ -83,6 +99,7 @@ func NewResolver(store confii.SecretStore, opts ...ResolverOption) *Resolver {
 		cacheEnabled: true,
 		cache:        make(map[string]cacheEntry),
 	}
+	r.closeCtx, r.cancelInFlight = context.WithCancel(context.Background())
 	for _, o := range opts {
 		o(r)
 	}
@@ -96,6 +113,17 @@ func NewResolver(store confii.SecretStore, opts ...ResolverOption) *Resolver {
 // leaving the input unchanged so a failed operation never publishes a
 // partially resolved value.
 func (r *Resolver) Resolve(ctx context.Context, value string) (string, error) {
+	// Deliberately the literal unqualified prefix, not secretref.Contains.
+	//
+	// Widening this to recognize ${secret@provider:...} would make a value
+	// that is only provider-qualified reach the scan below, and substitution
+	// can synthesize a placeholder in its own output: resolving
+	// ${secret@${secret:k}:f} yields ${secret@<value>:f}, which a second pass
+	// would then try to resolve. That re-entrancy is a pre-existing defect in
+	// the resolver, independent of this grammar, and widening the check here
+	// would enlarge its surface. The guard below still catches a
+	// provider-qualified reference sharing a value with an unqualified one,
+	// which is the case that would otherwise resolve against the wrong store.
 	if !strings.Contains(value, "${secret:") {
 		return value, nil
 	}
@@ -111,22 +139,22 @@ func (r *Resolver) Resolve(ctx context.Context, value string) (string, error) {
 			return match
 		}
 
-		groups := secretPattern.FindStringSubmatch(match)
-		if len(groups) < 2 {
+		ref := secretref.FromMatch(secretPattern.FindStringSubmatch(match))
+		if ref.Key == "" {
+			return match
+		}
+		if ref.Provider != "" {
+			// A Resolver has exactly one store and performs no routing.
+			// Resolving against that store anyway would silently ignore the
+			// provider the author named and return a value from the wrong
+			// backend. Provider-qualified references belong to the
+			// configuration layer, which owns the provider registry.
+			lastErr = fmt.Errorf("%w: %s names provider %q",
+				ErrProviderRoutingUnsupported, ref.Key, ref.Provider)
 			return match
 		}
 
-		key := groups[1]
-		jsonPath := ""
-		version := ""
-		if len(groups) >= 3 {
-			jsonPath = groups[2]
-		}
-		if len(groups) >= 4 {
-			version = groups[3]
-		}
-
-		resolved, err := r.resolveKey(ctx, key, jsonPath, version)
+		resolved, err := r.resolveKey(ctx, ref.Key, ref.Field, ref.Version)
 		if err != nil {
 			lastErr = err
 			return match // leave placeholder unchanged
@@ -141,7 +169,54 @@ func (r *Resolver) Resolve(ctx context.Context, value string) (string, error) {
 		// while masking the true failure).
 		return value, lastErr
 	}
+
+	// Every placeholder in the input has now been replaced, so any reference
+	// still matching in the result was manufactured by the substitution
+	// itself. Two ways that happens:
+	//
+	//   - a resolved value is, or contains, a reference; or
+	//   - a resolved value ends in '$' and the literal text after it begins
+	//     with '{', so the seam between them spells a new reference that
+	//     appears in neither the value nor the template alone.
+	//
+	// Either way the result now carries a reference the author did not write,
+	// and anything resolving it again would read a secret nobody asked for.
+	// Reject rather than emit it. The error names no part of the result,
+	// because the synthesized reference is built from resolved material.
+	if secretPattern.MatchString(result) {
+		return value, fmt.Errorf(
+			"%w: resolving %s produced a value that spells a new secret reference; "+
+				"a resolved secret must not introduce one",
+			confii.ErrSecretValidation, describeResolvedKeys(value))
+	}
 	return result, nil
+}
+
+// describeResolvedKeys lists the locators a value asked for, so a synthesis
+// failure can be traced without quoting anything that was resolved. Locators
+// come from the input template and name where secrets live, never what they
+// hold.
+func describeResolvedKeys(input string) string {
+	matches := secretPattern.FindAllStringSubmatch(input, -1)
+	keys := make([]string, 0, len(matches))
+	seen := make(map[string]struct{}, len(matches))
+	for _, groups := range matches {
+		// Read through the shared accessor. Group 1 is the provider in the
+		// unified grammar, not the key.
+		key := secretref.FromMatch(groups).Key
+		if key == "" {
+			continue
+		}
+		if _, dup := seen[key]; dup {
+			continue
+		}
+		seen[key] = struct{}{}
+		keys = append(keys, strconv.Quote(key))
+	}
+	if len(keys) == 0 {
+		return "the value"
+	}
+	return strings.Join(keys, ", ")
 }
 
 // Hook returns a context-aware [hook.Func] that resolves secret placeholders
@@ -211,6 +286,17 @@ func (r *Resolver) resolveKey(ctx context.Context, key, jsonPath, version string
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	if !r.enter() {
+		return nil, ErrResolverClosed
+	}
+	defer r.leave()
+
+	// Cancelled by the caller or by Close, so a parked provider read does not
+	// outlive shutdown. Held for the cache write too, so the WaitGroup above
+	// covers the whole critical section.
+	ctx, cancel := r.resolverContext(ctx)
+	defer cancel()
+
 	fullKey := key
 	if r.prefix != "" {
 		fullKey = r.prefix + key

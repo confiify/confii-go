@@ -11,23 +11,19 @@ import (
 	"io"
 	"maps"
 	"os"
-	"regexp"
 	"sort"
 	"strings"
 	"sync"
 
 	"github.com/confiify/confii-go/v2/hook"
+	"github.com/confiify/confii-go/v2/internal/secretref"
 )
 
-// selfConfigSecretPattern matches default-provider and explicitly routed forms:
-//
-//	${secret:key[:json_path][:version]}
-//	${secret@provider:key[:json_path][:version]}
-//
-// The unqualified grammar intentionally matches the public [secret.Resolver]
-// so a user can switch from imperative resolver wiring without changing
-// placeholders. The @provider qualifier is the declarative routing extension.
-var selfConfigSecretPattern = regexp.MustCompile(`\$\{secret(?:@([A-Za-z0-9][A-Za-z0-9_.-]*))?:([^}:]+)(?::([^}:]*))?(?::([^}:]+))?\}`)
+// selfConfigSecretPattern is the shared grammar from internal/secretref.
+// It was previously a second copy of the same expression kept in sync with
+// the one in the secret package by hand; a single definition removes the
+// possibility of the two drifting apart.
+var selfConfigSecretPattern = secretref.Pattern()
 
 // SelfConfigSecretProviderFactory builds a [SecretReader] from one
 // entry under the `secrets.providers` map.
