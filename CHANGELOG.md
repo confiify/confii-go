@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-08-31
+
 ### Added
 
 - Add `PositionalLoader`, an optional interface a `Loader` may implement to
@@ -34,10 +36,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   only the provenance fields, since the effective value does come from the
   newer source. Values are compared with `reflect.DeepEqual`, so composite
   values are compared by value rather than by identity.
-
-## [2.3.0] - YYYY-MM-DD
-
-- TODO: summarize user-facing release changes.
 
 ## [2.2.0] - 2026-08-31
 
