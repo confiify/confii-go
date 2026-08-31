@@ -201,3 +201,30 @@ func TestRedactedDict_NoCanaryInFormattedForms(t *testing.T) {
 		})
 	}
 }
+
+// A secret inside a slice, and inside a map inside a slice, must be redacted.
+//
+// This case leaked when the feature first landed: the redaction walk descended
+// into maps only, so a map nested in a slice was copied through verbatim. The
+// classifier passes a slice's path to its elements without an index, so the
+// redaction walk has to do the same or the two disagree about where a secret
+// lives.
+func TestRedactedDict_RedactsSecretsInsideSlices(t *testing.T) {
+	cfg := newRedactionConfig(t, map[string]any{
+		"tokens": []any{"${secret:a}", "plain"},
+		"nested": []any{map[string]any{"pw": "${secret:b}", "host": "localhost"}},
+		"deep":   []any{[]any{map[string]any{"key": "${secret:c}"}}},
+	})
+
+	safe, err := cfg.RedactedDict()
+	require.NoError(t, err)
+
+	rendered := fmt.Sprint(safe)
+	assert.NotContains(t, rendered, canary,
+		"no secret may survive in a slice, however deeply nested")
+
+	// A non-secret sibling inside the same nested map still survives.
+	nested := safe["nested"].([]any)[0].(map[string]any)
+	assert.Equal(t, "localhost", nested["host"],
+		"redacting a slice element must not discard its plain siblings")
+}
