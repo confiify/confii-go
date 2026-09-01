@@ -6,9 +6,11 @@ package confii_test
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	confii "github.com/confiify/confii-go/v2"
+	"github.com/confiify/confii-go/v2/hook"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -121,4 +123,98 @@ func TestRedactedDict_RejectsNilAndCanceledContexts(t *testing.T) {
 
 	_, err = cfg.ExportRedactedWithContext(canceled, "json")
 	assert.ErrorIs(t, err, context.Canceled)
+}
+
+// The typed admission passes walk the configuration too, and they walk it with
+// a different function than redaction does: one substitutes a sentinel for
+// every secret-bearing leaf so unknown keys can be judged without resolving,
+// the other strips those leaves so remaining types can be judged. Both run only
+// for a typed configuration with validation on load, which is why the untyped
+// tests above never reach them.
+
+type shapedTyped struct {
+	Hosts    namedHosts     `mapstructure:"hosts"`
+	Settings namedSettings  `mapstructure:"settings"`
+	Pair     [2]string      `mapstructure:"pair"`
+	Port     int            `mapstructure:"port"`
+	Nested   map[string]any `mapstructure:"nested"`
+}
+
+func typedShapes() map[string]any {
+	secret := "${secret:db/password}"
+	return map[string]any{
+		"hosts":    namedHosts{secret, "plain-host"},
+		"settings": namedSettings{"password": secret},
+		"pair":     [2]string{secret, "plain"},
+		// A field typed int holding a reference carries a string until
+		// resolution; judging it now would reject a valid configuration.
+		"port":   "${secret:db/port}",
+		"nested": map[string]any{"list": []any{secret}},
+	}
+}
+
+// plausibleResolver answers each key with a value of the shape that key's
+// field expects. canaryResolver answers every reference with one non-numeric
+// string, which makes an int field fail *after* resolution and hides whether
+// admission judged it *before* — the question this test exists to ask.
+type plausibleResolver struct{}
+
+func (plausibleResolver) Hook() hook.Func {
+	return func(_ context.Context, _ string, value any) (any, error) {
+		s, ok := value.(string)
+		if !ok || !strings.Contains(s, "${secret:") {
+			return value, nil
+		}
+		if strings.Contains(s, "db/port") {
+			return "5432", nil
+		}
+		return canary, nil
+	}
+}
+
+func (plausibleResolver) ClearCache() {}
+
+func TestTypedAdmission_WalksUnusualShapesWithoutRejectingValidConfiguration(t *testing.T) {
+	cfg, err := confii.NewWithContext[shapedTyped](context.Background(),
+		confii.WithLoaders(&g08Loader{source: "typed.yaml", data: typedShapes()}),
+		confii.WithSecretResolver(plausibleResolver{}),
+		confii.WithValidateOnLoad(true),
+		confii.WithRejectUnknownKeys(true),
+	)
+	require.NoError(t, err,
+		"a reference inside a named collection, an array, or an int-typed field "+
+			"must not be judged as the wrong type before it is resolved")
+	require.NotNil(t, cfg)
+}
+
+// The same walk must still catch a key the model does not declare, even when
+// the surrounding configuration is full of shapes it has to traverse to get
+// there.
+func TestTypedAdmission_StillRejectsAnUndeclaredKeyAmongUnusualShapes(t *testing.T) {
+	data := typedShapes()
+	data["typoed"] = "value"
+
+	_, err := confii.NewWithContext[shapedTyped](context.Background(),
+		confii.WithLoaders(&g08Loader{source: "typed.yaml", data: data}),
+		confii.WithSecretResolver(plausibleResolver{}),
+		confii.WithValidateOnLoad(true),
+		confii.WithRejectUnknownKeys(true),
+	)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "typoed",
+		"the undeclared key must be named")
+}
+
+// And a genuine type error is still a type error: a field typed int holding a
+// value that is not a reference has a knowable type, so it is judged.
+func TestTypedAdmission_StillRejectsAKnowableTypeError(t *testing.T) {
+	data := typedShapes()
+	data["port"] = "not-a-number"
+
+	_, err := confii.NewWithContext[shapedTyped](context.Background(),
+		confii.WithLoaders(&g08Loader{source: "typed.yaml", data: data}),
+		confii.WithSecretResolver(plausibleResolver{}),
+		confii.WithValidateOnLoad(true),
+	)
+	require.Error(t, err)
 }
