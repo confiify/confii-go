@@ -449,7 +449,7 @@ cfg, err := confii.NewBuilder[AppConfig]().
 | `WithSysenvFallback(bool)` | Dynamically consult OS env vars for missing `Get`/`Has` paths without changing the published snapshot | `false` |
 | `WithDynamicReloading(bool)` | Enable fsnotify file watching | `false` |
 | `WithReloadDebounce(duration)` | Coalesce filesystem event bursts before automatic reload | `150ms` |
-| `WithSensitivePaths(paths...)` | Redact application-defined paths in diagnostics and version comparisons | none |
+| `WithSensitivePaths(paths...)` | Redact application-defined paths in redacted projections, introspection, generated docs, and diffs — not in debug reports | none |
 | `WithFreezeOnLoad(bool)` | Make config immutable after load | `false` |
 | `WithDebugMode(bool)` | Enable full source tracking | `false` |
 | `WithOnError(policy)` | `ErrorPolicyRaise`, `Warn`, or `Ignore` | `Raise` |

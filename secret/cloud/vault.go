@@ -38,6 +38,16 @@ type vaultConfig struct {
 	MountPoint string
 	KVVersion  int
 	Verify     bool
+
+	// Hermetic and the fields below configure the environment-independent
+	// client built by newHermeticVaultClient. See WithVaultHermetic.
+	Hermetic        bool
+	TLS             *VaultTLS
+	ProxyURL        string
+	Timeout         time.Duration
+	RetryLimit      int
+	RetryLimitSet   bool
+	FollowRedirects bool
 }
 
 // VaultAuthMethod exchanges provider-specific credentials for a Vault client
@@ -122,21 +132,38 @@ func NewHashiCorpVaultWithContext(ctx context.Context, opts ...VaultOption) (*Va
 		return nil, fmt.Errorf("vault KV version must be 1 or 2, got %d", cfg.KVVersion)
 	}
 
-	vaultCfg := api.DefaultConfig()
-	vaultCfg.Address = cfg.URL
-	if !cfg.Verify {
-		if err := vaultCfg.ConfigureTLS(&api.TLSConfig{Insecure: true}); err != nil {
-			return nil, fmt.Errorf("vault TLS config: %w", err)
+	if cfg.RetryLimitSet && cfg.RetryLimit < 0 {
+		return nil, fmt.Errorf("vault retry limit must not be negative, got %d", cfg.RetryLimit)
+	}
+
+	var client *api.Client
+	if cfg.Hermetic {
+		// Behavior derives only from the options above; see WithVaultHermetic.
+		hermetic, err := newHermeticVaultClient(cfg)
+		if err != nil {
+			return nil, err
 		}
-	}
+		client = hermetic
+	} else {
+		// Ambient mode: api.DefaultConfig reads the VAULT_* and proxy
+		// environment. Retained for compatibility and documented as such.
+		vaultCfg := api.DefaultConfig()
+		vaultCfg.Address = cfg.URL
+		if !cfg.Verify {
+			if err := vaultCfg.ConfigureTLS(&api.TLSConfig{Insecure: true}); err != nil {
+				return nil, fmt.Errorf("vault TLS config: %w", err)
+			}
+		}
 
-	client, err := api.NewClient(vaultCfg)
-	if err != nil {
-		return nil, fmt.Errorf("vault client: %w", err)
-	}
+		ambient, err := api.NewClient(vaultCfg)
+		if err != nil {
+			return nil, fmt.Errorf("vault client: %w", err)
+		}
+		client = ambient
 
-	if cfg.Namespace != "" {
-		client.SetNamespace(cfg.Namespace)
+		if cfg.Namespace != "" {
+			client.SetNamespace(cfg.Namespace)
+		}
 	}
 
 	// Authenticate: auth_method > token > role_id+secret_id
@@ -233,7 +260,10 @@ func (s *VaultStore) GetSecret(ctx context.Context, key string, opts ...confii.S
 	}
 	resp, err := s.client.Logical().ReadRawWithDataWithContext(ctx, secretPath, query)
 	if resp != nil {
-		defer resp.Body.Close()
+		// The read is finished by the time this runs, and a failure to close
+		// tells the caller nothing they can act on; the body is released
+		// either way.
+		defer func() { _ = resp.Body.Close() }()
 		if resp.StatusCode == http.StatusNotFound {
 			return nil, fmt.Errorf("%w: %s", confii.ErrSecretNotFound, key)
 		}

@@ -42,7 +42,14 @@ map[string]any{
     `GetOverrideHistory`, `GetConflicts`, and the detached tracker returned by
     `SourceTracker` replace values derived from secret references with a
     redaction marker. `sensitive_paths` or `WithSensitivePaths` extends this
-    protection to values produced by custom loaders and hooks. Sensitivity
+    protection to values produced by custom loaders and hooks, including plain
+    literals that were never resolved from anywhere.
+
+    `PrintDebugInfo` and `ExportDebugReport` are deliberately outside this
+    list. They report what a layer contributed, verbatim, and their own
+    documentation calls their output sensitive operational data. A saved
+    version record is outside it too: it stores the materialized value
+    alongside its sensitivity metadata. Sensitivity
     survives materialization, runtime mutation,
     version persistence, and rollback. `PrintDebugInfo` and
     `ExportDebugReport` are explicit sensitive-data operations and may contain

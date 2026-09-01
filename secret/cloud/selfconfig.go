@@ -9,7 +9,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strconv"
 	"strings"
 
 	confii "github.com/confiify/confii-go/v2"
@@ -17,6 +16,20 @@ import (
 
 type selfConfigStoreAdapter struct {
 	get func(context.Context, string, ...confii.SecretOption) (any, error)
+	// close releases the underlying store. Without it the store a provider
+	// built would never be closed: Config closes resources implementing
+	// Close() error, and the resource it holds is this adapter, not the store
+	// the adapter closed over.
+	close func() error
+}
+
+// Close releases the underlying store when the provider supplied a closer.
+// Providers whose stores own nothing leave it nil, and closing is then a no-op.
+func (s selfConfigStoreAdapter) Close() error {
+	if s.close == nil {
+		return nil
+	}
+	return s.close()
 }
 
 func (s selfConfigStoreAdapter) ReadSecret(ctx context.Context, request confii.SecretRequest) (any, error) {
@@ -63,42 +76,4 @@ func selfString(cfg map[string]any, keys ...string) string {
 		}
 	}
 	return ""
-}
-
-func selfBool(cfg map[string]any, key string, fallback bool) (bool, error) {
-	v, ok := cfg[key]
-	if !ok {
-		return fallback, nil
-	}
-	switch value := v.(type) {
-	case bool:
-		return value, nil
-	case string:
-		parsed, err := strconv.ParseBool(value)
-		if err == nil {
-			return parsed, nil
-		}
-	}
-	return false, fmt.Errorf("%s must be a boolean", key)
-}
-
-func selfInt(cfg map[string]any, key string, fallback int) (int, error) {
-	v, ok := cfg[key]
-	if !ok {
-		return fallback, nil
-	}
-	switch value := v.(type) {
-	case int:
-		return value, nil
-	case int64:
-		return int(value), nil
-	case float64:
-		return int(value), nil
-	case string:
-		parsed, err := strconv.Atoi(value)
-		if err == nil {
-			return parsed, nil
-		}
-	}
-	return 0, fmt.Errorf("%s must be an integer", key)
 }

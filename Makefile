@@ -195,7 +195,8 @@ FUZZ_TARGETS := \
 	./internal/dictutil:FuzzGetNested \
 	./internal/dictutil:FuzzSetNested \
 	./internal/dictutil:FuzzDeepMerge \
-	./internal/typecoerce:FuzzParseScalar
+	./internal/typecoerce:FuzzParseScalar \
+	./internal/secretref:FuzzSerialization
 
 .PHONY: fuzz
 fuzz: ## Run all fuzz targets for FUZZTIME each (default 30s; e.g. make fuzz FUZZTIME=2m)

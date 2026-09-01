@@ -37,4 +37,4 @@ This page defines terms used throughout the Confii documentation.
 | Hook | Validator |
 | `Typed()` shared snapshot | `TypedCopy()` detached copy |
 | Reload existing sources | Extend with a new source |
-| Redacted diagnostics | Application access to the resolved value |
+| Redacted projection (`RedactedDict`, `ExportRedacted`) | Application access to the resolved value |

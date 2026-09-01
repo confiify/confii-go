@@ -21,6 +21,7 @@ require (
 	github.com/hashicorp/vault/api/auth/gcp v0.12.0
 	github.com/hashicorp/vault/api/auth/kubernetes v0.12.0
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
+	github.com/stretchr/testify v1.12.1
 	google.golang.org/api v0.290.0
 	google.golang.org/grpc v1.82.1
 )

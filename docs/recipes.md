@@ -81,8 +81,13 @@ sensitive_paths:
   - cloud.api_key
 ```
 
-Confii redacts these paths in debug reports, diffs, and documentation surfaces
-that expose values.
+Confii redacts these paths in `RedactedDict`, `ExportRedacted`, `Explain`,
+`Schema`, `GenerateDocs`, source and conflict inspection, and diffs.
+
+It does **not** redact them in `PrintDebugInfo` or `ExportDebugReport`, whose
+own documentation calls their output sensitive operational data, nor in a saved
+version record, which stores the materialized value alongside the sensitivity
+metadata. Treat those three as carrying secrets.
 
 See [Secrets](secrets.md) and [Introspection](introspection.md).
 

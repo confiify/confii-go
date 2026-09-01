@@ -395,7 +395,9 @@ func (c *Config[T]) SourceTracker() *sourcetrack.Tracker {
 
 // GenerateDocs renders the current key inventory as "markdown" or "json".
 // Entries contain the key, Go type, current value, and source. Secret-backed
-// values are redacted. The format name is case-sensitive. Unsupported formats
+// values and values declared sensitive through [WithSensitivePaths] or
+// sensitive_paths are redacted; the key and its unrelated siblings remain, so
+// the inventory stays useful. The format name is case-sensitive. Unsupported formats
 // return [ErrConfigInvalid]; JSON encoding failures return [ErrConfigAccess].
 func (c *Config[T]) GenerateDocs(format string) (string, error) {
 	c.mu.RLock()
@@ -419,7 +421,18 @@ func (c *Config[T]) GenerateDocs(format string) (string, error) {
 	var entries []docEntry
 	for _, k := range keys {
 		v := flat[k]
-		if rawValue, ok := dictutil.GetNested(raw, k); ok {
+		// Two independent reasons to withhold a value, and both must be
+		// honored. A secret-backed value is recognised from the unresolved
+		// layer; a value declared sensitive is recognised from the
+		// classification, which is the only thing that can hide a plain
+		// literal nobody resolved. Checking the first alone made
+		// WithSensitivePaths and sensitive_paths silently ineffective here
+		// while every sibling introspection surface honored them, so a
+		// deployment could declare a path sensitive and still publish it in
+		// generated documentation — the surface most likely to be shared.
+		if c.sensitivePathLocked(k) {
+			v = redactedSecretValue
+		} else if rawValue, ok := dictutil.GetNested(raw, k); ok {
 			found := make(map[string]struct{})
 			collectSecretReferenceKeys(k, rawValue, found)
 			if len(found) > 0 {
@@ -478,7 +491,9 @@ func (c *Config[T]) GenerateDocs(format string) (string, error) {
 // first path is also written; newly created files use mode 0600.
 //
 // Export uses the implicit runtime context bounded by [WithOperationTimeout].
-// Export serializes resolved values, including secrets. Treat the bytes and any
+// Export serializes resolved values, including secrets, and is the
+// unredacted path. Use [Config.ExportRedacted] for anything leaving the
+// process. Treat the bytes and any
 // output file as sensitive. Unsupported formats, serialization failures, and
 // file-write failures are returned; a write failure may be accompanied by the
 // successfully serialized bytes.
@@ -501,6 +516,32 @@ func (c *Config[T]) ExportWithContext(ctx context.Context, format string, output
 		return nil, err
 	}
 
+	result, err := c.exportDict(format, data)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(outputPath) > 0 && outputPath[0] != "" {
+		if err := os.WriteFile(outputPath[0], result, 0600); err != nil {
+			return result, &ConfigError{
+				Op:     "Export",
+				Source: outputPath[0],
+				Code:   ConfigErrorCodeAccess,
+				Err:    fmt.Errorf("write output: %w", err),
+				Context: map[string]any{
+					"format": format,
+				},
+			}
+		}
+	}
+
+	return result, nil
+}
+
+// exportDict serializes data with the exporter registered for format. It is
+// shared by the unredacted and redacted export paths so both classify failures
+// identically.
+func (c *Config[T]) exportDict(format string, data map[string]any) ([]byte, error) {
 	exporter, ok := c.exporters[format]
 	if !ok {
 		return nil, &ConfigError{
@@ -523,20 +564,5 @@ func (c *Config[T]) ExportWithContext(ctx context.Context, format string, output
 			},
 		}
 	}
-
-	if len(outputPath) > 0 && outputPath[0] != "" {
-		if err := os.WriteFile(outputPath[0], result, 0600); err != nil {
-			return result, &ConfigError{
-				Op:     "Export",
-				Source: outputPath[0],
-				Code:   ConfigErrorCodeAccess,
-				Err:    fmt.Errorf("write output: %w", err),
-				Context: map[string]any{
-					"format": format,
-				},
-			}
-		}
-	}
-
 	return result, nil
 }

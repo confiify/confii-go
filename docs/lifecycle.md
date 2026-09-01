@@ -9,6 +9,47 @@ without blocking readers. See [Context, cancellation, and operation lifecycles](
 
 ---
 
+## Admission before resolution
+
+Materialization admits what it can before contacting any provider:
+
+```
+load sources -> parse -> merge
+  -> admit secret-reference syntax        <- no provider contacted yet
+  -> resolve secrets                      <- providers initialized here
+  -> validate (schema, types, validators)
+  -> publish
+```
+
+A reference-shaped token the grammar cannot parse fails here, naming the
+configuration path and the offending locator. Nothing is fetched. This holds for
+construction, `Reload` and `Extend` alike, and a failed admission leaves the
+previous configuration in place.
+
+### Why some admission stays after resolution
+
+Two checks deliberately run later, because moving them earlier would reject
+valid configurations:
+
+**Type and schema admission.** A field typed `int` holding `${secret:db/port}`
+carries a *string* until the secret resolves. Schema constraints and exact-type
+admission describe the resolved value, not the placeholder standing in for it.
+
+**Sensitivity classification.** It is derived from the unresolved configuration
+either way, so the result is identical; only the assignment point differs. A
+failed reload rolls the configuration back without restoring the classification,
+so assigning it from a candidate that never became live would leave the wrong
+one behind.
+
+### Why routing is not admitted
+
+When you supply your own resolver, routing belongs to it. A custom
+`ManagedSecretResolver` may carry its own provider registry, so refusing an alias
+Confii does not recognize would break it. The bundled single-store resolver
+reports `ErrProviderRoutingUnsupported` at resolution instead.
+
+---
+
 ## Reload
 
 Reload re-reads configuration sources and builds a private, fully materialized candidate. Confii publishes it atomically only after loading and validation succeed. If a source fails under `ErrorPolicyRaise`, the candidate is discarded and readers continue to observe the previous snapshot.

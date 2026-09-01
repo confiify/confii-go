@@ -351,7 +351,9 @@ func (a *OIDCAuth) Authenticate(ctx context.Context, client *api.Client) (string
 		if err != nil {
 			return "", err
 		}
-		defer listener.Close()
+		// The callback listener exists only for this login attempt. A close
+		// failure cannot change its outcome and has no caller to report to.
+		defer func() { _ = listener.Close() }()
 	}
 
 	payload := map[string]any{

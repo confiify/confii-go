@@ -6,6 +6,34 @@ Confii can export configuration data to JSON, YAML, and TOML formats, and genera
 
 ---
 
+## Redacted export
+
+`Export` and `ToDict` return resolved secret values verbatim. That is what you
+want when writing a rendered configuration into a trusted deployment pipeline,
+and what you do not want anywhere else.
+
+```go
+safe, err := cfg.RedactedDict()          // map with secrets replaced
+data, err := cfg.ExportRedacted("json")  // same, serialized
+```
+
+Both replace every secret-backed value and every path declared through
+`WithSensitivePaths` with `[REDACTED: secret-backed value]`.
+
+Redaction applies to values, not subtrees. A secret at `database.password` does
+not hide `database.host`: unrelated siblings survive, so a redacted export
+remains useful for support and debugging.
+
+`ExportRedacted` takes no output path. Writing a redacted document to disk is an
+ordinary file write, and omitting the parameter keeps the method from reading as
+a drop-in replacement for an unredacted export to the same location.
+
+Prefer the redacted forms for anything leaving the process: logs, diagnostic
+bundles, error reports, support dumps. Reach for `Export` only when the
+destination is trusted with the secrets themselves.
+
+---
+
 ## Export
 
 ### Export to Bytes

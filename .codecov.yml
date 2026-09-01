@@ -11,6 +11,16 @@ coverage:
         target: 90%
         threshold: 0%
 
+# Coverage for the cloud modules is emitted with their module version suffix in
+# the middle of the path — github.com/confiify/confii-go/secret/cloud/v2/x.go —
+# which corresponds to no file in the repository, so it was silently discarded.
+# The vault provider is the most security-sensitive code in the tree and had
+# been invisible to this gate: adding tests for it moved the reported patch
+# coverage by exactly zero, which is how the mapping gap was found.
+fixes:
+  - "github.com/confiify/confii-go/secret/cloud/v2/::secret/cloud/"
+  - "github.com/confiify/confii-go/loader/cloud/v2/::loader/cloud/"
+
 ignore:
   - "examples/**"
   - "confii/**"

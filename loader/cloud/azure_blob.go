@@ -105,7 +105,9 @@ func (l *AzureBlobLoader) Load(ctx context.Context) (map[string]any, error) {
 	if err != nil {
 		return nil, confii.NewLoadError(l.Source(), err)
 	}
-	defer resp.Body.Close()
+	// The body is fully read below; a close failure has no bearing on the
+	// loaded configuration and no caller that could act on it.
+	defer func() { _ = resp.Body.Close() }()
 
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -158,11 +160,11 @@ func parseAzureContainerURL(raw string) (serviceURL, containerName, sas string, 
 		return "", "", "", fmt.Errorf("invalid Azure container URL %q", raw)
 	}
 	if u.Scheme != "https" && u.Scheme != "http" {
-		return "", "", "", fmt.Errorf("Azure container URL must use http or https")
+		return "", "", "", fmt.Errorf("azure container URL must use http or https")
 	}
 	path := strings.Trim(u.EscapedPath(), "/")
 	if path == "" || strings.Contains(path, "/") {
-		return "", "", "", fmt.Errorf("Azure container URL must identify exactly one container")
+		return "", "", "", fmt.Errorf("azure container URL must identify exactly one container")
 	}
 	containerName, err = url.PathUnescape(path)
 	if err != nil || containerName == "" {
