@@ -25,6 +25,17 @@ cd "$repo_root"
 
 LINT="${GOLANGCI_LINT:-golangci-lint}"
 
+fixture_dir=$(mktemp -d "${TMPDIR:-/tmp}/confii-lint-modfiles.XXXXXX")
+# A single cleanup, registered once. Setting trap again for the same signal
+# replaces the previous handler rather than adding to it, so a second trap
+# later in the script would silently drop the module restore and leave the
+# caller's go.mod files rewritten.
+cleanup() {
+	restore_modules 2>/dev/null || true
+	rm -rf "$fixture_dir"
+}
+trap cleanup EXIT HUP INT TERM
+
 # --- the declared matrix ------------------------------------------------------
 # One line per lint invocation: "<module dir><tab><comma-separated tags>".
 # An empty tag field lints the module with no build tags.
@@ -137,14 +148,13 @@ problems=""
 note() { problems="$problems
   $1"; }
 
-discovered_modules > /tmp/confii-lint-discovered.$$
-declared_modules > /tmp/confii-lint-declared.$$
-trap 'rm -f /tmp/confii-lint-discovered.$$ /tmp/confii-lint-declared.$$' EXIT INT TERM
+discovered_modules > "$fixture_dir/discovered"
+declared_modules > "$fixture_dir/declared"
 
-for module in $(comm -23 /tmp/confii-lint-discovered.$$ /tmp/confii-lint-declared.$$); do
+for module in $(comm -23 "$fixture_dir/discovered" "$fixture_dir/declared"); do
 	note "module $module exists but no lint row claims it"
 done
-for module in $(comm -13 /tmp/confii-lint-discovered.$$ /tmp/confii-lint-declared.$$); do
+for module in $(comm -13 "$fixture_dir/discovered" "$fixture_dir/declared"); do
 	note "lint row claims module $module, which does not exist"
 done
 
@@ -230,6 +240,54 @@ printf 'golangci-lint %s, GOTOOLCHAIN=%s, %s modules, %s lint runs\n\n' \
 	"$(declared_modules | wc -l | tr -d ' ')" \
 	"$(declared_matrix | wc -l | tr -d ' ')"
 
+# --- local sibling resolution -------------------------------------------------
+# The cloud modules depend on the root module by version. On a release-prep
+# branch that version is the one being released and does not exist on the proxy
+# yet, so nothing can resolve the import and every cloud row fails on typecheck
+# errors that say nothing about the code.
+#
+# They are therefore linted against their local siblings, the same pre-release
+# aid scripts/verify-modules.sh uses. The replacement is written into the real
+# go.mod because golangci-lint runs the go toolchain in a subprocess that does
+# not carry -modfile, and a workspace does not override an explicit require. It
+# is removed again by restore_modules, which the EXIT trap also runs, so an
+# interrupted lint cannot leave the tree modified.
+#
+# This also corrects something the published pin quietly hid: the cloud modules
+# were previously linted against the last *released* root module rather than the
+# root module in the same change, so a root change that broke them passed.
+sibling_modules='loader/cloud secret/cloud examples/cloud'
+
+restore_modules() {
+	for module in $sibling_modules; do
+		name=$(printf '%s' "$module" | tr '/' '-')
+		[ -f "$fixture_dir/$name.mod" ] || continue
+		cp "$fixture_dir/$name.mod" "$module/go.mod"
+		cp "$fixture_dir/$name.sum" "$module/go.sum"
+	done
+}
+
+use_local_siblings() {
+	for module in $sibling_modules; do
+		[ -d "$module" ] || continue
+		name=$(printf '%s' "$module" | tr '/' '-')
+		cp "$module/go.mod" "$fixture_dir/$name.mod"
+		cp "$module/go.sum" "$fixture_dir/$name.sum"
+
+		( cd "$module" && go mod edit \
+			-replace="github.com/confiify/confii-go/v2=../.." ) || return 1
+		if [ "$module" = "examples/cloud" ]; then
+			( cd "$module" && go mod edit \
+				-replace="github.com/confiify/confii-go/loader/cloud/v2=../../loader/cloud" \
+				-replace="github.com/confiify/confii-go/secret/cloud/v2=../../secret/cloud" ) || return 1
+		fi
+		( cd "$module" && GOWORK=off go mod tidy >/dev/null 2>&1 ) || {
+			printf 'could not resolve %s against its local siblings\n' "$module" >&2
+			return 1
+		}
+	done
+}
+
 # --- run ----------------------------------------------------------------------
 # Failures accumulate so one run reports every module needing attention.
 failed=""
@@ -237,20 +295,21 @@ declared_matrix | while IFS="$(printf '\t')" read -r module tags; do
 	printf '%s\n' "$module	$tags"
 done > /dev/null
 
-declared_matrix > /tmp/confii-lint-matrix.$$
-trap 'rm -f /tmp/confii-lint-discovered.$$ /tmp/confii-lint-declared.$$ /tmp/confii-lint-matrix.$$' EXIT INT TERM
+use_local_siblings || exit 1
+
+declared_matrix > "$fixture_dir/matrix"
 
 while IFS="$(printf '\t')" read -r module tags; do
 	label="$module${tags:+ (tags: $tags)}"
 	printf 'Linting %s\n' "$label"
 	if [ -n "$tags" ]; then
-		( cd "$module" && "$LINT" run --build-tags "$tags" ./... ) || failed="$failed
+		( cd "$module" && GOWORK=off "$LINT" run --build-tags "$tags" ./... ) || failed="$failed
   $label"
 	else
-		( cd "$module" && "$LINT" run ./... ) || failed="$failed
+		( cd "$module" && GOWORK=off "$LINT" run ./... ) || failed="$failed
   $label"
 	fi
-done < /tmp/confii-lint-matrix.$$
+done < "$fixture_dir/matrix"
 
 if [ -n "$failed" ]; then
 	printf '\ngolangci-lint reported issues in:%s\n' "$failed" >&2
