@@ -942,3 +942,57 @@ func TestVaultSelfConfig_AdapterForwardsClose(t *testing.T) {
 	// is then a no-op rather than a panic.
 	assert.NoError(t, selfConfigStoreAdapter{}.Close())
 }
+
+// Without strict mode there is no admission pass, so the transport options are
+// parsed directly and their failures are the only thing standing between a
+// mistyped setting and a client built with a default the author did not ask
+// for. Strict mode's tests do not reach these branches, because admission
+// rejects the same values earlier.
+//
+// These errors may quote the offending value, and that is deliberate: a
+// timeout, a retry count, and a redirect flag are not credentials, and naming
+// what was written is what makes the message useful. The settings that can
+// carry a credential — proxy user information, tokens, TLS key material — are
+// held to the stricter rule, which
+// TestVaultStrict_ValueErrorsDoNotEchoTheValue and
+// TestVaultSelfConfig_ProxyErrorDoesNotLeakCredentials cover.
+func TestVaultSelfConfig_NonStrictRejectsUnusableTransportSettings(t *testing.T) {
+	for name, cfg := range map[string]map[string]any{
+		"unparseable timeout":  {"timeout": "half an hour"},
+		"zero timeout":         {"timeout": "0s"},
+		"negative timeout":     {"timeout": "-5s"},
+		"negative retry limit": {"retry_limit": -1},
+		"fractional retry":     {"retry_limit": 1.5},
+		"non-boolean redirect": {"follow_redirects": "sometimes"},
+		"non-boolean strict":   {"strict": "maybe"},
+		"unusable proxy":       {"proxy": "not-absolute"},
+		"bad kv_version":       {"kv_version": 7},
+	} {
+		t.Run(name, func(t *testing.T) {
+			full := map[string]any{"address": "https://vault.example.invalid:8200"}
+			for k, v := range cfg {
+				full[k] = v
+			}
+			_, err := vaultSelfConfigOptions(full)
+			require.Error(t, err, "%v must not build a client", cfg)
+			for key := range cfg {
+				assert.Contains(t, err.Error(), key,
+					"the error must name the setting at fault")
+			}
+		})
+	}
+}
+
+// The complement: the same settings, spelled usably, build without strict mode.
+func TestVaultSelfConfig_NonStrictAcceptsUsableTransportSettings(t *testing.T) {
+	_, err := vaultSelfConfigOptions(map[string]any{
+		"address":          "https://vault.example.invalid:8200",
+		"timeout":          "30s",
+		"retry_limit":      2,
+		"follow_redirects": true,
+		"proxy":            "http://proxy.example.invalid:3128",
+		"kv_version":       1,
+		"namespace":        "team-a",
+	})
+	assert.NoError(t, err)
+}
