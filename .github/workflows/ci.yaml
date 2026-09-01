@@ -104,6 +104,11 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            loader/cloud/go.sum
+            secret/cloud/go.sum
+            examples/cloud/go.sum
 
       - name: Build as a cloud consumer
         run: sh scripts/test-cloud-consumer.sh '${{ matrix.tags }}' build
@@ -133,6 +138,11 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            loader/cloud/go.sum
+            secret/cloud/go.sum
+            examples/cloud/go.sum
 
       - name: Configure ephemeral OpenBao AppRole
         shell: bash
@@ -295,6 +305,11 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            loader/cloud/go.sum
+            secret/cloud/go.sum
+            examples/cloud/go.sum
 
       - name: Run tests with coverage
         run: go test -coverprofile=coverage.out -covermode=atomic -timeout 120s ./...
@@ -329,6 +344,11 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            loader/cloud/go.sum
+            secret/cloud/go.sum
+            examples/cloud/go.sum
 
       - name: Check formatting
         run: test -z "$(gofmt -s -l .)" || { gofmt -s -l .; exit 1; }

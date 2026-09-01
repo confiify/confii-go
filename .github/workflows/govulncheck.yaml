@@ -25,6 +25,11 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            loader/cloud/go.sum
+            secret/cloud/go.sum
+            examples/cloud/go.sum
 
       - name: Install govulncheck
         # Immutable commit for golang/vuln v1.1.4.
