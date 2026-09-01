@@ -14,7 +14,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/credentials v1.20.1
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.109.1
 	github.com/aws/aws-sdk-go-v2/service/ssm v1.75.1
-	github.com/confiify/confii-go/v2 v2.3.0
+	github.com/confiify/confii-go/v2 v2.4.0
 	github.com/stretchr/testify v1.12.1
 	google.golang.org/api v0.295.0
 )

@@ -5,11 +5,25 @@ The canonical, release-by-release changelog is maintained in
 
 ## Upcoming release
 
-Version 2.3.0 makes source tracking tell the truth. `GetConflicts` no longer
-reports a key as overridden when a later layer merely restated the value it
-already had, and `SourceInfo.LineNumber` is finally populated: loaders may now
-implement the optional `PositionalLoader` interface to report where each key
-was defined. Consult the canonical changelog for complete release notes.
+Version 2.4.0 makes Confii an authority over the secrets it resolves. Vault
+providers can be built hermetically, so no ambient environment variable can
+weaken transport security; strict declarative configuration is closed over
+setting names, value types, and meaning, so a declaration either takes effect
+or is refused rather than being accepted and ignored. `RedactedDict` and
+`ExportRedacted` give a safe projection of a configuration, secret references
+are judged before any provider is contacted, and `secret.Reference` now upholds
+its own serialization contract. Consult the canonical changelog for complete
+release notes.
+
+## v2.4.0
+
+Version 2.4.0 adds hermetic Vault construction, strict provider configuration
+that is closed over names, types, and meaning, a redacted projection of a
+configuration, and admission of secret-reference syntax before any provider is
+contacted. `secret.Reference` gains `Validate`, `MarshalText`, and
+`UnmarshalText`, and `GenerateDocs` now honours declared sensitive paths. See
+[Secrets](secrets.md), [Ownership](ownership.md), and the canonical changelog
+for details.
 
 ## v2.3.0
 
